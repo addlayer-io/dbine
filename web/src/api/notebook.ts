@@ -1,5 +1,8 @@
 import { invoke } from '@tauri-apps/api/core';
-import type { FileDecision, FileGrant, LocalSource, Notebook, NotebookRead, RunLocalResponse } from './types';
+import type {
+  ColumnPair, FileDecision, FileGrant, LocalSource, Notebook, NotebookRead, RunLocalResponse, WriteMode, WriteOutcome, WritePrepareResponse, WriteTarget,
+  WriteTargetInfo,
+} from './types';
 
 // Notebooks (docs/notebooks.md): reading and writing Jupyter .ipynb files.
 // Mirrors src-tauri/src/commands/notebook.rs (args in camelCase). Project
@@ -12,6 +15,24 @@ export interface PreviewLimits {
   rows: number;
   /** Bytes per cell (64 KiB–8 MiB). */
   bytes: number;
+}
+
+/** A write cell's request (src-tauri notebook::write::WriteArgs). */
+export interface WriteArgs {
+  tabId: string;
+  cellId: string;
+  /** The DataFrame: a cell above, by name. */
+  source: string;
+  sources: LocalSource[];
+  rowCap: number;
+  notebookPath: string | null;
+  approval?: string | null;
+  /** The AWS profile for s3:// reads (Settings › Notebooks). */
+  awsProfile?: string | null;
+  target: WriteTarget;
+  mode: WriteMode;
+  keys: string[];
+  mapping: ColumnPair[] | null;
 }
 
 /** A chart of a cell, rendered for the export. */
@@ -58,6 +79,12 @@ export const notebookApi = {
   runLocal: (a: { tabId: string; sql: string; maxRows: number; rowCap: number; sources: LocalSource[]; notebookPath: string | null; approval?: string | null; awsProfile?: string | null }) =>
     invoke<RunLocalResponse>('notebook_run_local', { args: a }),
   /** The answer to a run's `approval` request. */
+  /** A write cell's target: the modes its engine writes and, for an existing table, its columns. */
+  writeTarget: (tabId: string, target: WriteTarget) => invoke<WriteTargetInfo>('notebook_write_target', { args: { tabId, target } }),
+  /** The DataFrame loaded, the target checked, a preview and the confirmation's token. Writes nothing. */
+  writePrepare: (a: WriteArgs) => invoke<WritePrepareResponse>('notebook_write_prepare', { args: a }),
+  /** The confirmed write: only with the plan's token and the row count it showed. */
+  writeRun: (a: WriteArgs, token: string, rows: number) => invoke<WriteOutcome>('notebook_write_run', { args: { ...a, approval: null, token, rows } }),
   decideFiles: (token: string, decision: FileDecision) => invoke<void>('notebook_file_decision', { args: { token, decision } }),
   /** The files notebooks may read: one notebook's (its file), or every one. */
   fileGrants: (notebook: string | null = null) => invoke<FileGrant[]>('notebook_file_grants', { args: { notebook } }),

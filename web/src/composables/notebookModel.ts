@@ -1,5 +1,5 @@
 import type {
-  CellKind, CellResult, Notebook, NotebookCell, NotebookTarget, QueryOutcome, StatementResult, StoredStatement,
+  CellKind, CellResult, Notebook, NotebookCell, NotebookTarget, QueryOutcome, StatementResult, StoredStatement, WriteCell, WriteMode, WriteSummary,
 } from '../api/types';
 
 // The notebook's model on the UI side (docs/notebooks.md): new cells, the
@@ -35,6 +35,46 @@ export function newCell(kind: Exclude<CellKind, 'foreign'>, source = ''): Notebo
   return {
     id: newCellId(), kind, source, language: kind === 'sql' ? 'sql' : null, target: null, name: null, keep_result: true,
     chart: null, execution_count: null, result: null, raw: null,
+  };
+}
+
+// -- write cells: a DataFrame into a table (src-tauri notebook::write) ---------------------
+
+/** A write cell's definition: `source`, the DataFrame (a cell's name). */
+export function emptyWrite(source: string | null = null): WriteCell {
+  return { source, target: null, schema: null, table: null, create: false, mode: 'insert', keys: [], mapping: null };
+}
+
+/** A new write cell, writing `source`'s DataFrame. */
+export function newWriteCell(source: string | null = null): NotebookCell {
+  const c = newCell('write');
+  c.write = emptyWrite(source);
+  return c;
+}
+
+/** The modes that match rows by key. */
+export const needsKey = (m: WriteMode) => m === 'update' || m === 'upsert';
+
+/** The DataFrames a write cell at `at` can write: the named SQL cells above it. */
+export function dataFramesAbove(cells: NotebookCell[], at: number): string[] {
+  return cells.slice(0, Math.max(0, at)).flatMap((c) => (c.kind === 'sql' && c.name ? [c.name] : []));
+}
+
+/** What's still missing before a write cell can run (an i18n key under
+ *  notebook:write.missing), or null. */
+export function writeProblem(w: WriteCell | null | undefined, above: string[]): 'source' | 'target' | 'table' | 'keys' | null {
+  if (!w?.source || !above.some((n) => n.toLowerCase() === w.source!.toLowerCase())) return 'source';
+  if (emptyTarget(w.target) || w.target?.results) return 'target';
+  if (!w.table?.trim()) return 'table';
+  if (needsKey(w.mode) && !w.keys.length) return 'keys';
+  return null;
+}
+
+/** A write's counts as the cell keeps them. */
+export function writeSummaryOf(o: { inserted: number; updated: number; deleted: number; elapsed_ms: number; target_label: string; warnings: string[] }, ranAt: Date): WriteSummary {
+  return {
+    inserted: o.inserted, updated: o.updated, deleted: o.deleted, ran_at: ranAt.toISOString().replace(/\.\d{3}Z$/, 'Z'),
+    duration_ms: Math.max(0, Math.round(o.elapsed_ms)), target_label: o.target_label, error: null, warnings: o.warnings,
   };
 }
 

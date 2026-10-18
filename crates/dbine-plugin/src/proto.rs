@@ -138,6 +138,10 @@ pub enum Call {
     DeltaSummary { session: u64, spec: DeltaSpec },
     /// Like `BulkLoad`: the app sends the source rows as `ToHost::Batch`.
     DeltaApply { session: u64, spec: DeltaSpec, buckets: Vec<i64>, columns: Vec<TransferColumn> },
+    /// A notebook's write cell (`Session::write_rows`); like `BulkLoad`, the
+    /// app sends the rows as `ToHost::Batch`. Only for hosts whose manifest
+    /// lists `write_modes`.
+    WriteRows { session: u64, spec: dbine_driver::WriteSpec, columns: Vec<TransferColumn> },
     Permissions { session: u64, database: Option<String> },
     /// "Nuevo esquema…" / "Borrar esquema…". A host published before them
     /// answers `Unsupported` (see `unknown_call`). `database` came later: a
@@ -292,6 +296,7 @@ pub enum Reply {
     KeyRange(Option<(i64, i64, u64)>),
     Buckets(Vec<BucketSum>),
     Delta(DeltaResult),
+    Written(dbine_driver::WriteResult),
     Permissions(dbine_driver::Permissions),
     Schemas(Option<Vec<dbine_driver::SchemaInfo>>),
     TxState(Option<dbine_driver::TxState>),
@@ -348,6 +353,10 @@ pub struct DriverMeta {
     /// Sync by rows (`Driver::supports_delta`).
     #[serde(default)]
     pub supports_delta: bool,
+    /// The write cell's modes (`Driver::write_modes`; absent in older
+    /// manifests: none).
+    #[serde(default)]
+    pub write_modes: Vec<dbine_driver::WriteMode>,
     /// Creating and dropping schemas (absent in older manifests: `None`,
     /// the explorer doesn't offer them).
     #[serde(default, deserialize_with = "owned")]
@@ -429,6 +438,7 @@ impl DriverMeta {
             native_copy: d.supports_native_copy(d.info().id),
             supports_clone: d.supports_clone(),
             supports_delta: d.supports_delta(),
+            write_modes: d.write_modes(),
             schema_spec: d.schema_spec(),
             script_dialect: Some(d.script_dialect()),
             script_mode: Some(d.script_mode()),

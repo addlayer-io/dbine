@@ -222,7 +222,7 @@ fn serve(package: &str, drivers: Vec<Arc<dyn Driver>>, proto_out: std::fs::File)
                 let mut inbox = None;
                 match &call {
                     Call::ReadBatches { .. } => io.credits = Some(Arc::new(Credits::new())),
-                    Call::BulkLoad { .. } | Call::DeltaApply { .. } => {
+                    Call::BulkLoad { .. } | Call::DeltaApply { .. } | Call::WriteRows { .. } => {
                         let (tx, rx) = tokio::sync::mpsc::unbounded_channel();
                         inbox = Some(tx);
                         io.inbox = Some(rx);
@@ -317,7 +317,7 @@ impl Call {
             | BrowseQuery { session, .. } | Execute { session, .. } | Explain { session, .. } | DatabaseSchema { session }
             | CreateDatabase { session, .. } | DropDatabase { session, .. } | Monitor { session } | Blocking { session } | Principals { session } | Grants { session, .. } | Backups { session, .. } | KillSession { session, .. } | ProfilerStart { session, .. }
             | ProfilerPoll { session } | ProfilerStop { session } | ScanKeys { session, .. } | ReadBatches { session, .. }
-            | BulkLoad { session, .. } | KeyRange { session, .. } | DeltaSummary { session, .. } | DeltaApply { session, .. }
+            | BulkLoad { session, .. } | KeyRange { session, .. } | DeltaSummary { session, .. } | DeltaApply { session, .. } | WriteRows { session, .. }
             | Permissions { session, .. } | ListSchemas { session } | IndexUsage { session, .. } | Dependents { session, .. }
             | Processes { session } | CancelQuery { session, .. } | CreateDatabaseChoices { session }
             | CreateDatabaseWith { session, .. } | DatabaseProperties { session, .. } | AlterDatabase { session, .. }
@@ -597,6 +597,17 @@ impl State {
                 };
                 let r = slot.session.lock().await.delta_apply(&spec, &buckets, &columns, &mut inbox, &progress).await?;
                 Reply::Delta(r)
+            }
+            Call::WriteRows { session, spec, columns } => {
+                let slot = self.slot(session)?;
+                let rx = io.inbox.take().ok_or_else(|| Error::State("escritura sin canal de lotes".into()))?;
+                let mut inbox = Inbox { id, rx, tx: self.tx.clone() };
+                let tx = self.tx.clone();
+                let progress = move |rows: u64| {
+                    let _ = send(&tx, FromHost::Committed { id, rows });
+                };
+                let r = slot.session.lock().await.write_rows(&spec, &columns, &mut inbox, &progress).await?;
+                Reply::Written(r)
             }
             Call::Permissions { session, database } => {
                 Reply::Permissions(self.slot(session)?.session.lock().await.permissions(database.as_deref()).await?)

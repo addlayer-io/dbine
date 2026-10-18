@@ -5,13 +5,20 @@ import { save as saveDialog } from '@tauri-apps/plugin-dialog';
 import { api, errorMessage } from '../api/client';
 import { notebookApi, type PreviewLimits } from '../api/notebook';
 import { projectsApi } from '../api/projects';
-import type { FileApprovalRequest, FileDecision, FileStat, LoadedTable, LocalSource, Notebook, NotebookCell, NotebookTarget, QueryOutcome, TxState, UnsafeDml } from '../api/types';
+import type {
+  FileApprovalRequest, FileDecision, FileStat, LoadedTable, LocalSource, Notebook, NotebookCell, NotebookTarget, QueryOutcome, TxState, UnsafeDml,
+  WriteCell, WriteMode, WritePlan, WriteTargetInfo,
+} from '../api/types';
+import type { WriteArgs } from '../api/notebook';
 import { t } from '../i18n';
 import { tb } from '../i18n/backend';
 import NotebookCellView, { type CellContext } from '../components/notebook/NotebookCell.vue';
 import NotebookTargetDialog from '../components/notebook/NotebookTargetDialog.vue';
 import NotebookFileApproval from '../components/notebook/NotebookFileApproval.vue';
 import NotebookFileGrants from '../components/notebook/NotebookFileGrants.vue';
+import NotebookWriteCell, { type FrameColumn } from '../components/notebook/NotebookWriteCell.vue';
+import NotebookWriteConfirm from '../components/notebook/NotebookWriteConfirm.vue';
+import { isProdConnection } from '../composables/tags';
 import { ensureConnectedOrTell } from '../composables/connectionGate';
 import { saveTextFile } from '../composables/files';
 import { chartImages } from '../composables/notebookExport';
@@ -19,6 +26,7 @@ import {
   AWS_PROFILE_SETTING, BYTES_DEFAULT, BYTES_RANGE, BYTES_SETTING, EditVersion, PREVIEW_NOTICE_SETTING, RESULTS_CAP_DEFAULT, RESULTS_CAP_RANGE, RESULTS_CAP_SETTING,
   ROWS_DEFAULT, ROWS_RANGE, ROWS_SETTING, RunLock, applyProjectDefault, assignCellNames, cellNameProblem, clamp, completeRows, defaultCellName,
   describeResult, emptyNotebook, emptyTarget, isResultsTarget, newCell, outcomeToResult, outline, promptVariant, resultToOutcome,
+  dataFramesAbove, newWriteCell, writeProblem, writeSummaryOf,
 } from '../composables/notebookModel';
 import {
   moveFileAliases, projectDefaultTarget, rememberAlias, rememberFileAlias, resolveTarget, targetText, type FileKey, type ResolvedTarget,
@@ -183,11 +191,13 @@ function focusCell(id: string) {
   void nextTick(() => cellViews.get(id)?.focus());
 }
 /** A new cell at `at` (default: after the active one, else at the end). */
-function addCell(kind: 'sql' | 'markdown', at?: number, source = ''): NotebookCell {
+function addCell(kind: 'sql' | 'markdown' | 'write', at?: number, source = ''): NotebookCell {
   const n = nb.value!;
-  const cell = newCell(kind, source);
+  const at0 = at ?? (activeId.value ? indexOf(activeId.value) + 1 : n.cells.length);
+  // A write cell: `source` is the DataFrame it writes (default: the nearest one above).
+  const cell = kind === 'write' ? newWriteCell(source || dataFramesAbove(n.cells, at0).at(-1) || null) : newCell(kind, source);
   if (kind === 'sql') cell.language = languageOf(cell);
-  const i = Math.max(0, Math.min(at ?? (activeId.value ? indexOf(activeId.value) + 1 : n.cells.length), n.cells.length));
+  const i = Math.max(0, Math.min(at0, n.cells.length));
   if (kind === 'sql') cell.name = defaultCellName(n.cells, i);
   n.cells.splice(i, 0, cell);
   if (kind === 'markdown' && !source) editing.add(cell.id);
@@ -214,6 +224,7 @@ function removeCell(cell: NotebookCell) {
   if (i < 0) return;
   cells.splice(i, 1);
   delete live[cell.id];
+  delete writes[cell.id];
   if (activeId.value === cell.id) activeId.value = cells[Math.min(i, cells.length - 1)]?.id ?? null;
   touch();
 }
@@ -288,6 +299,8 @@ watch(() => [conns.list.length, projects.list.length] as const, syncTabTarget);
 
 type TargetDialog =
   | { mode: 'pick'; cell: NotebookCell | null; resolve: (ok: boolean) => void }
+  /** A write cell's target (a connection or an environment; never read-only ones). */
+  | { mode: 'pickWrite'; cell: NotebookCell; resolve: (ok: boolean) => void }
   /** `candidates`: several local connections have that name (ids). */
   | { mode: 'map'; name: string; engine: string | null; candidates: string[] | null; resolve: (ok: boolean) => void };
 const dialog = ref<TargetDialog | null>(null);
@@ -301,6 +314,12 @@ function pickTarget(cell: NotebookCell | null): Promise<boolean> {
 }
 function onPicked(target: NotebookTarget | null) {
   const d = dialog.value;
+  if (d?.mode === 'pickWrite') {
+    dialog.value = null;
+    if (target) patchWrite(d.cell, { target, mapping: null, keys: [] });
+    d.resolve(!!target);
+    return;
+  }
   if (d?.mode !== 'pick' || !nb.value) return;
   if (d.cell) d.cell.target = target;
   else nb.value.target = target;
@@ -365,6 +384,224 @@ async function confirmEnvironment(target: ResolvedTarget, asked: Set<string> | n
     return true;
   } catch {
     return false;
+  }
+}
+
+// -- write cells: a DataFrame into a table (docs/notebooks.md › Writing a DataFrame to a table) ------
+/** Per write cell, this session: its target's modes and columns, and its last preview. */
+interface WriteState { info: WriteTargetInfo | null; infoError: string | null; infoKey: string; plan: WritePlan | null; planning: boolean; planError: string | null }
+const writes = reactive<Record<string, WriteState>>({});
+function wstate(id: string): WriteState {
+  return writes[id] ?? (writes[id] = { info: null, infoError: null, infoKey: '', plan: null, planning: false, planError: null });
+}
+/** A write cell's own target (it never inherits the notebook's: where it writes is always said). */
+function resolvedWrite(cell: NotebookCell) {
+  void aliasSeq.value;
+  return resolveTarget(cell.write?.target ?? null, props.tab.projectId, fileKey.value);
+}
+function writeTargetText(cell: NotebookCell): string {
+  const r = resolvedWrite(cell);
+  if (r.ok) return r.target.label;
+  return r.problem === 'none' || r.problem === 'results' ? t('notebook:write.targetNone') : r.problem === 'connection' ? t('notebook:target.unknown', { name: r.name ?? '' }) : t('notebook:target.unboundEnv', { env: r.name ?? '' });
+}
+/** Production: a prod-tagged connection, or an environment that asks before running. */
+function writeProd(cell: NotebookCell): boolean {
+  const r = resolvedWrite(cell);
+  return r.ok && (!!r.target.env?.confirm_run || isProdConnection(conns.byId(r.target.connectionId), r.target.database));
+}
+function patchWrite(cell: NotebookCell, patch: Partial<WriteCell>) {
+  if (cell.kind !== 'write') return;
+  cell.write = { ...(cell.write ?? { source: null, target: null, schema: null, table: null, create: false, mode: 'insert' as WriteMode, keys: [], mapping: null }), ...patch };
+  const st = wstate(cell.id);
+  st.plan = null;
+  st.planError = null;
+  touch();
+}
+function pickWriteTarget(cell: NotebookCell): Promise<boolean> {
+  return new Promise((resolve) => openDialog({ mode: 'pickWrite', cell, resolve }));
+}
+/** The DataFrame's columns: its cell's run here, else its stored preview. */
+function frameColumns(cell: NotebookCell): FrameColumn[] | null {
+  const cells = nb.value?.cells ?? [];
+  const name = cell.write?.source?.toLowerCase();
+  if (!name) return null;
+  const src = cells.slice(0, indexOf(cell.id)).find((c) => c.kind === 'sql' && c.name?.toLowerCase() === name);
+  if (!src) return null;
+  const cols = live[src.id]?.outcome.results.find((r) => r.columns.length)?.columns ?? src.result?.results.find((r) => r.columns.length)?.columns;
+  return cols ? cols.map((c) => ({ name: c.name, type: c.type_name })) : null;
+}
+/** The target database's tables (the explorer's cache), in the cell's schema when it has one. */
+function writeTables(cell: NotebookCell): string[] {
+  const r = resolvedWrite(cell);
+  if (!r.ok) return [];
+  const d = conns.driverOf(r.target.connectionId);
+  const schema = cell.write?.schema?.toLowerCase();
+  return (conns.objects[dbKey(r.target.connectionId, r.target.database)]?.items ?? [])
+    .filter((o) => d?.object_kinds.find((k) => k.id === o.kind)?.has_columns && o.kind !== 'view' && (!schema || o.schema?.toLowerCase() === schema))
+    .map((o) => o.name)
+    .sort((a, b) => a.localeCompare(b));
+}
+function writeHasSchemas(cell: NotebookCell): boolean {
+  const r = resolvedWrite(cell);
+  return r.ok && !!conns.driverOf(r.target.connectionId)?.has_schemas;
+}
+/** The target engine's modes and the table's columns, asked again when the target or table changes. */
+watch(() => (nb.value?.cells ?? []).filter((c) => c.kind === 'write').map((c) => {
+  const r = resolvedWrite(c);
+  return r.ok && conns.isConnected(r.target.connectionId)
+    ? `${c.id}\u0000${r.target.connectionId}\u0000${r.target.database}\u0000${c.write?.schema ?? ''}\u0000${c.write?.table ?? ''}\u0000${c.write?.create ? 1 : 0}`
+    : `${c.id}`;
+}).join('\u0001'), (keys) => {
+  for (const k of keys ? keys.split('\u0001') : []) {
+    const [id, connectionId, database, schema, table, create] = k.split('\u0000');
+    const st = wstate(id);
+    if (!connectionId) { st.info = null; st.infoError = null; st.infoKey = ''; continue; }
+    if (st.infoKey === k) continue;
+    st.infoKey = k;
+    if (!conns.objects[dbKey(connectionId, database)]) conns.loadObjects(connectionId, database);
+    notebookApi.writeTarget(props.tab.id, { connectionId, database, schema: schema || null, table, create: create === '1' })
+      .then((info) => { if (st.infoKey === k) { st.info = info; st.infoError = null; } })
+      .catch((e) => { if (st.infoKey === k) { st.info = null; st.infoError = errorMessage(e); } });
+  }
+}, { immediate: true });
+// A write cell's connection gets connected (its tables and columns come from it).
+watch(() => (nb.value?.cells ?? []).filter((c) => c.kind === 'write').map((c) => { const r = resolvedWrite(c); return r.ok ? r.target.connectionId : ''; }).join('\u0001'), (ids) => {
+  for (const id of new Set(ids.split('\u0001').filter(Boolean))) if (!conns.isConnected(id)) void conns.ensureConnected(id, { auto: true });
+}, { immediate: true });
+
+/** The write cell's target resolved, asking what's missing (once): null when the user gave up. */
+async function ensureWriteTarget(cell: NotebookCell) {
+  for (let tries = 0; tries < 3; tries++) {
+    const r = resolvedWrite(cell);
+    if (r.ok) return r.target;
+    if (r.problem === 'none' || r.problem === 'results') {
+      if (!(await pickWriteTarget(cell))) return null;
+    } else if (r.problem === 'connection') {
+      const ok = await new Promise<boolean>((resolve) => openDialog({ mode: 'map', name: r.name ?? '', engine: null, candidates: r.candidates ?? null, resolve }));
+      if (!ok) return null;
+    } else {
+      ElMessage.info({ message: t('notebook:target.bindEnvironment', { env: r.name ?? '' }), duration: 4500 });
+      if (props.tab.projectId) projects.dialog = { kind: 'target', projectId: props.tab.projectId, alias: r.name };
+      return null;
+    }
+  }
+  return null;
+}
+
+/** "Escribir en una tabla…" on a cell: a write cell under it, writing its DataFrame. */
+function writeTo(cell: NotebookCell) {
+  if (!cell.name) return;
+  const w = addCell('write', indexOf(cell.id) + 1, cell.name);
+  activeId.value = w.id;
+}
+
+/** "Confirmar la escritura": every write asks; "Ejecutar todo" too (and can stop there). */
+const writeAsk = ref<{ plan: WritePlan; mode: WriteMode; prod: boolean; runAll: boolean; resolve: (c: 'write' | 'cancel' | 'stop') => void } | null>(null);
+function askWrite(plan: WritePlan, mode: WriteMode, prod: boolean): Promise<'write' | 'cancel' | 'stop'> {
+  return new Promise((resolve) => { writeAsk.value = { plan, mode, prod, runAll: runAll.value, resolve }; });
+}
+function answerWrite(c: 'write' | 'cancel' | 'stop') {
+  const a = writeAsk.value;
+  writeAsk.value = null;
+  a?.resolve(c);
+}
+onBeforeUnmount(() => writeAsk.value?.resolve('cancel'));
+
+/** The request for a write cell's DataFrame and target (the sources resolved and connected). */
+async function writeArgs(cell: NotebookCell, asked: Set<string> | null): Promise<WriteArgs | null> {
+  const w = cell.write!;
+  const problem = writeProblem(w, dataFramesAbove(nb.value!.cells, indexOf(cell.id)));
+  if (problem) throw new Error(t(`notebook:write.missing.${problem}`));
+  const target = await ensureWriteTarget(cell);
+  if (!target) return null;
+  if (conns.byId(target.connectionId)?.config.read_only) throw new Error(t('notebook:write.readOnly', { name: conns.byId(target.connectionId)?.name ?? '' }));
+  // The environment's own confirmation, as SQL cells get it.
+  if (!(await confirmEnvironment(target, asked))) return null;
+  if (!(await ensureConnectedOrTell(target.connectionId))) return null;
+  const sources = await sourcesFor(cell, `SELECT * FROM "${w.source!.replace(/"/g, '""')}"`, asked);
+  if (!sources) return null;
+  return {
+    tabId: props.tab.id, cellId: cell.id, source: w.source!, sources, notebookPath: notebookFile.value,
+    awsProfile: settings.get<string>(AWS_PROFILE_SETTING, '').trim() || null,
+    rowCap: clamp(settings.get<number>(RESULTS_CAP_SETTING, RESULTS_CAP_DEFAULT), RESULTS_CAP_RANGE),
+    target: { connectionId: target.connectionId, database: target.database, schema: w.schema, table: w.table!.trim(), create: w.create },
+    mode: w.mode, keys: w.keys, mapping: w.mapping,
+  };
+}
+/** The plan of a write (its DataFrame loaded, checked, previewed): asks for files as a DataFrame SQL run does. */
+async function planWrite(a: WriteArgs): Promise<WritePlan> {
+  let r = await notebookApi.writePrepare(a);
+  for (let tries = 0; r.approval; tries++) {
+    const req = r.approval;
+    const decision = tries < 3 ? await askFiles(req) : 'deny';
+    if (decision === 'deny') {
+      await notebookApi.decideFiles(req.token, 'deny').catch(() => {});
+      throw new Error(t('notebook:fileAccess.denied', { count: req.files.length, files: req.files.map((f) => f.path).join(', ') }));
+    }
+    await notebookApi.decideFiles(req.token, decision);
+    if (decision === 'always') void loadGrantedFiles();
+    r = await notebookApi.writePrepare({ ...a, approval: req.token });
+  }
+  if (!r.plan) throw new Error(t('notebook:write.noPlan'));
+  return r.plan;
+}
+/** "Vista previa": what would be written. Writes nothing. */
+async function previewWrite(cell: NotebookCell) {
+  if (cell.kind !== 'write' || !lock.take()) return;
+  const st = wstate(cell.id);
+  st.planning = true;
+  st.planError = null;
+  runningSession = `nbx:${props.tab.id}`;
+  try {
+    const a = await writeArgs(cell, null);
+    if (a) st.plan = markRaw(await planWrite(a));
+  } catch (e) {
+    st.plan = null;
+    st.planError = errorMessage(e);
+  } finally {
+    st.planning = false;
+    runningSession = null;
+    lock.release();
+  }
+}
+/** Run a write cell: its plan, the confirmation, then the write. False when it failed or the user stopped. */
+async function runWrite(cell: NotebookCell, asked: Set<string> | null): Promise<boolean> {
+  const st = wstate(cell.id);
+  let ranAt = new Date();
+  runningSession = `nbx:${props.tab.id}`;
+  let where = writeTargetText(cell);
+  try {
+    st.planError = null;
+    st.planning = true;
+    const a = await writeArgs(cell, asked).finally(() => { st.planning = false; });
+    if (!a) return false;
+    st.planning = true;
+    const plan = await planWrite(a).finally(() => { st.planning = false; });
+    st.plan = markRaw(plan);
+    where = plan.target_label;
+    const choice = await askWrite(plan, a.mode, writeProd(cell));
+    if (choice === 'stop') { stopRequested = true; return false; }
+    // Not this one: "Ejecutar todo" goes on without it.
+    if (choice === 'cancel') return !!runAll.value;
+    runningId.value = cell.id;
+    runningSession = `nbw:${props.tab.id}`;
+    ranAt = new Date();
+    const out = await notebookApi.writeRun(a, plan.token, plan.rows);
+    cell.execution_count = ++counter;
+    cell.write_result = markRaw(writeSummaryOf(out, ranAt));
+    st.plan = null;
+    output.add('info', t('notebook:write.logged', { inserted: out.inserted, updated: out.updated, deleted: out.deleted }), { where, elapsedMs: out.elapsed_ms });
+    return true;
+  } catch (e) {
+    const message = errorMessage(e);
+    cell.execution_count = ++counter;
+    cell.write_result = { inserted: 0, updated: 0, deleted: 0, ran_at: ranAt.toISOString().replace(/\.\d{3}Z$/, 'Z'), duration_ms: Date.now() - ranAt.getTime(), target_label: where, error: message };
+    output.add('error', message, { where });
+    return false;
+  } finally {
+    runningId.value = null;
+    runningSession = null;
+    touch();
   }
 }
 
@@ -556,8 +793,9 @@ const lock = reactive(new RunLock());
 
 /** Run a SQL cell (`sql`: a selection of it). True when it ran without errors. */
 async function runCell(cell: NotebookCell, sql: string | null = null): Promise<boolean> {
-  if (cell.kind !== 'sql' || !lock.take()) return false;
+  if ((cell.kind !== 'sql' && cell.kind !== 'write') || !lock.take()) return false;
   try {
+    if (cell.kind === 'write') return await runWrite(cell, null);
     return await runHeld(cell, sql, null);
   } finally {
     lock.release();
@@ -664,10 +902,34 @@ async function loadGrantedFiles() {
 }
 watch([notebookFile, grantsOpen], () => void loadGrantedFiles(), { immediate: true });
 
-async function runLocal(cell: NotebookCell, script: string, asked: Set<string> | null): Promise<boolean> {
+/** The SQL cells above `cell` as DataFrame sources of `script`: the ones it
+ *  needs get their target resolved and connected (and their complete run
+ *  here). Null: the user gave up on a target. */
+async function sourcesFor(cell: NotebookCell, script: string, asked: Set<string> | null): Promise<LocalSource[] | null> {
   const cells = nb.value!.cells;
   const above = cells.slice(0, indexOf(cell.id)).filter((c) => c.kind === 'sql' && c.name && c.source.trim());
   const base: LocalSource[] = above.map((c) => ({ name: c.name!, local: isLocal(c), sql: c.source.trim(), connection_id: null, database: null, run: null, rows: null }));
+  const needed = new Set((await notebookApi.localRefs(script, base)).map((n) => n.toLowerCase()));
+  const sources: LocalSource[] = [];
+  for (const [k, c] of above.entries()) {
+    const s = { ...base[k] };
+    if (!s.local && needed.has(s.name.toLowerCase())) {
+      const target = await ensureTarget(c);
+      if (!target || !(await confirmEnvironment(target, asked))) return null;
+      if (!(await ensureConnectedOrTell(target.connectionId))) return null;
+      s.connection_id = target.connectionId;
+      s.database = target.database;
+      // Its run here, if it was of this very query on this target and nothing cut it.
+      const l = live[c.id];
+      const rows = l?.source && l.source.sql === s.sql && l.source.connectionId === target.connectionId && l.source.database === target.database ? completeRows(l.outcome) : null;
+      if (rows) { s.rows = rows; s.run = l!.run ?? null; }
+    }
+    sources.push(s);
+  }
+  return sources;
+}
+
+async function runLocal(cell: NotebookCell, script: string, asked: Set<string> | null): Promise<boolean> {
   const sessionId = `nbx:${props.tab.id}`;
   let set = notebookSessions.get(props.tab.id);
   if (!set) notebookSessions.set(props.tab.id, (set = new Set()));
@@ -679,23 +941,8 @@ async function runLocal(cell: NotebookCell, script: string, asked: Set<string> |
   cell.language = 'sql';
   let ok = false;
   try {
-    const needed = new Set((await notebookApi.localRefs(script, base)).map((n) => n.toLowerCase()));
-    const sources: LocalSource[] = [];
-    for (const [k, c] of above.entries()) {
-      const s = { ...base[k] };
-      if (!s.local && needed.has(s.name.toLowerCase())) {
-        const target = await ensureTarget(c);
-        if (!target || !(await confirmEnvironment(target, asked))) return false;
-        if (!(await ensureConnectedOrTell(target.connectionId))) return false;
-        s.connection_id = target.connectionId;
-        s.database = target.database;
-        // Its run here, if it was of this very query on this target and nothing cut it.
-        const l = live[c.id];
-        const rows = l?.source && l.source.sql === s.sql && l.source.connectionId === target.connectionId && l.source.database === target.database ? completeRows(l.outcome) : null;
-        if (rows) { s.rows = rows; s.run = l!.run ?? null; }
-      }
-      sources.push(s);
-    }
+    const sources = await sourcesFor(cell, script, asked);
+    if (!sources) return false;
     const rowCap = clamp(settings.get<number>(RESULTS_CAP_SETTING, RESULTS_CAP_DEFAULT), RESULTS_CAP_RANGE);
     const awsProfile = settings.get<string>(AWS_PROFILE_SETTING, '').trim() || null;
     const args = { tabId: props.tab.id, sql: script, maxRows: settingsMaxRows.value, rowCap, sources, notebookPath: notebookFile.value, awsProfile };
@@ -747,6 +994,12 @@ async function runFrom(from: number) {
   const asked = new Set<string>();
   try {
     for (const cell of nb.value.cells.slice(from)) {
+      if (cell.kind === 'write') {
+        // Every write asks first (its confirmation can stop the whole run).
+        activeId.value = cell.id;
+        if (!(await runWrite(cell, asked)) || stopRequested) break;
+        continue;
+      }
       if (cell.kind !== 'sql' || !cell.source.trim()) continue;
       activeId.value = cell.id;
       if (!(await runHeld(cell, null, asked)) || stopRequested) break;
@@ -1136,8 +1389,39 @@ const breadcrumbDir = computed(() => {
         <div class="nb-add">
           <button @click="focusCell(addCell('sql', i).id)"><el-icon><ei-plus /></el-icon>{{ $t('notebook:add.sql') }}</button>
           <button @click="focusCell(addCell('markdown', i).id)"><el-icon><ei-plus /></el-icon>{{ $t('notebook:add.text') }}</button>
+          <button :title="$t('notebook:add.writeTip')" @click="activeId = addCell('write', i).id"><el-icon><ei-plus /></el-icon>{{ $t('notebook:add.write') }}</button>
         </div>
+        <NotebookWriteCell
+          v-if="cell.kind === 'write'"
+          :cell="cell"
+          :index="i"
+          :count="nb.cells.length"
+          :active="activeId === cell.id"
+          :running="runningId === cell.id"
+          :busy="lock.held"
+          :frames="dataFramesAbove(nb.cells, i)"
+          :frame-columns="frameColumns(cell)"
+          :target-text="writeTargetText(cell)"
+          :target-unresolved="!resolvedWrite(cell).ok"
+          :prod="writeProd(cell)"
+          :info="writes[cell.id]?.info ?? null"
+          :info-error="writes[cell.id]?.infoError ?? null"
+          :tables="writeTables(cell)"
+          :has-schemas="writeHasSchemas(cell)"
+          :plan="writes[cell.id]?.plan ?? null"
+          :planning="!!writes[cell.id]?.planning"
+          :plan-error="writes[cell.id]?.planError ?? null"
+          @activate="activeId = cell.id"
+          @run="runCell(cell)"
+          @cancel="cancel"
+          @move="(by: -1 | 1) => move(cell, by)"
+          @remove="removeCell(cell)"
+          @change="(p: Partial<WriteCell>) => patchWrite(cell, p)"
+          @target="pickWriteTarget(cell)"
+          @preview="previewWrite(cell)"
+        />
         <NotebookCellView
+          v-else
           :ref="(v: unknown) => setCellView(cell.id, v)"
           :cell="cell"
           :index="i"
@@ -1172,11 +1456,13 @@ const breadcrumbDir = computed(() => {
           @save="save"
           @need-columns="(p: string[]) => needColumns(cell, p)"
           @need-names="needNames(cell)"
+          @write-to="writeTo(cell)"
         />
       </template>
       <div class="nb-add last">
         <button @click="focusCell(addCell('sql', nb.cells.length).id)"><el-icon><ei-plus /></el-icon>{{ $t('notebook:add.sql') }}</button>
         <button @click="focusCell(addCell('markdown', nb.cells.length).id)"><el-icon><ei-plus /></el-icon>{{ $t('notebook:add.text') }}</button>
+        <button :title="$t('notebook:add.writeTip')" @click="activeId = addCell('write', nb.cells.length).id"><el-icon><ei-plus /></el-icon>{{ $t('notebook:add.write') }}</button>
       </div>
     </div>
     <div v-else class="nb-loading nm-muted"><el-icon class="is-loading"><ei-loading /></el-icon> {{ $t('common:loading') }}</div>
@@ -1187,6 +1473,16 @@ const breadcrumbDir = computed(() => {
       :initial="dialog.cell ? dialog.cell.target : nb?.target ?? null"
       :project-id="tab.projectId ?? null"
       :inherit="!!dialog.cell"
+      :file="fileKey"
+      @pick="onPicked"
+      @close="closeDialog"
+    />
+    <NotebookTargetDialog
+      v-else-if="dialog?.mode === 'pickWrite'"
+      mode="pick"
+      write
+      :initial="dialog.cell.write?.target ?? null"
+      :project-id="tab.projectId ?? null"
       :file="fileKey"
       @pick="onPicked"
       @close="closeDialog"
@@ -1203,6 +1499,7 @@ const breadcrumbDir = computed(() => {
     />
 
     <NotebookFileApproval v-if="fileAsk" :request="fileAsk.request" @decide="answerFiles" />
+    <NotebookWriteConfirm v-if="writeAsk" :plan="writeAsk.plan" :mode="writeAsk.mode" :prod="writeAsk.prod" :run-all="writeAsk.runAll" @decide="answerWrite" />
     <el-dialog v-model="grantsOpen" :title="$t('notebook:fileGrants.dialogTitle')" width="640px" append-to-body destroy-on-close>
       <NotebookFileGrants :notebook="notebookFile ?? ''" :unsaved="!notebookFile" />
       <template #footer><el-button @click="grantsOpen = false">{{ $t('common:close') }}</el-button></template>

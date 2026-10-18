@@ -861,6 +861,9 @@ impl Driver for RemoteDriver {
     fn supports_delta(&self) -> bool {
         self.meta.supports_delta
     }
+    fn write_modes(&self) -> Vec<dbine_driver::WriteMode> {
+        self.meta.write_modes.clone()
+    }
     fn delta_filter(&self, spec: &DeltaSpec, buckets: &[i64]) -> Result<String> {
         text(self.blocking(Call::DeltaFilter { driver: self.id(), spec: spec.clone(), buckets: buckets.to_vec() })?)
     }
@@ -1250,6 +1253,21 @@ impl Session for RemoteSession {
         let call = Call::DeltaApply { session: self.id, spec: spec.clone(), buckets: buckets.to_vec(), columns: columns.to_vec() };
         match self.host.with_batches(call, source, progress).await? {
             Reply::Delta(r) => Ok(r),
+            _ => Err(unexpected()),
+        }
+    }
+    /// Only for drivers whose manifest lists `write_modes` (an older host
+    /// wouldn't understand the call).
+    async fn write_rows(
+        &mut self,
+        spec: &dbine_driver::WriteSpec,
+        columns: &[TransferColumn],
+        source: &mut dyn BatchSource,
+        progress: transfer::Progress<'_>,
+    ) -> Result<dbine_driver::WriteResult> {
+        let call = Call::WriteRows { session: self.id, spec: spec.clone(), columns: columns.to_vec() };
+        match self.host.with_batches(call, source, progress).await? {
+            Reply::Written(r) => Ok(r),
             _ => Err(unexpected()),
         }
     }

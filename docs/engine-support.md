@@ -3754,3 +3754,47 @@ here: that is **Rename…**.
 | MongoDB, FerretDB, DocumentDB | Changing the fields of documents that already exist | Documents have no columns: they are modified by rewriting each one. The validator, indexes and options are changed; fields are left as a warning. |
 | Elasticsearch, OpenSearch | Changing the type or dropping a field, changing shards | The mapping is not modified in place: reindexing is needed. The script warns. |
 | Explicit pending item | Modify… in the engines where it was not tested | Only the ten engines above were tested against a server. The rest still have to be tested: there are no containers or emulators for all of them. |
+
+## Notebook write cells
+
+A notebook's write cell writes a DataFrame into a table
+([notebooks.md](notebooks.md#writing-a-dataframe-to-a-table)) through
+`Session::write_rows` (`dbine_driver::write`) and the modes in
+`Driver::write_modes`. SQL engines share one path: a bulk load into a
+staging table, then set-based statements in one transaction. An engine
+without modes still takes **Insert** through its bulk load, without a
+transaction. Values never go into statement text, so engines without a bulk
+load don't write from a notebook at all (their `insert_script` writes values
+as literals).
+
+**Tested against real servers** (`dbine-test-*` containers): SQL Server 2022
+(every mode, also with an identity key, and a new table), PostgreSQL 16
+(every mode and a new table), MySQL 8, Oracle 23 (every mode; no staging
+table left behind) and MongoDB (every mode). SQLite and DuckDB files, every
+mode, in the unit tests.
+
+| Engine | Modes | One transaction | How |
+|---|---|---|---|
+| SQL Server, Azure SQL | all four | yes | `INSERT BULK` into a `#temp` table; `UPDATE … FROM … JOIN`; `IDENTITY_INSERT` around the inserts when an identity column is written |
+| PostgreSQL and the variants with `COPY` (TimescaleDB, YugabyteDB, openGauss, KingbaseES, AlloyDB, Aurora, Greenplum, Cloudberry, Greengage…) | all four | yes (not on Materialize, RisingWave, CrateDB or Denodo, which have no `COPY` either) | `COPY` into a `TEMPORARY` table; `UPDATE … FROM` |
+| MySQL, MariaDB, TiDB, Aurora MySQL, Cloud SQL MySQL | all four | yes | `LOAD DATA LOCAL` (or prepared inserts) into a `TEMPORARY` table; `UPDATE … JOIN`. "Updated" counts the rows whose key matched |
+| Oracle, Oracle Autonomous | all four | yes | array DML into a global temporary table in the user's schema (needs `CREATE TABLE`), dropped afterwards; `MERGE … WHEN MATCHED` for the update |
+| SQLite | all four | yes | `TEMP` table; `UPDATE … FROM` (SQLite 3.33+) |
+| libSQL / Turso | all four | with Hrana 3 | as SQLite, over its HTTP stream (not tested live) |
+| DuckDB | all four | yes | appender into a table next to the target, dropped afterwards; `UPDATE … FROM` |
+| MongoDB, FerretDB, DocumentDB | all four | no | `insertMany`; `update` commands by key (`$set`, `upsert: true`); replace is `deleteMany({})` then the insert. What was written before a failure stays (the result says how much) |
+| Every other engine with a bulk load | Insert | no | its bulk load (see "Bulk transfer") |
+
+### Engines and modes without it
+
+| Engine | What is missing | Reason |
+|---|---|---|
+| CockroachDB, Redshift, CrateDB, H2, Denodo, RisingWave, Yellowbrick, Materialize, Fabric, Babelfish, Manticore, Hive/Impala/Spark (ODBC), Amazon Neptune | Every mode | No bulk load: their only insert path (`insert_script`) writes the values into the statement's text. |
+| Drill, NetSuite | Every mode | Read-only. |
+| ClickHouse, Timeplus | Update, upsert, replace | No transactions, and `UPDATE` / `DELETE` are asynchronous mutations: an atomic write by key is not possible. Insert works. |
+| Cassandra, ScyllaDB, Keyspaces | Update, upsert, replace | An `INSERT` already replaces the row with the same primary key, and rows can only be addressed by it: an update by another key isn't possible, and there are no multi-row transactions. Insert works (it upserts by the primary key). |
+| Redis, Valkey, Dragonfly, etcd | Update, upsert, replace | Key-value: the bulk load writes each key whole (insert is already "set"); there is no table to replace or column to match. Insert works. |
+| Elasticsearch, OpenSearch, Solr | Update, upsert, replace | Indexing by `_id` replaces the document; there are no transactions. Explicit pending item: upsert by `_id` (`_bulk` `update` with `doc_as_upsert`). Insert works. |
+| DynamoDB | Update, upsert, replace | `PutItem` replaces by the primary key; other keys can't address items. Insert works. |
+| InfluxDB, TDengine, IoTDB, ksqlDB | Update, upsert, replace | Time series and streams: points are appended (or overwrite the same timestamp and tags); there's no update or delete by a key column. Insert works. |
+| Snowflake, BigQuery, Databricks, Trino/Presto/Starburst, Athena, Dremio, Cloud Spanner, Firebird, SAP HANA, ODBC engines (Db2, Sybase, Informix, Teradata, Vertica…), Aurora DSQL, Flight SQL, Phoenix, Couchbase, Cosmos DB, CouchDB, Neo4j/Memgraph, OrientDB | Update, upsert, replace | **Explicit pending item.** Each needs its own staging step in its crate (a temporary or work table its bulk load reaches, and its `MERGE` / `UPSERT` / `UPDATE … FROM`, in a transaction where it has one); most have no container or emulator to test it against. Insert works through their bulk load. |

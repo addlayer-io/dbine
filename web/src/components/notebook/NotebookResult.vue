@@ -36,7 +36,7 @@ const props = defineProps<{
   /** A "DataFrame SQL" cell's run here: the tables it loaded. */
   loaded?: LoadedTable[] | null;
 }>();
-const emit = defineEmits<{ group: []; explain: []; chart: [chart: Record<string, unknown>] }>();
+const emit = defineEmits<{ group: []; explain: []; chart: [chart: Record<string, unknown>]; writeTo: [] }>();
 const { t } = useTranslation();
 
 const counts = computed(() => (props.result ? rowCounts(props.result) : null));
@@ -194,6 +194,7 @@ const cut = computed(() => !!counts.value?.truncated && !props.running);
         <span v-if="dropped" class="nr-badge" :title="$t('notebook:summary.droppedTip')">{{ $t('notebook:summary.dropped') }}</span>
         <button v-if="cut" class="nr-link" :title="$t('notebook:ai.groupTip')" @click="emit('group')">{{ $t('notebook:ai.group') }}</button>
         <div class="nm-spacer" />
+        <button v-if="!result.error" class="nr-link" :title="$t('notebook:write.writeToTip')" @click="emit('writeTo')">{{ $t('notebook:write.writeTo') }}</button>
         <button class="nr-link" :title="$t('notebook:ai.explainTip')" @click="emit('explain')">{{ $t('notebook:ai.explain') }}</button>
       </template>
     </div>

@@ -10,7 +10,9 @@ import EngineIcon from './EngineIcon.vue';
 // With an engine known (the repo's .dbine.json), only that engine's
 // connections show, unless "Mostrar todas" is on.
 
-const props = defineProps<{ modelValue: ProjectTarget | null; engine?: string | null }>();
+/** `writable`: only connections that may be written (a notebook's write
+ *  cell): the read-only ones aren't offered. */
+const props = defineProps<{ modelValue: ProjectTarget | null; engine?: string | null; writable?: boolean }>();
 const emit = defineEmits<{ 'update:modelValue': [value: ProjectTarget | null] }>();
 
 const conns = useConnectionsStore();
@@ -20,6 +22,7 @@ const database = ref(props.modelValue?.database ?? '');
 const loading = ref(false);
 
 const connections = computed(() => conns.list
+  .filter((c) => !(props.writable && c.config.read_only))
   .filter((c) => showAll.value || !props.engine || c.config.driver === props.engine || c.id === connectionId.value)
   .sort((a, b) => a.name.localeCompare(b.name)));
 const driver = computed(() => (connectionId.value ? conns.driverOf(connectionId.value) : undefined));

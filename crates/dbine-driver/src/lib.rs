@@ -40,6 +40,7 @@ pub mod search;
 pub mod serde_static;
 pub mod sql;
 pub mod transfer;
+pub mod write;
 
 pub use aggregate::{AggFn, AggregateMethod, AggregateSpec, BoxStats, ChartAggregate, ChartKind, ChartSeries, Histogram, Measure};
 pub use alter::{SyncScript, TableChange};
@@ -76,6 +77,8 @@ pub use transfer::{
     BatchBuilder, BatchSink, BatchSinkRef, BatchSource, BucketSum, Buckets, Cell, CloneScript, CloneTable, CopySpec, DeltaDepth, DeltaResult, DeltaSpec,
     LoadSpec, ReadSpec, RowBatch, TransferColumn,
 };
+
+pub use write::{WriteMode, WriteResult, WriteSpec};
 
 pub use async_trait::async_trait;
 use std::sync::Arc;
@@ -578,6 +581,13 @@ pub trait Driver: Send + Sync {
         false
     }
 
+    /// The modes its sessions' [`Session::write_rows`] does (a notebook's
+    /// write cell, see [`write`]). Empty: none; the app then only inserts,
+    /// through [`Session::bulk_load`].
+    fn write_modes(&self) -> Vec<write::WriteMode> {
+        Vec::new()
+    }
+
     /// The condition (for [`transfer::ReadSpec::filter`]) that selects the
     /// rows of these buckets.
     fn delta_filter(&self, spec: &transfer::DeltaSpec, buckets: &[i64]) -> Result<String> {
@@ -918,6 +928,23 @@ pub trait Session: Send {
     ) -> Result<transfer::DeltaResult> {
         let _ = (spec, buckets, columns, source, progress);
         Err(Error::Unsupported("este motor no sincroniza por filas".into()))
+    }
+
+    /// Write `source`'s rows into `spec.table` by `spec.mode` (see
+    /// [`write`]): `columns` are the rows' own columns, in the order of
+    /// `spec.columns`. Values go through the engine's bulk or parameter
+    /// path, never into statement text. In one transaction where the
+    /// engine has them ([`write::WriteResult::atomic`]). Drivers list the
+    /// modes they do in [`Driver::write_modes`].
+    async fn write_rows(
+        &mut self,
+        spec: &write::WriteSpec,
+        columns: &[transfer::TransferColumn],
+        source: &mut dyn transfer::BatchSource,
+        progress: transfer::Progress<'_>,
+    ) -> Result<write::WriteResult> {
+        let _ = (spec, columns, source, progress);
+        Err(Error::Unsupported("este motor no escribe filas por modo".into()))
     }
 
     /// The backups the server has (of `database`, or all of them when

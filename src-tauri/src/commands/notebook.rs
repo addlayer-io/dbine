@@ -323,6 +323,57 @@ pub async fn notebook_run_local(app: tauri::AppHandle, state: tauri::State<'_, c
     notebook::local::run_local(&state, &args.tab_id, &args.sql, args.max_rows, cap, &args.sources, args.notebook_path.as_deref(), args.approval.as_deref(), policy, notebook::remote::Net::current(args.aws_profile.as_deref())).await
 }
 
+// -- Write cells (notebook::write) ------------------------------------------------------------
+
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct WriteTargetArgs {
+    pub tab_id: String,
+    pub target: notebook::write::WriteTarget,
+}
+
+/// What the write cell's form needs of a target: the modes its engine
+/// writes and, for an existing table, its columns. A read-only connection
+/// is refused.
+#[tauri::command(rename_all = "camelCase")]
+pub async fn notebook_write_target(state: tauri::State<'_, crate::state::AppState>, args: WriteTargetArgs) -> CommandResult<notebook::write::TargetInfo> {
+    notebook::write::target_info(&state, &args.tab_id, &args.target).await
+}
+
+/// A write cell's plan: its DataFrame loaded, the target and mapping
+/// checked, a preview, and the one-time token the confirmation hands to
+/// [`notebook_write_run`]. Nothing is written. Like a DataFrame SQL run,
+/// files nobody allowed yet return `approval` instead.
+#[tauri::command(rename_all = "camelCase")]
+pub async fn notebook_write_prepare(
+    app: tauri::AppHandle,
+    state: tauri::State<'_, crate::state::AppState>,
+    args: notebook::write::WriteArgs,
+) -> CommandResult<notebook::write::PrepareResponse> {
+    let policy = notebook::access::Policy::current(&app_dirs(&app));
+    let net = notebook::remote::Net::current(args.aws_profile.as_deref());
+    notebook::write::prepare(&state, &args, policy, net).await
+}
+
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct WriteRunArgs {
+    #[serde(flatten)]
+    pub write: notebook::write::WriteArgs,
+    /// From the plan the user confirmed.
+    pub token: String,
+    /// The rows the confirmation showed.
+    pub rows: u64,
+}
+
+/// The confirmed write: only with the plan's token, bound to this tab,
+/// cell, target, mode, keys, mapping and row count. No MCP or assistant
+/// tool calls it.
+#[tauri::command(rename_all = "camelCase")]
+pub async fn notebook_write_run(state: tauri::State<'_, crate::state::AppState>, args: WriteRunArgs) -> CommandResult<notebook::write::WriteOutcome> {
+    notebook::write::run(&state, &args.write, &args.token, args.rows).await
+}
+
 #[derive(Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct FileDecisionArgs {

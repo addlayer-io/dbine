@@ -209,6 +209,12 @@ impl Driver for DuckDbDriver {
         true
     }
 
+    /// Notebook writes: a staging table next to the target loaded with the appender, then
+    /// `UPDATE … FROM` / `INSERT … SELECT` in one transaction.
+    fn write_modes(&self) -> Vec<dbine_driver::WriteMode> {
+        dbine_driver::WriteMode::ALL.to_vec()
+    }
+
     /// Only between sessions of one database instance (see [`transfer`]).
     fn supports_native_copy(&self, target: &str) -> bool {
         target == self.info.id
@@ -790,6 +796,17 @@ impl Session for DuckDbSession {
         progress: dbine_driver::transfer::Progress<'_>,
     ) -> Result<u64> {
         transfer::bulk_load(self, spec, source, progress).await
+    }
+
+    /// See `Driver::write_modes` (`dbine_driver::write`).
+    async fn write_rows(
+        &mut self,
+        spec: &dbine_driver::WriteSpec,
+        columns: &[dbine_driver::TransferColumn],
+        source: &mut dyn dbine_driver::BatchSource,
+        progress: dbine_driver::transfer::Progress<'_>,
+    ) -> Result<dbine_driver::WriteResult> {
+        dbine_driver::write::staged_write(self, dbine_driver::write::StageFlavor::DuckDb, spec, columns, source, progress, true).await
     }
 
     fn as_any(&mut self) -> Option<&mut (dyn std::any::Any + Send)> {

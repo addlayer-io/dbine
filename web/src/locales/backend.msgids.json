@@ -14489,6 +14489,9 @@
   "crates/drivers/dremio/src/lib.rs",
   "crates/drivers/dremio/src/properties.rs"
  ],
+ "No se escribió nada (la transacción se deshizo). {0}": [
+  "src-tauri/src/notebook/write.rs"
+ ],
  "No se indicó el archivo de la base.": [
   "crates/drivers/odbc/src/monitor.rs"
  ],
@@ -23366,6 +23369,9 @@
  "Ya iniciaste sesión: podés cerrar esta ventana y volver a DBine.": [
   "crates/drivers/sqlserver/src/entra.rs"
  ],
+ "Ya se habían escrito {0} filas, que quedan en la tabla. {1}": [
+  "src-tauri/src/notebook/write.rs"
+ ],
  "Yellowbrick": [
   "crates/drivers/postgres/src/lib.rs",
   "crates/drivers/postgres/src/processes.rs"
@@ -23625,6 +23631,9 @@
  ],
  "actualizado": [
   "crates/drivers/mysql/src/monitor.rs"
+ ],
+ "actualizar por clave": [
+  "src-tauri/src/notebook/write.rs"
  ],
  "actualizá git a 2.27 o confirmá tus cambios antes del Pull": [
   "src-tauri/src/commands/projects_git.rs"
@@ -24192,7 +24201,8 @@
   "src-tauri/src/commands/datagen.rs",
   "src-tauri/src/commands/schema.rs",
   "src-tauri/src/commands/schemas.rs",
-  "src-tauri/src/commands/subset/mod.rs"
+  "src-tauri/src/commands/subset/mod.rs",
+  "src-tauri/src/notebook/write.rs"
  ],
  "configset": [
   "crates/drivers/solr/src/monitor.rs"
@@ -24685,6 +24695,9 @@
   "crates/drivers/mysql/src/monitor.rs",
   "crates/drivers/solr/src/monitor.rs"
  ],
+ "dos columnas del DataFrame van a «{0}»": [
+  "src-tauri/src/notebook/write.rs"
+ ],
  "double de 64 bits": [
   "crates/drivers/solr/src/transfer.rs"
  ],
@@ -24804,6 +24817,24 @@
  ],
  "el DDL depende de la base detrás del servidor Avatica": [
   "crates/drivers/phoenix/src/lib.rs"
+ ],
+ "el DataFrame cambió desde que se confirmó ({0} filas, ahora {1}): ejecutá la celda de nuevo": [
+  "src-tauri/src/notebook/write.rs"
+ ],
+ "el DataFrame no tiene filas: no se escribe nada": [
+  "src-tauri/src/notebook/write.rs"
+ ],
+ "el DataFrame no tiene filas: reemplazar deja la tabla vacía": [
+  "src-tauri/src/notebook/write.rs"
+ ],
+ "el DataFrame no tiene la columna «{0}»": [
+  "src-tauri/src/notebook/write.rs"
+ ],
+ "el DataFrame repite {0} claves ({1}): cada clave tiene que estar una sola vez": [
+  "src-tauri/src/notebook/write.rs"
+ ],
+ "el DataFrame ya no está cargado (se cerró la sesión del notebook): ejecutá la celda de nuevo": [
+  "src-tauri/src/notebook/write.rs"
  ],
  "el ID de la cuenta no es válido": [
   "crates/dbine-core/src/secret_accounts.rs",
@@ -26211,6 +26242,13 @@
  "elegí la carpeta": [
   "src-tauri/src/sync.rs"
  ],
+ "elegí la columna clave para actualizar por clave": [
+  "crates/dbine-driver/src/write.rs",
+  "src-tauri/src/notebook/write.rs"
+ ],
+ "elegí la tabla de destino": [
+  "src-tauri/src/notebook/write.rs"
+ ],
  "elegí o escribí el login": [
   "crates/drivers/odbc/src/security/sybase.rs",
   "crates/drivers/sqlserver/src/security.rs"
@@ -26518,7 +26556,8 @@
   "crates/drivers/couchbase/src/lib.rs"
  ],
  "error de escritura": [
-  "crates/drivers/mongodb/src/lib.rs"
+  "crates/drivers/mongodb/src/lib.rs",
+  "crates/drivers/mongodb/src/transfer.rs"
  ],
  "error de la carga": [
   "crates/drivers/dsql/src/transfer.rs"
@@ -26701,6 +26740,9 @@
  "escritura (ms)": [
   "crates/drivers/mongodb/src/monitor.rs"
  ],
+ "escritura sin canal de lotes": [
+  "crates/dbine-plugin/src/host.rs"
+ ],
  "escrituras": [
   "crates/drivers/cassandra/src/monitor.rs"
  ],
@@ -26755,9 +26797,6 @@
  ],
  "esta replicación está definida en el documento «{0}» de {1}: se detiene borrando o editando ese documento": [
   "crates/drivers/couchdb/src/processes.rs"
- ],
- "esta versión de DBine no ejecuta celdas de escritura en tareas": [
-  "src-tauri/src/notebook/headless.rs"
  ],
  "esta versión de DBine no sabe ejecutar pasos «{0}»": [
   "src-tauri/src/tasks/steps.rs"
@@ -26965,6 +27004,12 @@
   "crates/drivers/odbc/src/index_usage.rs",
   "crates/drivers/postgres/src/index_usage.rs",
   "crates/drivers/sqlserver/src/lib.rs"
+ ],
+ "este motor no escribe filas por modo": [
+  "crates/dbine-driver/src/lib.rs"
+ ],
+ "este motor no escribe por modo desde un notebook": [
+  "crates/drivers/mysql/src/session.rs"
  ],
  "este motor no filtra agregados (HAVING): esas condiciones quedan fuera": [
   "src-tauri/src/commands/query_builder.rs"
@@ -27930,6 +27975,9 @@
  "hay un valor que no es JSON válido y la columna destino es {0}": [
   "crates/drivers/bigquery/src/transfer.rs"
  ],
+ "hay una columna de destino sin nombre": [
+  "crates/dbine-driver/src/write.rs"
+ ],
  "hay valores repetidos para la restricción única {0} (ORA-00001)": [
   "crates/dbine-transfer/src/clone_table/oracle.rs"
  ],
@@ -28462,6 +28510,15 @@
  "la carpeta {0} no existe": [
   "crates/dbine-sync/src/folder.rs"
  ],
+ "la celda de escritura no dice qué DataFrame escribe": [
+  "src-tauri/src/notebook/headless.rs"
+ ],
+ "la celda de escritura no tiene dónde escribir": [
+  "src-tauri/src/notebook/headless.rs"
+ ],
+ "la celda de escritura no tiene tabla de destino": [
+  "src-tauri/src/notebook/headless.rs"
+ ],
  "la celda escribe en «{0}» ({1}) y la tarea no la autorizó: abrí la tarea y autorizala en el paso": [
   "src-tauri/src/notebook/headless.rs"
  ],
@@ -28595,6 +28652,12 @@
  "la clave «{0}» está repetida en el JSON y solo quedaría su último valor": [
   "crates/drivers/cassandra/src/transfer.rs"
  ],
+ "la clave «{0}» no es una de las columnas que se escriben": [
+  "src-tauri/src/notebook/write.rs"
+ ],
+ "la clave «{0}» no está entre las columnas que se escriben": [
+  "crates/dbine-driver/src/write.rs"
+ ],
  "la codificación": [
   "crates/drivers/iotdb/src/sync.rs"
  ],
@@ -28627,6 +28690,7 @@
   "crates/drivers/mysql/src/design.rs"
  ],
  "la columna de destino «{0}» está repetida": [
+  "crates/dbine-driver/src/write.rs",
   "crates/drivers/cosmosdb/src/transfer.rs",
   "crates/drivers/mongodb/src/transfer.rs"
  ],
@@ -28802,6 +28866,9 @@
  "la configuración del índice no es un objeto JSON": [
   "crates/dbine-transfer/src/clone_table/documents.rs"
  ],
+ "la confirmación de la escritura ya no vale: ejecutá la celda de nuevo": [
+  "src-tauri/src/notebook/write.rs"
+ ],
  "la consulta está vacía": [
   "src-tauri/src/notebook/local.rs",
   "src-tauri/src/tasks/steps.rs"
@@ -28848,6 +28915,9 @@
   "src-tauri/src/secret_sources/accounts.rs",
   "src-tauri/src/secret_sources/mod.rs"
  ],
+ "la conversión no dio la tabla": [
+  "src-tauri/src/notebook/write.rs"
+ ],
  "la copia de las filas no terminó": [
   "crates/dbine-transfer/src/clone_table.rs"
  ],
@@ -28885,6 +28955,12 @@
  ],
  "la cuenta de Zoho Vault no es válida": [
   "crates/dbine-core/src/secret_sources.rs"
+ ],
+ "la cuenta de filas no devolvió nada": [
+  "crates/dbine-driver/src/write.rs"
+ ],
+ "la cuenta de filas no es un número: {0}": [
+  "crates/dbine-driver/src/write.rs"
  ],
  "la cuenta de {0} de esta conexión no está en esta computadora: elegí o conectá una cuenta de {1} en la conexión": [
   "src-tauri/src/secret_sources/accounts.rs"
@@ -28955,6 +29031,9 @@
  ],
  "la escala": [
   "crates/drivers/hana/src/transfer.rs"
+ ],
+ "la escritura cambió desde que se confirmó: ejecutá la celda de nuevo": [
+  "src-tauri/src/notebook/write.rs"
  ],
  "la especificación y el cuerpo": [
   "crates/drivers/oracle/src/rename.rs"
@@ -29401,7 +29480,8 @@
  ],
  "la tabla no tiene la columna «{0}»": [
   "crates/drivers/bigquery/src/transfer.rs",
-  "crates/drivers/postgres/src/delta.rs"
+  "crates/drivers/postgres/src/delta.rs",
+  "src-tauri/src/notebook/write.rs"
  ],
  "la tabla no tiene rowid y trae un REAL infinito: el servidor lo envía sin valor ni signo y no hay forma de volver a pedir esa fila": [
   "crates/drivers/libsql/src/transfer.rs"
@@ -29437,6 +29517,9 @@
   "crates/drivers/athena/src/rename.rs",
   "crates/drivers/dremio/src/rename.rs",
   "crates/drivers/mysql/src/rename.rs"
+ ],
+ "la tabla «{0}» ya existe: elegila como tabla existente": [
+  "src-tauri/src/notebook/write.rs"
  ],
  "la tanda en curso terminó mal: {0}": [
   "crates/drivers/redis/src/transfer.rs"
@@ -30106,6 +30189,9 @@
  "ninguna columna coincide con la tabla del destino": [
   "src-tauri/src/commands/subset/mod.rs"
  ],
+ "ninguna columna del DataFrame coincide con una de la tabla: elegí a qué columna va cada una": [
+  "src-tauri/src/notebook/write.rs"
+ ],
  "ninguno asociado: nadie puede ingresar con este rol": [
   "crates/drivers/dsql/src/security.rs"
  ],
@@ -30336,6 +30422,9 @@
  "no existe la tabla «{0}»": [
   "crates/drivers/firebird/src/transfer.rs"
  ],
+ "no existe la tabla «{0}» (o no se puede leer): elegí otra o marcá «crear tabla nueva»": [
+  "src-tauri/src/notebook/write.rs"
+ ],
  "no existe la tarea programada '{0}'": [
   "src-tauri/src/tasks/mod.rs"
  ],
@@ -30364,11 +30453,17 @@
  "no hay campos para identificar el registro": [
   "crates/drivers/orientdb/src/ddl.rs"
  ],
+ "no hay columnas para actualizar además de la clave": [
+  "crates/dbine-driver/src/write.rs"
+ ],
  "no hay columnas para cargar": [
   "crates/drivers/snowflake/src/transfer.rs"
  ],
  "no hay columnas para comparar": [
   "crates/drivers/postgres/src/delta.rs"
+ ],
+ "no hay columnas para escribir": [
+  "crates/dbine-driver/src/write.rs"
  ],
  "no hay columnas para importar: revisá la correspondencia": [
   "src-tauri/src/commands/imports.rs"
@@ -30452,6 +30547,9 @@
   "crates/drivers/athena/src/lib.rs",
   "crates/drivers/athena/src/transfer.rs",
   "crates/drivers/snowflake/src/lib.rs"
+ ],
+ "no hay una celda «{0}» arriba de esta": [
+  "src-tauri/src/notebook/write.rs"
  ],
  "no hay una entrada «{0}» en la base de KeePass": [
   "src-tauri/src/secret_sources/keepass.rs"
@@ -30956,6 +31054,9 @@
  "no se pudo crear la tabla transitoria de carga «{0}.{1}» (la carga pasa por ella para que la tabla quede entera o vacía{2}): {3}": [
   "crates/drivers/snowflake/src/transfer.rs"
  ],
+ "no se pudo crear la tabla: {0}": [
+  "src-tauri/src/notebook/write.rs"
+ ],
  "no se pudo crear sin nombre la restricción única «{0}» del clon; no se clona": [
   "crates/dbine-transfer/src/clone_table/mssql.rs"
  ],
@@ -31136,6 +31237,9 @@
  ],
  "no se pudo leer dónde se guardan la tabla y sus índices (filegroups, esquemas de partición); no se clona": [
   "crates/dbine-transfer/src/clone_table/mssql.rs"
+ ],
+ "no se pudo leer el DataFrame: {0}": [
+  "src-tauri/src/notebook/write.rs"
  ],
  "no se pudo leer el adjunto {0}: {1}": [
   "src-tauri/src/tasks/mail.rs"
@@ -31378,6 +31482,9 @@
  "no se pudo preparar la copia de «{0}»: {1}": [
   "src-tauri/src/notebook/files.rs"
  ],
+ "no se pudo preparar la escritura": [
+  "src-tauri/src/notebook/headless.rs"
+ ],
  "no se pudo preparar la lectura de archivos: {0}": [
   "src-tauri/src/notebook/files.rs"
  ],
@@ -31587,6 +31694,9 @@
  ],
  "no se puede clonar: «{0}» tiene puntos en la política de retención «{1}», que no es la predeterminada; el clon copia solo la predeterminada y esos puntos se perderían": [
   "crates/dbine-transfer/src/clone_table/timeseries.rs"
+ ],
+ "no se puede crear la tabla en este motor: {0}": [
+  "src-tauri/src/notebook/write.rs"
  ],
  "no se puede guardar «{0}» como {1}": [
   "crates/drivers/spanner/src/transfer.rs"
@@ -32232,6 +32342,9 @@
  "rechazados": [
   "crates/drivers/elasticsearch/src/monitor.rs"
  ],
+ "reemplazar el contenido": [
+  "src-tauri/src/notebook/write.rs"
+ ],
  "registra solo el {0} % de las consultas": [
   "crates/drivers/postgres/src/profiler.rs"
  ],
@@ -32532,6 +32645,9 @@
  "se aplicaron {0} de {1} cambios; falló: {2} {3}\n{4}": [
   "crates/drivers/couchdb/src/properties.rs"
  ],
+ "se borraron {0} documentos y la carga falló: {1}": [
+  "crates/drivers/mongodb/src/transfer.rs"
+ ],
  "se canceló": [
   "crates/dbine-ai/src/lib.rs",
   "crates/dbine-sync/src/lib.rs",
@@ -32539,6 +32655,9 @@
  ],
  "se canceló el desbloqueo de 1Password": [
   "src-tauri/src/secret_sources/onepassword.rs"
+ ],
+ "se canceló la escritura": [
+  "src-tauri/src/notebook/write.rs"
  ],
  "se cargaron las filas pero no se pudo mover la secuencia de «{0}» más allá del máximo cargado: {1}": [
   "crates/drivers/dsql/src/transfer.rs"
@@ -33915,6 +34034,9 @@
  "{0} (variables de entorno)": [
   "crates/drivers/postgres/src/cloud_auth.rs"
  ],
+ "{0} (ya se habían escrito {1} insertados y {2} actualizados, que quedan)": [
+  "crates/drivers/mongodb/src/transfer.rs"
+ ],
  "{0} ({1} de {2} réplicas activas)": [
   "crates/drivers/clickhouse/src/health.rs"
  ],
@@ -34155,6 +34277,9 @@
  "{0} filas de «{1}» apuntan a filas de «{2}» que no existen en el origen: si el destino valida las claves foráneas, van a fallar.": [
   "src-tauri/src/commands/subset/mod.rs"
  ],
+ "{0} filas del DataFrame no tienen clave ({1}): no se pueden buscar en la tabla": [
+  "src-tauri/src/notebook/write.rs"
+ ],
  "{0} fuera de rango": [
   "crates/drivers/sqlserver/src/transfer.rs"
  ],
@@ -34342,6 +34467,12 @@
  "{0} no es una tabla": [
   "crates/drivers/postgres/src/clone.rs"
  ],
+ "{0} no escribe datos desde un notebook": [
+  "src-tauri/src/notebook/write.rs"
+ ],
+ "{0} no escribe en modo «{1}» desde un notebook": [
+  "src-tauri/src/notebook/write.rs"
+ ],
  "{0} no expone cuántas veces se usa cada índice: se listan los índices con sus columnas, sin contadores. Para saber si una consulta usa un índice, mirá su plan de ejecución.": [
   "crates/drivers/odbc/src/index_usage.rs"
  ],
@@ -34520,6 +34651,7 @@
   "src-tauri/src/commands/migration.rs"
  ],
  "{0} no tiene COPY FROM STDIN": [
+  "crates/drivers/postgres/src/session.rs",
   "crates/drivers/postgres/src/transfer.rs"
  ],
  "{0} no tiene TIMESTAMP WITH TIME ZONE: se guarda la fecha y hora sin la zona.": [
@@ -35641,6 +35773,9 @@
  "«{0}» es de solo lectura: no se pueden insertar datos": [
   "src-tauri/src/commands/datagen.rs"
  ],
+ "«{0}» es de solo lectura: un notebook no escribe en ella": [
+  "src-tauri/src/notebook/write.rs"
+ ],
  "«{0}» es de tipo «{1}»: MongoDB solo mueve colecciones y vistas": [
   "crates/drivers/mongodb/src/rename.rs"
  ],
@@ -36353,6 +36488,9 @@
  "«{0}» se cargó con las primeras {1} filas (el tope por tabla de Configuración › Notebooks)": [
   "src-tauri/src/notebook/local.rs"
  ],
+ "«{0}» se cargó cortada en {1} filas (el tope por tabla de Configuración › Notebooks): no se escribe un DataFrame incompleto. Subí el tope o filtrá antes": [
+  "src-tauri/src/notebook/write.rs"
+ ],
  "«{0}» se otorga sobre el grafo entero, no sobre una etiqueta o un tipo de relación": [
   "crates/drivers/neo4j/src/security.rs"
  ],
@@ -36466,6 +36604,9 @@
  "«{0}»: el servidor respondió {1}": [
   "src-tauri/src/notebook/remote.rs"
  ],
+ "«{0}»: es {1} y «{2}» es entero: se pierden los decimales": [
+  "src-tauri/src/notebook/write.rs"
+ ],
  "«{0}»: escribí az://<cuenta>.blob.core.windows.net/<contenedor>/<archivo>, abfss://<contenedor>@<cuenta>.dfs.core.windows.net/<archivo> o, con AZURE_STORAGE_ACCOUNT definida, az://<contenedor>/<archivo>": [
   "src-tauri/src/notebook/remote.rs"
  ],
@@ -36475,6 +36616,9 @@
  "«{0}»: estas celdas leen de la red solo https://, s3://, gs:// y az:// (o abfss://); ningún otro esquema": [
   "src-tauri/src/notebook/remote.rs"
  ],
+ "«{0}»: hay valores de hasta {1} caracteres y «{2}» es {3}: el motor los rechaza o los corta": [
+  "src-tauri/src/notebook/write.rs"
+ ],
  "«{0}»: la lista de valores está vacía": [
   "src-tauri/src/commands/datagen.rs"
  ],
@@ -36483,6 +36627,12 @@
  ],
  "«{0}»: sus columnas {1} tienen valores que no son de su tipo y se cargaron como texto": [
   "src-tauri/src/notebook/local.rs"
+ ],
+ "«{0}»: tiene zona horaria y «{1}» no: se guarda sin ella": [
+  "src-tauri/src/notebook/write.rs"
+ ],
+ "«{0}»: tiene {1} decimales y «{2}» guarda {3}: se redondean": [
+  "src-tauri/src/notebook/write.rs"
  ],
  "«{0}»: una URL https:// no puede ser un patrón; los patrones (*.parquet) van solo en s3://, gs:// y az://": [
   "src-tauri/src/notebook/remote.rs"

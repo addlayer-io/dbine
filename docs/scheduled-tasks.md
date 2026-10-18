@@ -225,8 +225,16 @@ Nobody is there to answer, so the step **never asks**:
   cells in the notebook voids it (see [Changes are approved](#changes-are-approved)).
 - **Write cells** (cells that write a DataFrame to a table) run only when
   the step authorizes each one, as the editor shows it: the cell, its target
-  table and its mode. A change in any of them voids the authorization; an
-  unauthorized write cell fails the step at that cell.
+  (`Ventas prod › ventas › dbo.resumen`, with "(nueva)" when it creates the
+  table) and its mode with its keys (`upsert: id`). A change in any of them
+  voids the authorization; an unauthorized write cell fails the step at that
+  cell and writes nothing. An authorized one writes as the app does (the
+  same plan, token and transaction; see
+  [notebooks.md](notebooks.md#writing-a-dataframe-to-a-table)) without the
+  confirmation dialog, which the authorization stands for; a target that is
+  production or asks before running needs the step's opt-in for it as
+  well, its DataFrame reads only files with "Permitir siempre", and a
+  read-only connection is refused.
 - The opt-ins and authorizations are stored in the task (this machine's
   state); the MCP server and the assistant have no tools for scheduled
   tasks, and the phone app can only run a saved task, never edit it.
@@ -435,8 +443,10 @@ Tasks add no methods to the drivers: each step type uses what already exists.
   `notebook::export`. What the tab does in TypeScript (resolving targets,
   turning a run into a cell's result) is done again there, the same way.
   Command: `scheduled_notebook_plan` (what the step's editor shows; it runs
-  nothing). Notebook parameters and write cells come in through two hooks
-  there (`executable_sources`, `write_cell`).
+  nothing). Notebook parameters come in through a hook there
+  (`executable_sources`); write cells through `write_cell` (what the editor
+  shows and authorizes) and `write_unattended` (`notebook::write`'s prepare
+  and run).
 - **Send an email:** it does not use the driver; it sends over SMTP with the
   server from **Settings › Mail**. Commands: `mail_settings_get`,
   `mail_settings_save` and `mail_test`.

@@ -19,6 +19,7 @@ pub mod headless;
 pub mod local;
 pub mod python;
 pub mod remote;
+pub mod write;
 
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Map, Value};
@@ -62,6 +63,63 @@ pub enum CellKind {
     /// A cell from elsewhere (Python, R, a raw cell…): read-only, written
     /// back unchanged.
     Foreign,
+    /// Writes a DataFrame into a table ([`WriteCell`], `notebook::write`).
+    Write,
+}
+
+/// A write cell's definition, as the file keeps it: the DataFrame (a cell's
+/// name), the target by NAME (like any cell's, never ids, hosts or
+/// credentials), the table, the mode, the keys and the mapping. Never rows.
+#[derive(Serialize, Deserialize, Clone, Debug, PartialEq, Default)]
+pub struct WriteCell {
+    /// The cell whose DataFrame is written.
+    #[serde(default)]
+    pub source: Option<String>,
+    #[serde(default)]
+    pub target: Option<NotebookTarget>,
+    #[serde(default)]
+    pub schema: Option<String>,
+    #[serde(default)]
+    pub table: Option<String>,
+    /// "Crear tabla nueva".
+    #[serde(default)]
+    pub create: bool,
+    /// `insert`, `update`, `upsert` or `replace`.
+    #[serde(default = "insert_mode")]
+    pub mode: dbine_driver::WriteMode,
+    /// Target columns.
+    #[serde(default)]
+    pub keys: Vec<String>,
+    /// `None`: by name.
+    #[serde(default)]
+    pub mapping: Option<Vec<write::ColumnPair>>,
+}
+
+fn insert_mode() -> dbine_driver::WriteMode {
+    dbine_driver::WriteMode::Insert
+}
+
+/// A write cell's last run, as the file keeps it: counts, when, how long,
+/// where, and the error (cut).
+#[derive(Serialize, Deserialize, Clone, Debug, PartialEq, Default)]
+pub struct WriteSummary {
+    #[serde(default)]
+    pub inserted: u64,
+    #[serde(default)]
+    pub updated: u64,
+    #[serde(default)]
+    pub deleted: u64,
+    #[serde(default)]
+    pub ran_at: String,
+    #[serde(default)]
+    pub duration_ms: u64,
+    #[serde(default)]
+    pub target_label: Option<String>,
+    #[serde(default)]
+    pub error: Option<String>,
+    /// Shown in this session only; not written to the file.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub warnings: Vec<String>,
 }
 
 #[derive(Serialize, Deserialize, Clone, Debug, PartialEq)]
@@ -157,6 +215,12 @@ pub struct NotebookCell {
     /// Markdown: `{"attachments": …}` when it had any.
     #[serde(default)]
     pub raw: Option<Value>,
+    /// Write cells: what they write and where.
+    #[serde(default)]
+    pub write: Option<WriteCell>,
+    /// Write cells: their last run.
+    #[serde(default)]
+    pub write_result: Option<WriteSummary>,
 }
 
 #[derive(Serialize, Deserialize, Clone, Debug, PartialEq)]
@@ -447,6 +511,8 @@ fn read_cell(c: &Value, ctx: &Ctx, ids: &mut HashSet<String>, w: &mut Warnings) 
         result: None,
         raw: None,
         name: None,
+        write: None,
+        write_result: None,
     };
     let lang = str_of(meta, "language");
     match str_of(m, "cell_type") {
@@ -465,6 +531,12 @@ fn read_cell(c: &Value, ctx: &Ctx, ids: &mut HashSet<String>, w: &mut Warnings) 
                 cell.kind = CellKind::Sql;
                 cell.source = sql;
                 cell.language = Some("sql".into());
+            } else if let Some(d) = meta.get("dbine").and_then(Value::as_object).filter(|d| str_of(d, "kind") == Some("write")) {
+                flag_credentials(d, w);
+                cell.kind = CellKind::Write;
+                cell.language = None;
+                cell.write = Some(read_write_cell(d.get("write"), w));
+                cell.write_result = d.get("write_result").and_then(|r| read_write_summary(r));
             } else if let Some(d) = meta.get("dbine").and_then(Value::as_object) {
                 flag_credentials(d, w);
                 cell.kind = CellKind::Sql;
@@ -497,6 +569,101 @@ fn read_cell(c: &Value, ctx: &Ctx, ids: &mut HashSet<String>, w: &mut Warnings) 
         _ => cell.raw = Some(c.clone()),
     }
     cell
+}
+
+/// A write cell's definition from the file: only the fields it knows, the
+/// target through [`read_target`] (names only), names as plain strings.
+fn read_write_cell(v: Option<&Value>, w: &mut Warnings) -> WriteCell {
+    let empty = Map::new();
+    let m = v.and_then(Value::as_object).unwrap_or(&empty);
+    flag_credentials(m, w);
+    let text = |k: &str| str_of(m, k).map(str::trim).filter(|s| !s.is_empty() && s.len() <= 256).map(String::from);
+    let names = |v: Option<&Value>| -> Vec<String> {
+        v.and_then(Value::as_array).map(|a| a.iter().filter_map(Value::as_str).map(str::trim).filter(|s| !s.is_empty()).take(64).map(String::from).collect()).unwrap_or_default()
+    };
+    let mapping = m.get("mapping").and_then(Value::as_array).map(|a| {
+        a.iter()
+            .filter_map(|p| {
+                let (s, t) = (p.get("source")?.as_str()?.trim(), p.get("target")?.as_str()?.trim());
+                (!s.is_empty() && !t.is_empty()).then(|| write::ColumnPair { source: s.into(), target: t.into() })
+            })
+            .take(4096)
+            .collect()
+    });
+    WriteCell {
+        source: text("source").filter(|n| local::valid_name(n)),
+        target: read_target(m.get("target"), w).filter(|t| !t.results),
+        schema: text("schema"),
+        table: text("table"),
+        create: m.get("create").and_then(Value::as_bool).unwrap_or(false),
+        // An unknown mode reads as the one that changes no existing row.
+        mode: m.get("mode").and_then(|v| serde_json::from_value(v.clone()).ok()).unwrap_or(dbine_driver::WriteMode::Insert),
+        keys: names(m.get("keys")),
+        mapping,
+    }
+}
+
+fn read_write_summary(v: &Value) -> Option<WriteSummary> {
+    let m = v.as_object()?;
+    let n = |k: &str| m.get(k).and_then(Value::as_u64).unwrap_or(0);
+    let t = |k: &str| str_of(m, k).map(|s| s.chars().take(2000).collect::<String>());
+    Some(WriteSummary {
+        inserted: n("inserted"),
+        updated: n("updated"),
+        deleted: n("deleted"),
+        ran_at: t("ran_at").unwrap_or_default(),
+        duration_ms: n("duration_ms"),
+        target_label: t("target_label"),
+        error: t("error"),
+        warnings: Vec::new(),
+    })
+}
+
+/// "120 inserted, 30 updated · {ran_at} · 1.2 s · {target}", or the error.
+pub fn write_summary_line(r: &WriteSummary) -> String {
+    let mut parts = Vec::new();
+    match &r.error {
+        Some(e) => parts.push(format!("Write failed: {e}")),
+        None => {
+            let mut counts = vec![format!("{} inserted", r.inserted), format!("{} updated", r.updated)];
+            if r.deleted > 0 {
+                counts.push(format!("{} deleted", r.deleted));
+            }
+            parts.push(counts.join(", "));
+        }
+    }
+    if !r.ran_at.is_empty() {
+        parts.push(r.ran_at.clone());
+    }
+    parts.push(format_duration(r.duration_ms));
+    if let Some(t) = r.target_label.as_deref().filter(|t| !t.is_empty()) {
+        parts.push(t.to_string());
+    }
+    parts.join(" · ")
+}
+
+/// What a write cell's `source` says to someone reading the file elsewhere.
+pub fn write_cell_text(w: &WriteCell) -> String {
+    let target = match &w.target {
+        Some(t) if t.environment.is_some() => t.environment.clone().unwrap_or_default(),
+        Some(t) => [t.connection.clone(), t.database.clone()].into_iter().flatten().collect::<Vec<_>>().join(" › "),
+        None => String::new(),
+    };
+    let table = [w.schema.clone(), w.table.clone()].into_iter().flatten().collect::<Vec<_>>().join(".");
+    let mode = match w.mode {
+        dbine_driver::WriteMode::Insert => "insert".to_string(),
+        dbine_driver::WriteMode::Update => format!("update by {}", w.keys.join(", ")),
+        dbine_driver::WriteMode::Upsert => format!("insert or update by {}", w.keys.join(", ")),
+        dbine_driver::WriteMode::Replace => "replace the table's rows".to_string(),
+    };
+    format!(
+        "-- DBine write cell (edit it in DBine)\n-- DataFrame: {}\n-- Into: {}{}{}\n-- Mode: {mode}{}\n",
+        w.source.as_deref().unwrap_or("?"),
+        target,
+        if target.is_empty() || table.is_empty() { "" } else { " › " },
+        table,
+        if w.create { " (creates the table)" } else { "" }
+    )
 }
 
 /// A cell name used twice (ignoring case, as DuckDB does): the later
@@ -1102,6 +1269,38 @@ fn write_cell(c: &NotebookCell, nb: &Notebook, limits: PreviewLimits, ids: &mut 
             }
             None => json!({ "cell_type": "raw", "id": id, "metadata": {}, "source": lines(&c.source) }),
         },
+        CellKind::Write => {
+            let def = c.write.clone().unwrap_or_default();
+            let mut w = serde_json::to_value(&def).unwrap_or_else(|_| json!({}));
+            if let Some(m) = w.as_object_mut() {
+                m.remove("target");
+                if let Some(t) = def.target.as_ref().and_then(target_json) {
+                    m.insert("target".into(), t);
+                }
+                m.retain(|_, v| !v.is_null());
+            }
+            let mut d = Map::new();
+            d.insert("kind".into(), json!("write"));
+            d.insert("write".into(), w);
+            let mut outputs = Vec::new();
+            if let Some(r) = &c.write_result {
+                let short = WriteSummary { error: r.error.as_ref().map(|e| e.chars().take(2000).collect()), warnings: Vec::new(), ..r.clone() };
+                d.insert("write_result".into(), serde_json::to_value(&short).unwrap_or(Value::Null));
+                let line = write_summary_line(&short);
+                outputs.push(match &short.error {
+                    Some(e) => json!({ "output_type": "error", "ename": "Error", "evalue": e, "traceback": [line] }),
+                    None => json!({ "output_type": "stream", "name": "stdout", "text": lines(&(line + "\n")) }),
+                });
+            }
+            json!({
+                "cell_type": "code",
+                "execution_count": c.execution_count,
+                "id": id,
+                "metadata": { "language": "dbine-write", "dbine": d },
+                "outputs": outputs,
+                "source": lines(&write_cell_text(&def)),
+            })
+        }
         CellKind::Sql => {
             let keep = nb.save_results && c.keep_result;
             let mut d = Map::new();
@@ -1211,6 +1410,8 @@ mod tests {
             result,
             raw: None,
             name: None,
+            write: None,
+            write_result: None,
         }
     }
 

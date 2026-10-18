@@ -393,6 +393,12 @@ impl Driver for MongoDriver {
         true
     }
 
+    /// Notebook writes: `insertMany`, `update` commands by key and
+    /// `deleteMany` (no transactions: see `transfer::write_rows`).
+    fn write_modes(&self) -> Vec<dbine_driver::WriteMode> {
+        dbine_driver::WriteMode::ALL.to_vec()
+    }
+
     /// Between MongoDB, FerretDB and DocumentDB: documents as raw BSON.
     fn supports_native_copy(&self, target: &str) -> bool {
         matches!(target, "mongodb" | "ferretdb" | "documentdb")
@@ -881,6 +887,16 @@ impl Session for MongoSession {
         progress: dbine_driver::transfer::Progress<'_>,
     ) -> Result<u64> {
         transfer::bulk_load(self, spec, columns, source, progress).await
+    }
+
+    async fn write_rows(
+        &mut self,
+        spec: &dbine_driver::WriteSpec,
+        columns: &[dbine_driver::TransferColumn],
+        source: &mut dyn dbine_driver::BatchSource,
+        progress: dbine_driver::transfer::Progress<'_>,
+    ) -> Result<dbine_driver::WriteResult> {
+        transfer::write_rows(self, spec, columns, source, progress).await
     }
 
     /// For `copy_native`.

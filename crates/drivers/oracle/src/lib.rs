@@ -396,6 +396,12 @@ impl Driver for OracleDriver {
         true
     }
 
+    /// Notebook writes: a global temporary staging table loaded with array
+    /// DML, then `MERGE` / `INSERT … SELECT` in one transaction.
+    fn write_modes(&self) -> Vec<dbine_driver::WriteMode> {
+        dbine_driver::WriteMode::ALL.to_vec()
+    }
+
     /// Oracle to Oracle (either flavor): the same read and load, keeping
     /// time zone regions and extended JSON (see `transfer`).
     fn supports_native_copy(&self, target: &str) -> bool {
@@ -1122,6 +1128,19 @@ impl Session for OracleSession {
         progress: dbine_driver::transfer::Progress<'_>,
     ) -> Result<u64> {
         transfer::bulk_load(self, spec, columns, source, progress).await
+    }
+
+    /// A global temporary staging table (rows private to this session) in
+    /// the user's schema, then `MERGE` / `INSERT … SELECT` in one
+    /// transaction (`dbine_driver::write`).
+    async fn write_rows(
+        &mut self,
+        spec: &dbine_driver::WriteSpec,
+        columns: &[dbine_driver::TransferColumn],
+        source: &mut dyn dbine_driver::BatchSource,
+        progress: dbine_driver::transfer::Progress<'_>,
+    ) -> Result<dbine_driver::WriteResult> {
+        dbine_driver::write::staged_write(self, dbine_driver::write::StageFlavor::Oracle, spec, columns, source, progress, true).await
     }
 
     fn as_any(&mut self) -> Option<&mut (dyn std::any::Any + Send)> {

@@ -28,6 +28,10 @@ const props = defineProps<{
   candidates?: string[] | null;
   /** The notebook (for names several connections share). */
   file?: string | null;
+  /** pick, a write cell: where its DataFrame goes. Only a connection or an
+   *  environment (no "DataFrame SQL", no "the notebook's"), never a
+   *  read-only connection. */
+  write?: boolean;
 }>();
 const emit = defineEmits<{
   /** null: the cell uses the notebook's target. */
@@ -41,7 +45,7 @@ const projects = useProjectsStore();
 
 const envs = computed(() => (props.projectId ? projects.byId(props.projectId)?.manifest?.environments ?? [] : []));
 type Kind = 'inherit' | 'env' | 'connection' | 'results';
-const kind = ref<Kind>(props.initial?.results ? 'results'
+const kind = ref<Kind>(props.initial?.results && !props.write ? 'results'
   : props.inherit && !props.initial ? 'inherit' : props.initial?.environment && envs.value.length ? 'env' : envs.value.length && !props.initial ? 'env' : 'connection');
 const env = ref(props.initial?.environment ?? projects.activeTarget(props.projectId ?? '').env?.name ?? envs.value[0]?.name ?? '');
 const direct = ref<ProjectTarget | null>((() => {
@@ -49,7 +53,7 @@ const direct = ref<ProjectTarget | null>((() => {
   return c ? { connection_id: c.id, database: props.initial?.database ?? c.config.database ?? '' } : null;
 })());
 
-const canPick = computed(() => kind.value === 'inherit' || kind.value === 'results' || (kind.value === 'env' ? !!env.value : !!direct.value));
+const canPick = computed(() => (!props.write && (kind.value === 'inherit' || kind.value === 'results')) || (kind.value === 'env' ? !!env.value : kind.value === 'connection' && !!direct.value));
 function confirmPick() {
   if (kind.value === 'inherit') emit('pick', null);
   else if (kind.value === 'results') emit('pick', { connection: null, database: null, environment: null, results: true });
@@ -74,7 +78,7 @@ function detail(id: string): string {
 <template>
   <el-dialog
     :model-value="true"
-    :title="mode === 'map' ? $t('notebook:target.mapTitle') : inherit ? $t('notebook:target.cellTitle') : $t('notebook:target.title')"
+    :title="mode === 'map' ? $t('notebook:target.mapTitle') : write ? $t('notebook:write.targetTitle') : inherit ? $t('notebook:target.cellTitle') : $t('notebook:target.title')"
     width="480px"
     append-to-body
     :close-on-click-modal="false"
@@ -82,10 +86,10 @@ function detail(id: string): string {
   >
     <template v-if="mode === 'pick'">
       <el-radio-group v-model="kind" class="ntd-kinds">
-        <el-radio v-if="inherit" value="inherit">{{ $t('notebook:target.inherit') }}</el-radio>
+        <el-radio v-if="inherit && !write" value="inherit">{{ $t('notebook:target.inherit') }}</el-radio>
         <el-radio v-if="envs.length" value="env">{{ $t('notebook:target.environment') }}</el-radio>
         <el-radio value="connection">{{ $t('notebook:target.connection') }}</el-radio>
-        <el-radio value="results">{{ $t('notebook:target.results') }}</el-radio>
+        <el-radio v-if="!write" value="results">{{ $t('notebook:target.results') }}</el-radio>
       </el-radio-group>
       <div v-if="kind === 'env'" class="ntd-env">
         <el-select v-model="env" style="width: 100%">
@@ -95,7 +99,8 @@ function detail(id: string): string {
         </el-select>
         <p class="ntd-dim">{{ $t('notebook:target.environmentHelp') }}</p>
       </div>
-      <ProjectTargetPicker v-else-if="kind === 'connection'" v-model="direct" />
+      <ProjectTargetPicker v-else-if="kind === 'connection'" v-model="direct" :writable="write" />
+      <p v-if="write && kind === 'connection'" class="ntd-dim">{{ $t('notebook:write.targetHelp') }}</p>
       <p v-else-if="kind === 'results'" class="ntd-dim">{{ $t('notebook:target.resultsHelp') }}</p>
       <p v-else class="ntd-dim">{{ $t('notebook:target.inheritHelp') }}</p>
     </template>

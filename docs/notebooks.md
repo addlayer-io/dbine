@@ -1,8 +1,10 @@
 # Notebooks
 
 A notebook is a document of **cells**, one under another: **SQL cells** that
-run against a connection and keep their result under them, and **text cells**
-(Markdown) that explain what is being done and why. It keeps a whole
+run against a connection and keep their result under them, **text cells**
+(Markdown) that explain what is being done and why, and **write cells** that
+write a cell's result into a table (see
+[Writing a DataFrame to a table](#writing-a-dataframe-to-a-table)). It keeps a whole
 investigation, runbook or report in one file: the queries, what they returned
 and the conclusions.
 
@@ -115,7 +117,8 @@ a DBine notebook when it has `metadata.dbine`; any other `.ipynb` opens too
   the other run actions are disabled and the shortcuts do nothing.
 - **Run all** stops at the first cell that fails. An environment with
   `confirm_run` asks once per target in a Run all, like the editor asks once
-  per run.
+  per run. It also stops at every write cell and asks before writing (see
+  [Writing a DataFrame to a table](#writing-a-dataframe-to-a-table)).
 - The number next to a cell (`[3]`) is the order it last ran in, as in Jupyter.
 
 ### Transactions
@@ -606,6 +609,137 @@ GROUP BY ALL
   credentials reach it, and the `.ipynb` stores only the cell names and
   `{ "dataframes": true }`.
 
+## Writing a DataFrame to a table
+
+A **write cell** writes a cell's whole result (its DataFrame) into a table
+of any engine that writes. The case it is for: a notebook combines SQL
+Server, PostgreSQL and a CSV in DataFrame SQL cells and, at the end, updates
+a table with the result, the same way every month.
+
+- **Adding one:** **+ Escritura** next to **+ SQL** / **+ Texto**, or
+  **Escribir en una tabla…** in a SQL cell's menu (and in its result's
+  summary bar), which adds a write cell under it already set to that cell's
+  DataFrame.
+- **The form** (not code):
+  - **DataFrame:** one of the named SQL cells above it.
+  - **Destino:** a connection and database, or a project environment,
+    picked like a cell's target (read-only connections aren't offered);
+    the schema, where the engine has them, and the table: an existing one
+    or **Crear tabla nueva** (it must not exist; its columns come from the
+    DataFrame in the engine's types, with the key as its primary key).
+  - **Modo:** **Insertar**, **Actualizar por clave** (rows whose key isn't
+    in the table are left out), **Insertar o actualizar** (upsert) or
+    **Reemplazar contenido** (the table's rows are deleted, then the
+    DataFrame's inserted). Only the modes the target's engine does can be
+    picked.
+  - **Clave:** the target columns that identify a row (update and upsert).
+  - **Columnas:** each DataFrame column and the table column it goes to,
+    paired by name (ignoring case) until changed; **— no se escribe —**
+    leaves one out, and the table's columns nothing goes into are listed
+    (they keep their default).
+  - **Vista previa:** loads the DataFrame and checks everything, writing
+    nothing: the row count, each column's type on both sides (a value that
+    changes kind is marked), warnings (texts longer than the column,
+    decimals rounded, fractions or time zones dropped), the `CREATE TABLE`
+    of a new table and the first rows.
+- **The rows written are the whole DataFrame, never the saved preview.** It
+  is loaded into the notebook's DuckDB database with the same rules as a
+  DataFrame SQL cell (the source's complete run in this session, or its
+  query run again read-only; local files only with their approval). A
+  DataFrame that got cut at the row cap on the way (it or any table it
+  comes from) is not written: the cell says so (raise the cap in
+  **Settings › Notebooks**, or filter before). For update and upsert, a key
+  repeated or empty in the DataFrame stops it before anything is written.
+- **Every run asks**, in the app: *"Se van a escribir N filas en:"* with the
+  connection › database › table, the mode, the key and the columns, whether
+  it is one transaction, and the warnings. **Reemplazar contenido** says
+  that the table's rows are deleted first. A **production** connection
+  (tagged `prod`, or a project environment with `confirm_run`) is shown in
+  red and asks to type the table's name, as DBine's other destructive
+  dialogs do; an environment with `confirm_run` also asks its own
+  confirmation first, as SQL cells do. **Run all** stops at each write cell
+  with this dialog: **No escribir esta** skips that one and goes on,
+  **Cancelar todo** stops the run. Nothing is ever written without it.
+- **Enforced in the backend:** the preview returns a one-time token bound to
+  the tab, the cell, the target (connection, database, schema, table, new
+  or not), the mode, the keys, the mapping and the row count; the write
+  runs only with that token, once, for 15 minutes, and refuses it when any
+  of those changed or the DataFrame no longer has those rows. A read-only
+  connection is refused there too (its session refuses writes as well). No
+  MCP tool or assistant tool reaches it (the assistant never writes;
+  MCP's own `execute` takes one statement and asks in DBine).
+- **How it writes** (`dbine_driver::write`):
+  - SQL engines: the rows are bulk loaded (the engine's own bulk path:
+    `INSERT BULK`, `COPY`, `LOAD DATA`, array DML, the appender…) into a
+    **staging table** that copies the target's column types (a temporary
+    table: `#temp` in SQL Server, `TEMPORARY` in PostgreSQL and MySQL, a
+    global temporary table in Oracle; DuckDB and SQLite use a table next to
+    the target or `TEMP`), then applied in **one transaction**: `INSERT …
+    SELECT`; the engine's update from a join (`UPDATE … FROM`, `UPDATE …
+    JOIN`, `MERGE … WHEN MATCHED`) of the non-key columns; for upsert that
+    update and then `INSERT … SELECT … WHERE NOT EXISTS` of the missing
+    keys (two statements instead of one `MERGE` / `ON CONFLICT`: no unique
+    index is needed on the key, and updated and inserted are counted
+    apart); for replace `DELETE FROM` (never `TRUNCATE`: not transactional
+    everywhere, and refused by foreign keys) and the insert. A failure
+    rolls it all back: the table is as it was. The staging table is dropped
+    afterwards. Writing an identity column in SQL Server turns
+    `IDENTITY_INSERT` on around the inserts.
+  - MongoDB (and FerretDB, DocumentDB): `insertMany`; `update` commands by
+    key (the key fields as the filter, the others in `$set`, `upsert: true`
+    for upsert); replace is `deleteMany({})` then the insert. There is no
+    transaction: what was written before a failure stays, and the result
+    says how much.
+  - Engines without these modes insert through their bulk load, without a
+    transaction (see `docs/engine-support.md`).
+  - Values always travel through the bulk or parameter path; the
+    statements carry only identifiers, quoted for the dialect.
+- **Its result:** rows inserted, updated and deleted, when, how long and
+  where, and the warnings. A failure says whether nothing was written (the
+  transaction rolled back) or how many rows were and stay. **Cancel**
+  stops it; a write cut short closes its session, so the server rolls the
+  open transaction back.
+- **In a scheduled task** ([scheduled-tasks.md](scheduled-tasks.md)), a
+  write cell runs only when the step authorizes that exact cell, target and
+  mode (with its keys); the authorization replaces the dialog, nothing else
+  changes. Otherwise the step fails at that cell and nothing is written.
+- **Python export:** a write cell becomes a commented `df.to_sql(…)` with a
+  note: running the exported notebook writes nothing.
+- **In the file**, the cell is a code cell with `metadata.dbine.kind:
+  "write"` and its definition: the DataFrame's name, the target by
+  connection **name** (or environment) and database, like any cell's
+  (never ids, hosts or credentials), the schema, the table, whether it
+  creates it, the mode, the keys and the mapping. Its `source` is a short
+  readable description for other programs. The last run is kept only as a
+  summary (`write_result`: the counts, when, how long, where, and the
+  error), also as a text output; never rows. A mode a file names that
+  DBine doesn't know reads as **Insertar**.
+
+```json
+{
+  "cell_type": "code",
+  "metadata": {
+    "language": "dbine-write",
+    "dbine": {
+      "kind": "write",
+      "write": {
+        "source": "resumen",
+        "target": { "connection": "Ventas prod", "database": "ventas" },
+        "schema": "dbo",
+        "table": "resumen_mensual",
+        "create": false,
+        "mode": "upsert",
+        "keys": ["id"],
+        "mapping": [{ "source": "id", "target": "id" }, { "source": "total", "target": "importe" }]
+      },
+      "write_result": { "inserted": 96, "updated": 1152, "deleted": 0, "ran_at": "2026-10-18T14:32:05Z", "duration_ms": 1840, "target_label": "Ventas prod › ventas › dbo.resumen_mensual", "error": null }
+    }
+  },
+  "source": ["-- DBine write cell (edit it in DBine)\n", "-- DataFrame: resumen\n", "…"],
+  "outputs": [{ "output_type": "stream", "name": "stdout", "text": ["96 inserted, 1152 updated · …\n"] }]
+}
+```
+
 ## The result and what is saved
 
 On screen, a cell's result is the editor's results grid (paged, with sorting,
@@ -816,7 +950,9 @@ database or project environment), running, previews with their limits, the
 three AI actions, notebooks from elsewhere, export to HTML, Markdown and a
 Python notebook, and
 [DataFrame SQL cells](#dataframe-sql-cells-cross-engine): cells that join the
-results of cells on different engines and local files.
+results of cells on different engines and local files, and
+[write cells](#writing-a-dataframe-to-a-table) that write a DataFrame into a
+table.
 
 **Run a notebook** as a step of a [scheduled task](scheduled-tasks.md#run-a-notebook),
 followed by **Send an email**, turns a notebook into a periodic report: it

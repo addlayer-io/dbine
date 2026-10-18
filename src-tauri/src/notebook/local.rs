@@ -539,7 +539,7 @@ struct Catalog {
 /// What a cell's run read: its SQL as it ran (reader calls replaced by
 /// their tables) and the tables it names, with their keys then.
 #[derive(Debug, Clone)]
-struct CellRun {
+pub(crate) struct CellRun {
     sql: String,
     tables: Vec<(String, String)>,
 }
@@ -685,7 +685,7 @@ async fn duck_entry(state: &AppState, key: &str, spatial: bool) -> CommandResult
     Ok(entry)
 }
 
-async fn exec(s: &mut dyn Session, sql: &str) -> CommandResult<QueryOutcome> {
+pub(crate) async fn exec(s: &mut dyn Session, sql: &str) -> CommandResult<QueryOutcome> {
     let mut out = QueryOutcome::default();
     s.execute(sql, 1_000, &mut out).await?;
     match out.error.take() {
@@ -694,7 +694,7 @@ async fn exec(s: &mut dyn Session, sql: &str) -> CommandResult<QueryOutcome> {
     }
 }
 
-fn first_value(out: &QueryOutcome) -> Option<&Value> {
+pub(crate) fn first_value(out: &QueryOutcome) -> Option<&Value> {
     out.results.iter().find(|r| !r.columns.is_empty()).and_then(|r| r.rows.first()).and_then(|r| r.first())
 }
 
@@ -1242,27 +1242,28 @@ where
     Ok(Prepared::Ready(files::rewrite(sql, &cell), loaded))
 }
 
-/// Run `sql` (DuckDB SQL) over the tables of the sources it names and the
-/// local files it reads, on the tab's DuckDB session. `notebook_path`: the
-/// notebook's file, whose folder relative paths are read from (`None`
-/// while it's unsaved). See the module docs.
-pub async fn run_local(
+/// The tab's DuckDB session with every table `sql` needs loaded: what a
+/// DataFrame SQL cell's run and a write cell's DataFrame share. `sql`
+/// comes back with each reader call replaced by its table.
+pub(crate) enum Staged {
+    Ready { entry: Arc<SessionEntry>, sql: String, loaded: Vec<LoadedTable>, out: QueryOutcome, snapshot: CellRun },
+    /// Files nobody allowed yet: nothing was read.
+    Ask(super::access::ApprovalRequest),
+}
+
+/// Load what `sql` needs into the tab's DuckDB session (see [`run_local`]).
+#[allow(clippy::too_many_arguments)]
+pub(crate) async fn stage(
     state: &AppState,
     tab: &str,
     sql: &str,
-    max_rows: usize,
     cap: u64,
     sources: &[LocalSource],
     notebook_path: Option<&str>,
     approval: Option<&str>,
     policy: super::access::Policy,
     net: super::remote::Net,
-) -> CommandResult<RunLocalResponse> {
-    let sql = sql.trim();
-    if sql.is_empty() {
-        return Err(CommandError::BadRequest("la consulta está vacía".into()));
-    }
-    let cap = cap.clamp(ROW_CAP_RANGE.0, ROW_CAP_RANGE.1);
+) -> CommandResult<Staged> {
     if let Some(bad) = sources.iter().find(|s| !valid_name(&s.name)) {
         return Err(CommandError::BadRequest(format!("«{}» no es un nombre de tabla válido", bad.name)));
     }
@@ -1278,9 +1279,8 @@ pub async fn run_local(
         None => Vec::new(),
     };
     let access = super::access::Access { policy, notebook: notebook.clone(), grants, approved, store: Some(state.store.as_ref()), net };
-    let started = std::time::Instant::now();
     let key = session_key(tab);
-    // Spatial functions in the cell, or in a results cell it uses.
+    // Spatial functions in the cell, or in a DataFrame SQL cell it uses.
     let spatial = uses_spatial(sql) || needed(sql, sources).iter().any(|&i| sources[i].local && uses_spatial(&sources[i].sql));
     let entry = duck_entry(state, &key, spatial).await?;
     entry.cancelled.store(false, Ordering::SeqCst);
@@ -1304,6 +1304,7 @@ pub async fn run_local(
     };
     let base = notebook_path.filter(|p| !p.trim().is_empty()).and_then(|p| std::path::Path::new(p).parent()).map(std::path::Path::to_path_buf);
     let prepared = prepare(&mut **s, &mut tables, &present, sql, sources, cap, base.as_deref(), &access, &mut out, Some(&entry.cancel), rerun).await;
+    drop(s);
     let snapshot = match &prepared {
         Ok(Prepared::Ready(rewritten, _)) => Some(CellRun::of(rewritten, &tables)),
         _ => None,
@@ -1315,14 +1316,43 @@ pub async fn run_local(
         };
         all.insert(key.clone(), Catalog { entry: Arc::downgrade(&entry), tables, runs });
     }
+    match (prepared?, snapshot) {
+        (Prepared::Ready(sql, loaded), Some(snapshot)) => Ok(Staged::Ready { entry, sql, loaded, out, snapshot }),
+        (Prepared::Ask(files), _) => Ok(Staged::Ask(super::access::ask(tab, notebook.as_deref(), files)?)),
+        (Prepared::Ready(..), None) => Err(CommandError::Internal("tablas del notebook".into())),
+    }
+}
+
+/// Run `sql` (DuckDB SQL) over the tables of the sources it names and the
+/// local files it reads, on the tab's DuckDB session. `notebook_path`: the
+/// notebook's file, whose folder relative paths are read from (`None`
+/// while it's unsaved). See the module docs.
+#[allow(clippy::too_many_arguments)]
+pub async fn run_local(
+    state: &AppState,
+    tab: &str,
+    sql: &str,
+    max_rows: usize,
+    cap: u64,
+    sources: &[LocalSource],
+    notebook_path: Option<&str>,
+    approval: Option<&str>,
+    policy: super::access::Policy,
+    net: super::remote::Net,
+) -> CommandResult<RunLocalResponse> {
+    let sql = sql.trim();
+    if sql.is_empty() {
+        return Err(CommandError::BadRequest("la consulta está vacía".into()));
+    }
+    let cap = cap.clamp(ROW_CAP_RANGE.0, ROW_CAP_RANGE.1);
+    let started = std::time::Instant::now();
+    let key = session_key(tab);
     let cell_sql = sql;
-    let (sql, loaded) = match prepared? {
-        Prepared::Ready(sql, loaded) => (sql, loaded),
-        Prepared::Ask(files) => {
-            let approval = super::access::ask(tab, notebook.as_deref(), files)?;
-            return Ok(RunLocalResponse { outcome: QueryOutcome::default(), loaded: Vec::new(), approval: Some(approval) });
-        }
+    let (entry, sql, loaded, mut out, snapshot) = match stage(state, tab, sql, cap, sources, notebook_path, approval, policy, net).await? {
+        Staged::Ready { entry, sql, loaded, out, snapshot } => (entry, sql, loaded, out, snapshot),
+        Staged::Ask(approval) => return Ok(RunLocalResponse { outcome: QueryOutcome::default(), loaded: Vec::new(), approval: Some(approval) }),
     };
+    let mut s = entry.session.lock().await;
     let sql = sql.as_str();
 
     // The cell's own SQL.
@@ -1339,7 +1369,7 @@ pub async fn run_local(
         Some(Ok(())) => {}
     }
     let error = run.error.take().or_else(|| run.errors.first().map(|e| e.message.clone()));
-    if let (None, Some(snapshot), Ok(mut all)) = (&error, snapshot, CATALOGS.lock()) {
+    if let (None, Ok(mut all)) = (&error, CATALOGS.lock()) {
         if let Some(c) = all.get_mut(&key).filter(|c| c.entry.upgrade().is_some_and(|e| Arc::ptr_eq(&e, &entry))) {
             c.runs.insert(cell_sql.to_string(), snapshot);
         }

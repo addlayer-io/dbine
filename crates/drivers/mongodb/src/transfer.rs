@@ -1216,6 +1216,103 @@ async fn feed_rows(loader: &mut Loader<'_>, spec: &LoadSpec, hints: &[Hint], sou
     Ok(())
 }
 
+// ---------------------------------------------------------------- notebook writes
+
+/// A notebook's write cell (`Session::write_rows`): `insertMany` for
+/// Insert (the bulk load), one `update` command per batch for Update and
+/// Upsert (each row's key fields as the filter, the other fields in
+/// `$set`; Upsert with `upsert: true`), and Replace as `deleteMany({})`
+/// then the insert. MongoDB has no transaction here (they need a replica
+/// set and a session the shell doesn't keep): what was written before a
+/// failure stays, and the result says so.
+pub(crate) async fn write_rows(
+    s: &mut MongoSession,
+    spec: &dbine_driver::WriteSpec,
+    columns: &[TransferColumn],
+    source: &mut dyn BatchSource,
+    progress: Progress<'_>,
+) -> Result<dbine_driver::WriteResult> {
+    use dbine_driver::WriteMode;
+    s.refuse_if_read_only("escribir datos")?;
+    spec.check()?;
+    let mut out = dbine_driver::WriteResult { atomic: false, ..Default::default() };
+    let load = LoadSpec {
+        table: spec.table.clone(),
+        columns: spec.columns.clone(),
+        table_lock: false,
+        keep_identity: true,
+        commit_rows: LoadSpec::DEFAULT_COMMIT_ROWS,
+        commit_bytes: LoadSpec::DEFAULT_COMMIT_BYTES,
+    };
+    match spec.mode {
+        WriteMode::Insert => {
+            out.inserted = bulk_load(s, &load, columns, source, progress).await?;
+        }
+        WriteMode::Replace => {
+            let coll = s.db.collection::<Document>(&spec.table.name);
+            out.deleted = coll.delete_many(doc! {}).await.map_err(err)?.deleted_count;
+            out.inserted = bulk_load(s, &load, columns, source, progress).await.map_err(|e| {
+                Error::Query(format!("se borraron {} documentos y la carga falló: {e}", out.deleted))
+            })?;
+        }
+        WriteMode::Update | WriteMode::Upsert => {
+            let upsert = spec.mode == WriteMode::Upsert;
+            let hints: Vec<Hint> = spec
+                .columns
+                .iter()
+                .enumerate()
+                .map(|(i, name)| {
+                    let c = if columns.len() == spec.columns.len() { columns.get(i) } else { columns.iter().find(|c| c.name == *name) };
+                    c.map(hint).unwrap_or(Ok(Hint::default()))
+                })
+                .collect::<Result<_>>()?;
+            let is_key: Vec<bool> = spec.columns.iter().map(|c| spec.key.iter().any(|k| k == c)).collect();
+            let mut row_no = 0u64;
+            while let Some(batch) = source.next().await {
+                let mut updates = Vec::with_capacity(batch.rows.len());
+                for row in batch.rows {
+                    row_no += 1;
+                    let (mut q, mut set) = (Document::new(), Document::new());
+                    for (((cell, name), h), key) in row.into_iter().zip(&spec.columns).zip(&hints).zip(&is_key) {
+                        let v = bson(cell, *h)
+                            .map_err(|why| Error::Unsupported(format!("Fila {row_no}, columna «{name}»: {why}.")))?
+                            .unwrap_or(Bson::Null);
+                        if *key {
+                            q.insert(name.clone(), v);
+                        } else {
+                            set.insert(name.clone(), v);
+                        }
+                    }
+                    let u = if set.is_empty() { doc! { "$setOnInsert": q.clone() } } else { doc! { "$set": set } };
+                    updates.push(doc! { "q": q, "u": u, "upsert": upsert, "multi": false });
+                }
+                let cmd = doc! { "update": spec.table.name.clone(), "updates": updates, "ordered": true };
+                let r = s.db.run_command(cmd).await.map_err(|e| written_so_far(&out, err(e)))?;
+                if let Ok(errs) = r.get_array("writeErrors") {
+                    if let Some(e) = errs.first().and_then(Bson::as_document) {
+                        let msg = e.get_str("errmsg").unwrap_or("error de escritura").to_string();
+                        return Err(written_so_far(&out, Error::Query(msg)));
+                    }
+                }
+                let n = r.get_i32("n").map(i64::from).or_else(|_| r.get_i64("n")).unwrap_or(0).max(0) as u64;
+                let up = r.get_array("upserted").map(|a| a.len() as u64).unwrap_or(0);
+                out.inserted += up;
+                out.updated += n.saturating_sub(up);
+                progress(out.inserted + out.updated);
+            }
+        }
+    }
+    Ok(out)
+}
+
+/// A failure after some batches were written: says how many stay.
+fn written_so_far(out: &dbine_driver::WriteResult, e: Error) -> Error {
+    if out.inserted + out.updated == 0 {
+        return e;
+    }
+    Error::Query(format!("{e} (ya se habían escrito {} insertados y {} actualizados, que quedan)", out.inserted, out.updated))
+}
+
 // ---------------------------------------------------------------- native copy
 
 fn mongo(s: &mut dyn Session) -> Option<&mut MongoSession> {

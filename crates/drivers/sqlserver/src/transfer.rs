@@ -84,8 +84,16 @@ fn q(name: &str) -> String {
     format!("[{}]", name.replace(']', "]]"))
 }
 
+/// [`COLUMNS_SQL`] for a `#temporary` table, which lives in `tempdb` (a
+/// notebook write's staging table).
+fn temp_columns_sql() -> String {
+    COLUMNS_SQL.replace("sys.columns", "tempdb.sys.columns").replace("sys.types", "tempdb.sys.types").replace("OBJECT_ID(@P1)", "OBJECT_ID(N'tempdb..' + @P1)")
+}
+
 async fn catalog(s: &mut SqlServerSession, table: &ObjectRef) -> Result<Vec<CatColumn>> {
-    let rows = s.rows(COLUMNS_SQL, &[&table_name(table)]).await?;
+    let temp = table.schema().is_none() && table.name.starts_with('#');
+    let sql = if temp { temp_columns_sql() } else { COLUMNS_SQL.to_string() };
+    let rows = s.rows(&sql, &[&table_name(table)]).await?;
     if rows.is_empty() {
         return Err(Error::Query(format!("No existe la tabla {}", table_name(table))));
     }
@@ -731,6 +739,13 @@ pub(crate) struct Target {
     kinds: Vec<Kind>,
     meta: RawMetadata,
     cat: Vec<CatColumn>,
+}
+
+/// Whether a notebook write writes the table's identity column (its
+/// inserts then need `IDENTITY_INSERT`).
+pub(crate) async fn writes_identity(s: &mut SqlServerSession, spec: &dbine_driver::WriteSpec) -> Result<bool> {
+    let cat = catalog(s, &spec.table).await?;
+    Ok(cat.iter().any(|c| c.identity && spec.columns.iter().any(|w| w.eq_ignore_ascii_case(&c.name))))
 }
 
 pub(crate) async fn plan_target(s: &mut SqlServerSession, spec: &LoadSpec) -> Result<Target> {

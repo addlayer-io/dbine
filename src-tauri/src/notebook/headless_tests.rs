@@ -76,6 +76,8 @@ fn cell(id: &str, name: &str, target: Option<NotebookTarget>, sql: &str) -> Note
         execution_count: None,
         result: None,
         raw: None,
+        write: None,
+        write_result: None,
     }
 }
 
@@ -487,4 +489,86 @@ async fn notebook_headless_live_postgres_sqlserver() {
     assert_eq!(joined[0][0], json!("Ana"));
     assert_eq!(joined[0][1].as_f64().or_else(|| joined[0][1].as_str().and_then(|s| s.parse().ok())), Some(13.5));
     assert_eq!(ran.notebook.cells[1].result.as_ref().unwrap().engine.as_deref(), Some("sqlserver"));
+}
+
+// -- write cells, unattended ---------------------------------------------------------------
+
+fn write_cell_of(id: &str, source: &str, table: &str, mode: dbine_driver::WriteMode, keys: &[&str]) -> NotebookCell {
+    let mut c = cell(id, "", None, "");
+    c.kind = CellKind::Write;
+    c.name = None;
+    c.language = None;
+    c.write = Some(crate::notebook::WriteCell {
+        source: Some(source.into()),
+        target: on("Ventas"),
+        table: Some(table.into()),
+        mode,
+        keys: keys.iter().map(|k| k.to_string()).collect(),
+        ..Default::default()
+    });
+    c
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn notebook_headless_writes_only_what_the_step_authorizes() {
+    use dbine_driver::WriteMode;
+    let w = world("write", vec![]);
+    rusqlite::Connection::open(w.dir.join("ventas.sqlite"))
+        .unwrap()
+        .execute_batch("CREATE TABLE totales (id INTEGER PRIMARY KEY, total REAL); INSERT INTO totales VALUES (1, 0), (9, 9);")
+        .unwrap();
+    let path = w.dir.join("mensual.ipynb");
+    write_nb(
+        &path,
+        vec![
+            cell("c1", "c1", on("Ventas"), "SELECT id, total FROM ventas"),
+            cell("c2", "c2", dataframes(), "SELECT id, sum(total) AS total FROM c1 GROUP BY id"),
+            write_cell_of("w1", "c2", "totales", WriteMode::Upsert, &["id"]),
+        ],
+    );
+    // The plan lists it, with its target and mode as the editor shows them.
+    let pl = super::plan(&w.state, &opts(&path), Policy::default()).unwrap();
+    assert_eq!(pl.write_cells, vec![WriteCell { cell_id: "w1".into(), name: "c2".into(), target: "Ventas › totales".into(), mode: "upsert: id".into() }]);
+
+    // Not authorized: it fails with the message, and nothing is written.
+    let ran = run(&w.state, "t:w1", &opts(&path), Policy::default()).await.unwrap();
+    let (_, why) = ran.failure.expect("not authorized");
+    assert!(why.contains("la tarea no la autorizó") && why.contains("Ventas › totales") && why.contains("upsert: id"), "{why}");
+    assert!(ran.notebook.cells[2].write_result.as_ref().unwrap().error.is_some());
+    let count = || rusqlite::Connection::open(w.dir.join("ventas.sqlite")).unwrap().query_row("SELECT count(*), sum(total) FROM totales", [], |r| Ok((r.get::<_, i64>(0)?, r.get::<_, f64>(1)?))).unwrap();
+    assert_eq!(count(), (2, 9.0));
+
+    // Authorized for another mode or table: still refused.
+    let mut o = opts(&path);
+    o.write_cells = vec![WriteAuth { cell_id: "w1".into(), target: "Ventas › totales".into(), mode: "replace".into() }];
+    assert!(run(&w.state, "t:w2", &o, Policy::default()).await.unwrap().failure.is_some());
+    o.write_cells = vec![WriteAuth { cell_id: "w1".into(), target: "Ventas › otra".into(), mode: "upsert: id".into() }];
+    assert!(run(&w.state, "t:w3", &o, Policy::default()).await.unwrap().failure.is_some());
+    assert_eq!(count(), (2, 9.0));
+
+    // Exactly that cell, target and mode: it writes (1 updated, 2 inserted, 9 stays).
+    o.write_cells = vec![WriteAuth { cell_id: "w1".into(), target: "Ventas › totales".into(), mode: "upsert: id".into() }];
+    let ran = run(&w.state, "t:w4", &o, Policy::default()).await.unwrap();
+    assert!(ran.failure.is_none(), "{:?}", ran.failure);
+    let r = ran.notebook.cells[2].write_result.clone().unwrap();
+    assert_eq!((r.inserted, r.updated, r.error), (1, 1, None));
+    assert_eq!(count(), (3, 14.5 + 3.0 + 9.0));
+    assert!(!w.state.sessions.iter().any(|e| e.key().contains("t:w4")), "sessions left open");
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn notebook_headless_write_to_production_needs_the_opt_in_too() {
+    use dbine_driver::WriteMode;
+    let w = world("write-prod", vec!["prod".into()]);
+    rusqlite::Connection::open(w.dir.join("ventas.sqlite")).unwrap().execute_batch("CREATE TABLE totales (id INTEGER PRIMARY KEY, total REAL);").unwrap();
+    let path = w.dir.join("prod.ipynb");
+    write_nb(&path, vec![cell("c1", "c1", dataframes(), "SELECT 1 AS id, 2.0 AS total"), write_cell_of("w1", "c1", "totales", WriteMode::Insert, &[])]);
+    let mut o = opts(&path);
+    o.write_cells = vec![WriteAuth { cell_id: "w1".into(), target: "Ventas › totales".into(), mode: "insert".into() }];
+    let ran = run(&w.state, "t:wp", &o, Policy::default()).await.unwrap();
+    assert!(ran.failure.unwrap().1.contains("Permitir ejecutar en Ventas sin confirmar"));
+    o.unconfirmed = vec![Unconfirmed { connection_id: "sq".into(), database: String::new() }];
+    let ran = run(&w.state, "t:wp2", &o, Policy::default()).await.unwrap();
+    assert!(ran.failure.is_none(), "{:?}", ran.failure);
+    assert_eq!(ran.notebook.cells[1].write_result.as_ref().unwrap().inserted, 1);
 }

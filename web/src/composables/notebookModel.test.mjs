@@ -6,6 +6,7 @@ import assert from 'node:assert/strict';
 import {
   EditVersion, RunLock, applyProjectDefault, assignCellNames, cellNameProblem, completeRows, defaultCellName, emptyNotebook, emptyTarget,
   matchConnection, newCell, outline, projectFileOf, promptVariant, sameTarget, validCellName,
+  dataFramesAbove, emptyWrite, needsKey, newWriteCell, writeProblem, writeSummaryOf,
 } from './notebookModel.ts';
 
 const conns = [
@@ -135,4 +136,31 @@ test('the results target is a target of its own, with no connection', () => {
   assert.equal(emptyTarget(results), false);
   assert.equal(sameTarget(results, { connection: null, database: null, environment: null }), false);
   assert.equal(sameTarget(results, { ...results }), true);
+});
+
+test('write cells: what they can write, and what is still missing', () => {
+  const a = newCell('sql', 'SELECT 1'); a.name = 'ventas';
+  const b = newCell('markdown', '# t');
+  const w = newWriteCell('ventas');
+  const c = newCell('sql', 'SELECT 2'); c.name = 'despues';
+  const cells = [a, b, w, c];
+  // Only the named SQL cells above it.
+  assert.deepEqual(dataFramesAbove(cells, 2), ['ventas']);
+  assert.equal(w.kind, 'write');
+  assert.deepEqual(w.write, emptyWrite('ventas'));
+  const above = dataFramesAbove(cells, 2);
+  assert.equal(writeProblem(w.write, above), 'target');
+  assert.equal(writeProblem({ ...w.write, source: 'despues' }, above), 'source', 'a cell below is not a DataFrame it can write');
+  const target = { connection: 'Ventas prod', database: 'ventas', environment: null };
+  assert.equal(writeProblem({ ...w.write, target }, above), 'table');
+  assert.equal(writeProblem({ ...w.write, target: { connection: null, database: null, environment: null, results: true }, table: 't' }, above), 'target');
+  assert.equal(writeProblem({ ...w.write, target, table: 'resumen', mode: 'upsert' }, above), 'keys');
+  assert.equal(writeProblem({ ...w.write, target, table: 'resumen', mode: 'upsert', keys: ['id'] }, above), null);
+  assert.equal(writeProblem({ ...w.write, target, table: 'resumen', mode: 'replace' }, above), null);
+  assert.deepEqual(['insert', 'update', 'upsert', 'replace'].map(needsKey), [false, true, true, false]);
+});
+
+test('a write summary keeps counts, when and where', () => {
+  const s = writeSummaryOf({ inserted: 2, updated: 1, deleted: 0, elapsed_ms: 1234.4, target_label: 'Ventas › dbo.t', warnings: ['x'] }, new Date('2026-10-18T14:32:05.123Z'));
+  assert.deepEqual(s, { inserted: 2, updated: 1, deleted: 0, ran_at: '2026-10-18T14:32:05Z', duration_ms: 1234, target_label: 'Ventas › dbo.t', error: null, warnings: ['x'] });
 });

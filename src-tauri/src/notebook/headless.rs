@@ -132,10 +132,23 @@ pub struct WriteCell {
     pub mode: String,
 }
 
-/// The cell as a write cell, if it is one. Write cells (`nb-write`) fill
-/// this; until then no cell is.
-pub fn write_cell(_c: &NotebookCell) -> Option<WriteCell> {
-    None
+/// The cell as a write cell, if it is one: the DataFrame it writes, its
+/// target as the file names it (connection or environment › database ›
+/// table, "(nueva)" when it creates it) and its mode with the keys. Any
+/// change in them voids the step's authorization.
+pub fn write_cell(c: &NotebookCell) -> Option<WriteCell> {
+    if c.kind != CellKind::Write {
+        return None;
+    }
+    let w = c.write.clone().unwrap_or_default();
+    let table = [w.schema.clone(), w.table.clone()].into_iter().flatten().map(|s| s.trim().to_string()).filter(|s| !s.is_empty()).collect::<Vec<_>>().join(".");
+    let mut target = [stored_text(w.target.as_ref()), table].into_iter().filter(|s| !s.is_empty()).collect::<Vec<_>>().join(" › ");
+    if w.create {
+        target.push_str(" (nueva)");
+    }
+    let mode = serde_json::to_value(w.mode).ok().and_then(|v| v.as_str().map(String::from)).unwrap_or_default();
+    let mode = if w.mode.needs_key() { format!("{mode}: {}", w.keys.join(", ")) } else { mode };
+    Some(WriteCell { cell_id: c.id.clone(), name: w.source.clone().unwrap_or_default(), target, mode })
 }
 
 /// Whether the step authorizes this write cell exactly as it is now.
@@ -411,10 +424,8 @@ pub fn plan(state: &AppState, opts: &Options, policy: Policy) -> CommandResult<P
     let base = Path::new(opts.path.trim()).parent().map(Path::to_path_buf);
     let home = super::files::home_dir();
     let mut files: Vec<DataFile> = Vec::new();
+    out.write_cells.extend(nb.cells.iter().filter_map(write_cell));
     for c in nb.cells.iter().filter(|c| c.kind == CellKind::Sql && !c.source.trim().is_empty()) {
-        if let Some(w) = write_cell(c) {
-            out.write_cells.push(w);
-        }
         let stored = stored_text(c.target.as_ref().filter(|t| !empty(t)).or(nb.target.as_ref().filter(|t| !empty(t))));
         let mut cell = PlanCell { id: c.id.clone(), name: c.name.clone().unwrap_or_default(), dataframes: false, stored, target: None, problem: None, writes: None };
         match ctx.resolve(c, &nb, &opts.targets) {
@@ -624,6 +635,49 @@ pub async fn run(state: &AppState, key: &str, opts: &Options, policy: Policy) ->
     let result = async {
         for i in 0..nb.cells.len() {
             let cell = nb.cells[i].clone();
+            if cell.kind == CellKind::Write {
+                // A write cell runs only as the task authorizes it: that
+                // cell, that target, that mode (and keys).
+                reached.insert(cell.id.clone());
+                counter += 1;
+                let Some(w) = write_cell(&cell) else { continue };
+                let ran_at = chrono::Utc::now().to_rfc3339_opts(chrono::SecondsFormat::Secs, true);
+                let started = std::time::Instant::now();
+                let r = if write_authorized(&w, &opts.write_cells) {
+                    write_unattended(state, &tab, &ctx, &nb, i, &sources, &live, cap, &path, opts, policy.clone()).await
+                } else {
+                    Err(format!("la celda escribe en «{}» ({}) y la tarea no la autorizó: abrí la tarea y autorizala en el paso", w.target, w.mode))
+                };
+                let c = &mut nb.cells[i];
+                c.execution_count = Some(counter);
+                match r {
+                    Ok(o) => {
+                        ran += 1;
+                        c.write_result = Some(super::WriteSummary {
+                            inserted: o.inserted,
+                            updated: o.updated,
+                            deleted: o.deleted,
+                            ran_at,
+                            duration_ms: o.elapsed_ms,
+                            target_label: Some(o.target_label),
+                            error: None,
+                            warnings: o.warnings,
+                        });
+                    }
+                    Err(msg) => {
+                        c.write_result = Some(super::WriteSummary {
+                            ran_at,
+                            duration_ms: started.elapsed().as_millis() as u64,
+                            target_label: Some(w.target.clone()),
+                            error: Some(msg.clone()),
+                            ..Default::default()
+                        });
+                        failure = Some((if w.name.is_empty() { format!("#{}", i + 1) } else { format!("{} → {}", w.name, w.target) }, msg));
+                        break;
+                    }
+                }
+                continue;
+            }
             if cell.kind != CellKind::Sql {
                 continue;
             }
@@ -645,19 +699,6 @@ pub async fn run(state: &AppState, key: &str, opts: &Options, policy: Policy) ->
                 target_label: label,
                 ..Default::default()
             };
-            // A write cell runs only as the task authorizes it.
-            if let Some(w) = write_cell(&cell) {
-                let msg = if write_authorized(&w, &opts.write_cells) {
-                    "esta versión de DBine no ejecuta celdas de escritura en tareas".to_string()
-                } else {
-                    format!("la celda escribe en «{}» ({}) y la tarea no la autorizó: abrí la tarea y autorizala en el paso", w.target, w.mode)
-                };
-                let c = &mut nb.cells[i];
-                c.execution_count = Some(counter);
-                c.result = Some(error_result(msg.clone(), None, None));
-                failure = Some((name, msg));
-                break;
-            }
             let target = match ctx.resolve(&cell, &nb, &opts.targets) {
                 Ok(w) => w,
                 Err(p) => {
@@ -733,8 +774,9 @@ pub async fn run(state: &AppState, key: &str, opts: &Options, policy: Policy) ->
     result?;
     // Cells this run didn't reach keep no result: an old one would read as
     // this run's.
-    for c in nb.cells.iter_mut().filter(|c| c.kind == CellKind::Sql && !reached.contains(&c.id)) {
+    for c in nb.cells.iter_mut().filter(|c| matches!(c.kind, CellKind::Sql | CellKind::Write) && !reached.contains(&c.id)) {
         c.result = None;
+        c.write_result = None;
         c.execution_count = None;
     }
     Ok(Ran { notebook: nb, ran, failure })
@@ -759,6 +801,27 @@ async fn dataframes(
     opts: &Options,
     policy: Policy,
 ) -> Result<QueryOutcome, String> {
+    let base = frame_sources(ctx, nb, at, sources, live, script, opts)?;
+    let r = local::run_local(state, tab, script, max_rows, cap, &base, Some(path), None, policy, super::remote::Net::current(None)).await.map_err(|e| e.to_string())?;
+    if let Some(a) = r.approval {
+        return Err(unapproved(&a));
+    }
+    Ok(r.outcome)
+}
+
+/// A run that would read files without "Permitir siempre": the message.
+fn unapproved(a: &super::access::ApprovalRequest) -> String {
+    let list: Vec<String> = a.files.iter().map(|f| f.path.clone()).collect();
+    format!(
+        "el notebook lee archivos que no tienen «Permitir siempre» para él en esta máquina: {}. Abrilo en DBine, ejecutá la celda y elegí «Permitir siempre»; la tarea no pregunta ni los lee",
+        list.join(", ")
+    )
+}
+
+/// The SQL cells above `at` as DataFrame sources of `script`: the ones it
+/// needs resolved (each one's opt-in checked), with the rows of their run
+/// here when complete.
+fn frame_sources(ctx: &Context, nb: &Notebook, at: usize, sources: &HashMap<String, String>, live: &HashMap<String, Live>, script: &str, opts: &Options) -> Result<Vec<LocalSource>, String> {
     let above: Vec<&NotebookCell> = nb.cells[..at]
         .iter()
         .filter(|c| c.kind == CellKind::Sql && c.name.is_some() && !sources.get(&c.id).map_or(c.source.as_str(), String::as_str).trim().is_empty())
@@ -792,15 +855,65 @@ async fn dataframes(
         s.connection_id = Some(r.connection_id);
         s.database = Some(r.database);
     }
-    let r = local::run_local(state, tab, script, max_rows, cap, &base, Some(path), None, policy, super::remote::Net::current(None)).await.map_err(|e| e.to_string())?;
-    if let Some(a) = r.approval {
-        let list: Vec<String> = a.files.iter().map(|f| f.path.clone()).collect();
-        return Err(format!(
-            "el notebook lee archivos que no tienen «Permitir siempre» para él en esta máquina: {}. Abrilo en DBine, ejecutá la celda y elegí «Permitir siempre»; la tarea no pregunta ni los lee",
-            list.join(", ")
-        ));
+    Ok(base)
+}
+
+/// A write cell the step authorized: its DataFrame (the sources resolved
+/// as for a DataFrame SQL cell, files only with "Permitir siempre"), its
+/// target resolved by name with the step's choices (a production or
+/// `confirm_run` target needs the step's opt-in too), then the same
+/// prepare and run as in the app, token included. Nothing asks: what the
+/// app would ask about fails the cell.
+#[allow(clippy::too_many_arguments)]
+async fn write_unattended(
+    state: &AppState,
+    tab: &str,
+    ctx: &Context,
+    nb: &Notebook,
+    at: usize,
+    sources: &HashMap<String, String>,
+    live: &HashMap<String, Live>,
+    cap: u64,
+    path: &str,
+    opts: &Options,
+    policy: Policy,
+) -> Result<super::write::WriteOutcome, String> {
+    use super::write::{prepare, run as write_run, WriteArgs, WriteTarget};
+    let cell = &nb.cells[at];
+    let w = cell.write.clone().unwrap_or_default();
+    let source = w.source.clone().filter(|s| !s.is_empty()).ok_or_else(|| "la celda de escritura no dice qué DataFrame escribe".to_string())?;
+    let table = w.table.clone().map(|t| t.trim().to_string()).filter(|t| !t.is_empty()).ok_or_else(|| "la celda de escritura no tiene tabla de destino".to_string())?;
+    let target = w.target.clone().filter(|t| !empty(t) && !t.results).ok_or_else(|| "la celda de escritura no tiene dónde escribir".to_string())?;
+    let r = match ctx.named(&target, &opts.targets) {
+        Ok(Where::Connection(r)) => r,
+        Ok(Where::DataFrames) => return Err("la celda de escritura no tiene dónde escribir".into()),
+        Err(p) => return Err(p.message),
+    };
+    if !r.allowed(opts) {
+        return Err(r.refusal());
     }
-    Ok(r.outcome)
+    let script = format!("SELECT * FROM {}", dbine_driver::sql::quote_ident(dbine_driver::sql::Quote::Double, &source));
+    let base = frame_sources(ctx, nb, at, sources, live, &script, opts)?;
+    let args = WriteArgs {
+        tab_id: tab.to_string(),
+        cell_id: cell.id.clone(),
+        source,
+        sources: base,
+        row_cap: Some(cap),
+        notebook_path: Some(path.to_string()),
+        approval: None,
+        aws_profile: None,
+        target: WriteTarget { connection_id: r.connection_id.clone(), database: r.database.clone(), schema: w.schema.clone(), table, create: w.create },
+        mode: w.mode,
+        keys: w.keys.clone(),
+        mapping: w.mapping.clone(),
+    };
+    let prepared = prepare(state, &args, policy, super::remote::Net::current(None)).await.map_err(|e| e.to_string())?;
+    if let Some(a) = prepared.approval {
+        return Err(unapproved(&a));
+    }
+    let plan = prepared.plan.ok_or_else(|| "no se pudo preparar la escritura".to_string())?;
+    write_run(state, &args, &plan.token, plan.rows).await.map_err(|e| e.to_string())
 }
 
 /// DBine's own folders, when there's no app handle (the OS scheduler's

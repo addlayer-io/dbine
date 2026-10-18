@@ -137,6 +137,12 @@ impl Driver for LibsqlDriver {
         true
     }
 
+    /// Notebook writes: a `TEMP` staging table loaded with prepared inserts, then `UPDATE … FROM`
+    /// / `INSERT … SELECT` in one transaction (Hrana 3: the stream keeps it).
+    fn write_modes(&self) -> Vec<dbine_driver::WriteMode> {
+        dbine_driver::WriteMode::ALL.to_vec()
+    }
+
     /// SQLite's: columns are added in place; any other change rebuilds the table.
     fn sync_script(&self, changes: &[dbine_driver::TableChange]) -> Result<dbine_driver::SyncScript> {
         sync_script(changes)
@@ -576,6 +582,18 @@ impl Session for LibsqlSession {
         progress: dbine_driver::transfer::Progress<'_>,
     ) -> Result<u64> {
         transfer::bulk_load(self, spec, source, progress).await
+    }
+
+    /// See `Driver::write_modes` (`dbine_driver::write`).
+    async fn write_rows(
+        &mut self,
+        spec: &dbine_driver::WriteSpec,
+        columns: &[dbine_driver::TransferColumn],
+        source: &mut dyn dbine_driver::BatchSource,
+        progress: dbine_driver::transfer::Progress<'_>,
+    ) -> Result<dbine_driver::WriteResult> {
+        let tx = self.client.v3;
+        dbine_driver::write::staged_write(self, dbine_driver::write::StageFlavor::Sqlite, spec, columns, source, progress, tx).await
     }
 }
 

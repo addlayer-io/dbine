@@ -158,6 +158,12 @@ impl Driver for SqliteDriver {
         true
     }
 
+    /// Notebook writes: a `TEMP` staging table loaded with prepared inserts, then `UPDATE … FROM`
+    /// (SQLite 3.33+) / `INSERT … SELECT` in one transaction.
+    fn write_modes(&self) -> Vec<dbine_driver::WriteMode> {
+        dbine_driver::WriteMode::ALL.to_vec()
+    }
+
     /// Another SQLite file: attached read-only to the target (see [`transfer`]).
     fn supports_native_copy(&self, target: &str) -> bool {
         target == "sqlite"
@@ -515,6 +521,17 @@ impl Session for SqliteSession {
         progress: dbine_driver::transfer::Progress<'_>,
     ) -> Result<u64> {
         transfer::bulk_load(self, spec, source, progress).await
+    }
+
+    /// See `Driver::write_modes` (`dbine_driver::write`).
+    async fn write_rows(
+        &mut self,
+        spec: &dbine_driver::WriteSpec,
+        columns: &[dbine_driver::TransferColumn],
+        source: &mut dyn dbine_driver::BatchSource,
+        progress: dbine_driver::transfer::Progress<'_>,
+    ) -> Result<dbine_driver::WriteResult> {
+        dbine_driver::write::staged_write(self, dbine_driver::write::StageFlavor::Sqlite, spec, columns, source, progress, true).await
     }
 
     fn as_any(&mut self) -> Option<&mut (dyn std::any::Any + Send)> {

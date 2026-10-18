@@ -1045,8 +1045,40 @@ export interface NotebookTarget {
   /** "DataFrame SQL": DuckDB SQL over the cells above (no connection). */
   results?: boolean;
 }
-/** `foreign`: a Python / R… cell from elsewhere, read-only, kept unchanged. */
-export type CellKind = 'markdown' | 'sql' | 'foreign';
+/** `foreign`: a Python / R… cell from elsewhere, read-only, kept unchanged.
+ *  `write`: writes a DataFrame into a table (src-tauri notebook::write). */
+export type CellKind = 'markdown' | 'sql' | 'foreign' | 'write';
+/** `dbine_driver::WriteMode`. */
+export type WriteMode = 'insert' | 'update' | 'upsert' | 'replace';
+/** A DataFrame column written into a target column. */
+export interface ColumnPair { source: string; target: string }
+/** A write cell's definition, as the file keeps it (`notebook::WriteCell`):
+ *  the target by name, never ids or credentials; never rows. */
+export interface WriteCell {
+  /** The cell whose DataFrame is written (its name). */
+  source: string | null;
+  target: NotebookTarget | null;
+  schema: string | null;
+  table: string | null;
+  /** "Crear tabla nueva". */
+  create: boolean;
+  mode: WriteMode;
+  /** Target columns. */
+  keys: string[];
+  /** null: by name. */
+  mapping: ColumnPair[] | null;
+}
+/** A write cell's last run (`notebook::WriteSummary`; the file keeps all but `warnings`). */
+export interface WriteSummary {
+  inserted: number;
+  updated: number;
+  deleted: number;
+  ran_at: string;
+  duration_ms: number;
+  target_label: string | null;
+  error: string | null;
+  warnings?: string[];
+}
 export interface StoredColumn { name: string; type_name: string }
 export interface StoredStatement {
   columns: StoredColumn[];
@@ -1093,6 +1125,10 @@ export interface NotebookCell {
   result: CellResult | null;
   /** Foreign cells only: the original nbformat cell, written back unchanged. */
   raw: unknown | null;
+  /** Write cells: what they write and where. */
+  write?: WriteCell | null;
+  /** Write cells: their last run. */
+  write_result?: WriteSummary | null;
 }
 export interface Notebook {
   target: NotebookTarget | null;
@@ -1185,6 +1221,52 @@ export interface FileGrant {
 }
 /** `approval`: nothing ran; the cell reads files nobody allowed yet. */
 export interface RunLocalResponse { outcome: QueryOutcome; loaded: LoadedTable[]; approval?: FileApprovalRequest }
+
+// Write cells (src-tauri/src/notebook/write.rs): a DataFrame into a table.
+/** Where it goes (camelCase: it's a command argument). */
+export interface WriteTarget { connectionId: string; database: string; schema: string | null; table: string; create: boolean }
+/** What the form needs of a target (`notebook::write::TargetInfo`). */
+export interface WriteTargetInfo {
+  modes: WriteMode[];
+  /** One transaction: a failure leaves the table as it was. */
+  atomic: boolean;
+  /** Documents or keys: any field name goes. */
+  schemaless: boolean;
+  /** null: no table given, or it doesn't exist. */
+  columns: ColumnInfo[] | null;
+}
+export interface PlannedColumn { source: string; source_type: string; target: string; target_type: string; converted: boolean }
+/** What `notebook_write_prepare` found; its token is for the confirmed run, once. */
+export interface WritePlan {
+  token: string;
+  rows: number;
+  /** "Ventas prod › ventas › dbo.resumen". */
+  target_label: string;
+  connection: string;
+  database: string;
+  table: string;
+  engine: string;
+  columns: PlannedColumn[];
+  unmatched_source: string[];
+  unmatched_target: string[];
+  keys: string[];
+  preview: { columns: string[]; rows: Cell[][] };
+  warnings: string[];
+  /** The CREATE TABLE that runs first. */
+  create?: string;
+  atomic: boolean;
+}
+export interface WritePrepareResponse { plan?: WritePlan; loaded: LoadedTable[]; approval?: FileApprovalRequest }
+export interface WriteOutcome {
+  inserted: number;
+  updated: number;
+  deleted: number;
+  atomic: boolean;
+  elapsed_ms: number;
+  target_label: string;
+  warnings: string[];
+  created: boolean;
+}
 
 // -- Charts over the whole result (`dbine_driver::aggregate`, chart_aggregate) --
 

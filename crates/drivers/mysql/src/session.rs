@@ -1554,6 +1554,21 @@ impl Session for MySqlSession {
         crate::transfer::bulk_load(self, spec, source, progress).await
     }
 
+    /// A `TEMPORARY` staging table loaded in bulk, then `UPDATE … JOIN` /
+    /// `INSERT … SELECT` in one transaction (`dbine_driver::write`).
+    async fn write_rows(
+        &mut self,
+        spec: &dbine_driver::WriteSpec,
+        columns: &[dbine_driver::transfer::TransferColumn],
+        source: &mut dyn dbine_driver::transfer::BatchSource,
+        progress: dbine_driver::transfer::Progress<'_>,
+    ) -> Result<dbine_driver::WriteResult> {
+        if !self.variant.writes_staged() {
+            return Err(Error::Unsupported("este motor no escribe por modo desde un notebook".to_string()));
+        }
+        dbine_driver::write::staged_write(self, dbine_driver::write::StageFlavor::MySql, spec, columns, source, progress, true).await
+    }
+
     fn as_any(&mut self) -> Option<&mut (dyn std::any::Any + Send)> {
         Some(self)
     }

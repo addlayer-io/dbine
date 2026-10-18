@@ -488,6 +488,12 @@ impl Driver for PgDriver {
         delta::capable(self.variant)
     }
 
+    /// Notebook writes stage through `COPY` into a temporary table: only
+    /// where `COPY FROM STDIN` is.
+    fn write_modes(&self) -> Vec<dbine_driver::WriteMode> {
+        if transfer::bulk_capable(self.variant) { dbine_driver::WriteMode::ALL.to_vec() } else { Vec::new() }
+    }
+
     fn delta_filter(&self, spec: &dbine_driver::DeltaSpec, buckets: &[i64]) -> Result<String> {
         if !delta::capable(self.variant) {
             return Err(Error::Unsupported(format!("{} no sincroniza por filas", self.info.name)));

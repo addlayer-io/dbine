@@ -11,6 +11,7 @@
 // |chart[&kind=…]|nbcell[&set=charts|map|latlon] (charts of every kind; a notebook cell's charts and map: preview/chart-samples.ts)
 // |nbxresults[&dialog=1] (cells on three engines and a "DataFrame SQL" cell joining them: preview/nbx-samples.ts)
 // |schedule[&set=report|problems] (the "Ejecutar notebook" step and the mail with its HTML body: preview/schedule-samples.ts)
+// |nbwrite[&state=form|confirm|result|error|full][&prod=1] (a write cell, its confirmation and its result: preview/nbwrite-samples.ts)
 // |nbperm[&set=one|many|glob|unsaved|sidecars|remote|settings|notebook] (a notebook's file approval dialog and the grants lists: preview/nbperm-samples.ts)
 // |zoho-wizard[&step=1..4][&filled=1][&result=ok][&error=expired|mismatch] ("Conectar Zoho Vault", each step)
 // |connection&source=zoho|zoho-manual|zoho-missing (the Zoho block: an account, the inline sign-in, an account not on this computer)
@@ -85,6 +86,7 @@ import { applyThemeClass } from '../composables/appearance';
 import { mapPreview } from './map-samples';
 import { chartPreview, installWholeMock, notebookCellPreview } from './chart-samples';
 import { notebookResultsPreview } from './nbx-samples';
+import { notebookWritePreview } from './nbwrite-samples';
 import { installNbPermMock, nbPermPreview } from './nbperm-samples';
 import { installScheduleMock, schedulePreview, setupScheduleConnections } from './schedule-samples';
 import { browseSample, sourceConnection, SAMPLE_ACCOUNTS } from './source-samples';
@@ -304,6 +306,7 @@ const app = createApp({
         ? chartPreview(params)
         : view === 'nbcell' ? notebookCellPreview(params)
         : view === 'nbxresults' ? notebookResultsPreview(params)
+        : view === 'nbwrite' ? notebookWritePreview(params)
         : view === 'nbperm' ? nbPermPreview(params)
         : view === 'schedule' ? schedulePreview(params)
         : view === 'filters' ? filtersView()

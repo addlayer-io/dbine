@@ -14,7 +14,7 @@
 
 use super::{
     display_value, escape_html, html_table, preview, summary_line, CellKind, CellResult, Notebook, NotebookCell, NotebookTarget,
-    Preview, PreviewLimits, StoredStatement,
+    Preview, PreviewLimits, StoredStatement, write_cell_text, write_summary_line,
 };
 use base64::Engine;
 use serde_json::Value;
@@ -180,6 +180,15 @@ pub fn html_with_note(nb: &Notebook, limits: PreviewLimits, images: &CellImages,
                     escape_html(lang),
                     escape_html(&c.source)
                 ));
+            }
+            CellKind::Write => {
+                body.push_str("<section class=\"cell write\">");
+                body.push_str(&format!("<pre><code>{}</code></pre>", escape_html(&write_cell_text(&c.write.clone().unwrap_or_default()))));
+                if let Some(r) = &c.write_result {
+                    let class = if r.error.is_some() { "error" } else { "summary" };
+                    body.push_str(&format!("<div class=\"{class}\">{}</div>", escape_html(&write_summary_line(r))));
+                }
+                body.push_str("</section>\n");
             }
             CellKind::Sql => {
                 body.push_str("<section class=\"cell sql\">");
@@ -474,6 +483,12 @@ pub fn markdown_with_note(nb: &Notebook, limits: PreviewLimits, images: &CellIma
                 out.push_str("\n\n");
             }
             CellKind::Foreign => out.push_str(&fenced(&c.source, c.language.as_deref().unwrap_or(""))),
+            CellKind::Write => {
+                out.push_str(&fenced(&write_cell_text(&c.write.clone().unwrap_or_default()), "text"));
+                if let Some(r) = &c.write_result {
+                    out.push_str(&format!("*{}*\n\n", md_text(&write_summary_line(r))));
+                }
+            }
             CellKind::Sql => {
                 let label = cell_label(c, nb);
                 if !label.is_empty() {
@@ -548,6 +563,8 @@ mod tests {
                 result: None,
                 raw: None,
                 name: None,
+                write: None,
+                write_result: None,
             },
             NotebookCell {
                 id: "c".into(),
@@ -561,6 +578,8 @@ mod tests {
                 result: Some(r),
                 raw: None,
                 name: None,
+                write: None,
+                write_result: None,
             },
         ];
         nb

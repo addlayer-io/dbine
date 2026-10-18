@@ -1335,6 +1335,23 @@ impl Session for PgSession {
         crate::transfer::bulk_load(self, spec, source, progress).await
     }
 
+    /// A temporary staging table loaded with `COPY`, then `UPDATE … FROM` /
+    /// `INSERT … SELECT` in one transaction (`dbine_driver::write`).
+    async fn write_rows(
+        &mut self,
+        spec: &dbine_driver::WriteSpec,
+        columns: &[dbine_driver::TransferColumn],
+        source: &mut dyn dbine_driver::BatchSource,
+        progress: dbine_driver::transfer::Progress<'_>,
+    ) -> Result<dbine_driver::WriteResult> {
+        self.require_extended()?;
+        if !crate::transfer::bulk_capable(self.variant) {
+            return Err(Error::Unsupported(format!("{} no tiene COPY FROM STDIN", self.variant.info().name)));
+        }
+        let tx = self.variant.manual_transactions();
+        dbine_driver::write::staged_write(self, dbine_driver::write::StageFlavor::Postgres, spec, columns, source, progress, tx).await
+    }
+
     fn as_any(&mut self) -> Option<&mut (dyn std::any::Any + Send)> {
         Some(self)
     }

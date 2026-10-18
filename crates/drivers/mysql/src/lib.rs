@@ -167,6 +167,12 @@ impl Variant {
 
     /// `SET autocommit = 0` keeps a transaction open until COMMIT /
     /// ROLLBACK, and OK packets carry SERVER_STATUS_IN_TRANS.
+    /// A notebook write's staging path: temporary tables, transactions
+    /// and a bulk load.
+    pub(crate) fn writes_staged(self) -> bool {
+        matches!(self.base(), Variant::MySql | Variant::MariaDb | Variant::TiDb) && transfer::supported(self)
+    }
+
     pub(crate) fn has_transactions(self) -> bool {
         matches!(self, Variant::MySql | Variant::MariaDb | Variant::TiDb | Variant::OceanBase)
     }
@@ -309,6 +315,12 @@ impl Driver for MySqlDriver {
     /// Manticore uses the INSERT script.
     fn supports_bulk_load(&self) -> bool {
         transfer::supported(self.variant)
+    }
+
+    /// Notebook writes stage into a `TEMPORARY` table and apply in one
+    /// transaction: the engines with both (and a bulk load).
+    fn write_modes(&self) -> Vec<dbine_driver::WriteMode> {
+        if self.variant.writes_staged() { dbine_driver::WriteMode::ALL.to_vec() } else { Vec::new() }
     }
 
     fn supports_profiler(&self) -> bool {

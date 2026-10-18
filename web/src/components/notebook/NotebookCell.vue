@@ -75,6 +75,8 @@ const emit = defineEmits<{
   needNames: [];
   /** A new name for the cell (the view checks it). */
   rename: [name: string];
+  /** "Escribir en una tabla…": a write cell under it, writing its DataFrame. */
+  writeTo: [];
 }>();
 
 const editor = ref<InstanceType<typeof CodeEditor> | null>(null);
@@ -194,7 +196,7 @@ function endRename(save: boolean) {
         <button v-if="cell.kind === 'markdown' && editing" class="nc-btn" :title="$t('notebook:cell.render')" @click="emit('edit', false)"><el-icon><ei-check /></el-icon></button>
         <button class="nc-btn" :disabled="index === 0" :title="$t('notebook:cell.moveUp')" @click="emit('move', -1)"><el-icon><ei-arrow-up /></el-icon></button>
         <button class="nc-btn" :disabled="index === count - 1" :title="$t('notebook:cell.moveDown')" @click="emit('move', 1)"><el-icon><ei-arrow-down /></el-icon></button>
-        <el-dropdown trigger="click" placement="bottom-end" @command="(c: string) => c === 'sql' || c === 'markdown' ? emit('kind', c) : c === 'keep' ? emit('keep') : c === 'explain' ? emit('explain') : c === 'propose' ? emit('propose') : c === 'target' ? emit('target') : emit('remove')">
+        <el-dropdown trigger="click" placement="bottom-end" @command="(c: string) => c === 'sql' || c === 'markdown' ? emit('kind', c) : c === 'keep' ? emit('keep') : c === 'explain' ? emit('explain') : c === 'propose' ? emit('propose') : c === 'target' ? emit('target') : c === 'write' ? emit('writeTo') : emit('remove')">
           <button class="nc-btn" :title="$t('notebook:cell.more')" :aria-label="$t('notebook:cell.more')"><el-icon><ei-more-filled /></el-icon></button>
           <template #dropdown>
             <el-dropdown-menu>
@@ -204,6 +206,7 @@ function endRename(save: boolean) {
               <el-dropdown-item v-if="cell.kind === 'sql'" command="keep">
                 <span class="nc-check"><el-icon v-if="!cell.keep_result"><ei-check /></el-icon></span>{{ $t('notebook:cell.dontKeep') }}
               </el-dropdown-item>
+              <el-dropdown-item v-if="cell.kind === 'sql'" command="write" divided :disabled="!cell.name">{{ $t('notebook:write.writeTo') }}</el-dropdown-item>
               <el-dropdown-item v-if="cell.kind === 'sql'" command="explain" divided :disabled="!cell.result">{{ $t('notebook:ai.explain') }}</el-dropdown-item>
               <el-dropdown-item command="propose" :divided="cell.kind !== 'sql'">{{ $t('notebook:ai.propose') }}</el-dropdown-item>
               <el-dropdown-item command="remove" divided>{{ $t('notebook:cell.delete') }}</el-dropdown-item>
@@ -249,6 +252,7 @@ function endRename(save: boolean) {
           :loaded="loaded ?? null"
           @group="emit('group')"
           @explain="emit('explain')"
+          @write-to="emit('writeTo')"
           @chart="(c: Record<string, unknown>) => emit('chart', c)"
         />
       </template>

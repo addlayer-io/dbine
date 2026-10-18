@@ -153,6 +153,12 @@ impl Driver for SqlServerDriver {
         self.variant.bulk_load()
     }
 
+    /// Notebook writes stage through `INSERT BULK` into a `#temp` table:
+    /// only where the bulk load is.
+    fn write_modes(&self) -> Vec<dbine_driver::WriteMode> {
+        if self.variant.bulk_load() { dbine_driver::WriteMode::ALL.to_vec() } else { Vec::new() }
+    }
+
     fn delta_filter(&self, spec: &dbine_driver::transfer::DeltaSpec, buckets: &[i64]) -> Result<String> {
         if !self.variant.bulk_load() {
             return Err(Error::Unsupported("este motor no sincroniza por filas".into()));
@@ -1235,6 +1241,23 @@ impl Session for SqlServerSession {
             return Err(Error::Unsupported("este motor no tiene carga masiva".into()));
         }
         transfer::bulk_load(self, spec, columns, source, progress).await
+    }
+
+    /// A `#temp` staging table loaded with `INSERT BULK`, then applied in
+    /// one transaction (`dbine_driver::write`).
+    async fn write_rows(
+        &mut self,
+        spec: &dbine_driver::WriteSpec,
+        columns: &[dbine_driver::transfer::TransferColumn],
+        source: &mut dyn dbine_driver::transfer::BatchSource,
+        progress: dbine_driver::transfer::Progress<'_>,
+    ) -> Result<dbine_driver::WriteResult> {
+        if !self.variant.bulk_load() {
+            return Err(Error::Unsupported("este motor no tiene carga masiva".into()));
+        }
+        let identity_insert = transfer::writes_identity(self, spec).await?;
+        let flavor = dbine_driver::write::StageFlavor::SqlServer { identity_insert };
+        dbine_driver::write::staged_write(self, flavor, spec, columns, source, progress, true).await
     }
 
     fn as_any(&mut self) -> Option<&mut (dyn std::any::Any + Send)> {

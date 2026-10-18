@@ -511,6 +511,15 @@ impl Session for ReadOnlySession {
     ) -> Result<crate::DeltaResult> {
         Err(Error::Query("Conexión de solo lectura: no se pueden cargar datos.".into()))
     }
+    async fn write_rows(
+        &mut self,
+        _spec: &crate::WriteSpec,
+        _columns: &[crate::TransferColumn],
+        _source: &mut dyn crate::BatchSource,
+        _progress: crate::transfer::Progress<'_>,
+    ) -> Result<crate::WriteResult> {
+        Err(Error::Query("Conexión de solo lectura: no se pueden cargar datos.".into()))
+    }
     /// The server's answer; the UI hides writes of read-only connections itself.
     async fn permissions(&mut self, database: Option<&str>) -> Result<crate::Permissions> {
         self.inner.permissions(database).await

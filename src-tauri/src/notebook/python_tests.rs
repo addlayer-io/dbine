@@ -19,6 +19,8 @@ fn cell(id: &str, kind: CellKind, source: &str, target: Option<NotebookTarget>, 
         execution_count: None,
         result: None,
         raw: None,
+        write: None,
+        write_result: None,
     }
 }
 
@@ -446,4 +448,27 @@ fn python_export_files_for_validation() {
         conns.insert(id, conn(&format!("Conn {}", info.id), c));
     }
     std::fs::write(format!("{out}.all.ipynb"), python(&nb, &conns, &PyExport::default())).unwrap();
+}
+
+#[test]
+fn write_cells_export_as_a_comment_that_writes_nothing() {
+    let (mut nb, conns) = multi_engine();
+    let mut w = cell("w", CellKind::Write, "", None, None);
+    w.write = Some(crate::notebook::WriteCell {
+        source: Some("cruce".into()),
+        target: on("CRM MSSQL"),
+        schema: Some("dbo".into()),
+        table: Some("resumen".into()),
+        mode: dbine_driver::WriteMode::Upsert,
+        keys: vec!["nombre".into()],
+        ..Default::default()
+    });
+    nb.cells.push(w);
+    let v: Value = serde_json::from_str(&python(&nb, &conns, &PyExport::default())).unwrap();
+    let all = sources(&v);
+    let code = all.iter().find(|s| s.contains("to_sql")).expect("the write cell");
+    // Every line is a comment: running the notebook writes nothing.
+    assert!(code.lines().all(|l| l.trim().is_empty() || l.trim_start().starts_with('#')), "{code}");
+    assert!(code.contains("cruce.to_sql(\"resumen\", engine, schema=\"dbo\", if_exists=\"append\", index=False)"), "{code}");
+    assert!(code.contains("staging table"), "{code}");
 }

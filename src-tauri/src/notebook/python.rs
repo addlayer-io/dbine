@@ -1624,9 +1624,38 @@ pub fn to_value(nb: &Notebook, conns: &HashMap<String, PyConn>, opts: &PyExport)
                     }
                 }
             }
+            // A write cell: a commented `df.to_sql(…)` with a warning, never
+            // executable by default (it would write to the database).
+            CellKind::Write => {
+                let w = c.write.clone().unwrap_or_default();
+                let src = w
+                    .source
+                    .as_deref()
+                    .and_then(|n| nb.cells.iter().find(|x| x.kind == CellKind::Sql && x.name.as_deref().is_some_and(|m| m.eq_ignore_ascii_case(n))))
+                    .and_then(|x| cell_var.get(&x.id).cloned())
+                    .unwrap_or_else(|| "df".into());
+                let table = w.table.clone().unwrap_or_default();
+                let schema = w.schema.as_deref().filter(|s| !s.is_empty()).map(|s| format!(", schema={s:?}")).unwrap_or_default();
+                let (if_exists, note) = match w.mode {
+                    dbine_driver::WriteMode::Insert => ("append", None),
+                    dbine_driver::WriteMode::Replace => ("append", Some("DBine's «replace» deletes the table's rows first (pandas' if_exists=\"replace\" would drop the table): run a DELETE before it.")),
+                    dbine_driver::WriteMode::Update | dbine_driver::WriteMode::Upsert => {
+                        ("append", Some("DBine updates by key here; pandas' to_sql only appends: write to a staging table and merge it with SQL."))
+                    }
+                };
+                let mut lines = vec![comment_line(&format!(
+                    "A DBine write cell: it writes «{}» into «{}». Not run in this export: uncomment it only if you mean to write.",
+                    w.source.as_deref().unwrap_or("?"),
+                    [w.schema.clone(), w.table.clone()].into_iter().flatten().collect::<Vec<_>>().join(".")
+                ))];
+                if let Some(n) = note {
+                    lines.push(comment_line(n));
+                }
+                lines.push(commented(&format!("{src}.to_sql({table:?}, engine{schema}, if_exists={if_exists:?}, index=False)")));
+                body.code(&c.id, &lines.join("\n"), json!({}), Vec::new(), None);
+                notes.push(format!("A write cell into «{table}» is exported as a comment: it doesn't write unless you uncomment it."));
+            }
         }
-        // Write cells (a later notebook cell kind) export as a commented
-        // `df.to_sql(…)` with a warning, never executable by default.
     }
 
     let mut env: Vec<(String, String)> = Vec::new();
