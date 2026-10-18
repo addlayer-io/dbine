@@ -5,7 +5,8 @@
 //! SERIAL and constraint names, Teradata MULTISET / PRIMARY INDEX) or write
 //! their own (Hive and Impala).
 
-use crate::presets::Preset;
+use crate::presets::{LimitStyle, Preset};
+use dbine_driver::aggregate::{RowLimit, SqlShape};
 use dbine_driver::ddl::{self, AutoIncrement, SqlFlavor};
 use dbine_driver::sql::{qualified_name, quote_ident, Quote};
 use dbine_driver::{
@@ -845,6 +846,31 @@ pub fn sorted_browse(p: &Preset, query: &str, sort: &[SortKey]) -> Result<String
     set_order_by(query, &order_list(sort, quote)).ok_or_else(|| Error::Unsupported("no se pudo agregar el orden a la consulta de este objeto".into()))
 }
 
+/// How the chart's `GROUP BY` around a query is written for the preset
+/// (see `dbine_driver::aggregate`): its quoting and row limit, plus the
+/// subquery rules of the engine. `None` (the app aggregates the rows
+/// itself) when the preset doesn't fix the quote or the limit (generic
+/// ODBC: they depend on the driver) or the engine's SQL is too limited.
+pub fn aggregate_shape(p: &Preset) -> Option<SqlShape> {
+    let (Some(quote), Some(limit)) = (p.quote, p.limit) else { return None };
+    let limit = match limit {
+        LimitStyle::Limit => RowLimit::Limit,
+        LimitStyle::Top => RowLimit::Top,
+        LimitStyle::FetchFirst => RowLimit::FetchFirst,
+        LimitStyle::First => RowLimit::First,
+    };
+    let base = SqlShape { quote, limit, alias_as: p.dialect != "oracle", ..SqlShape::ansi() };
+    Some(match eng(p) {
+        Eng::Generic | Eng::NetSuite => return None,
+        // T-SQL family: no ORDER BY or CTE in a derived table, integer AVG.
+        Eng::SqlServer | Eng::Ase | Eng::Sqla => SqlShape { float_avg: true, derived_order_by: false, derived_with: false, ..base },
+        Eng::Teradata | Eng::Access | Eng::DBase => SqlShape { derived_order_by: false, derived_with: false, ..base },
+        Eng::Db2 | Eng::Db2i | Eng::Db2zos => SqlShape { float_avg: true, ..base },
+        Eng::Informix => SqlShape { derived_with: false, ..base },
+        _ => base,
+    })
+}
+
 /// The identifier quote the table after `FROM` uses.
 fn quote_after_from(browse: &str) -> Quote {
     let lower = browse.to_ascii_lowercase();
@@ -1071,6 +1097,18 @@ mod tests {
 
     fn preset(id: &str) -> &'static Preset {
         PRESETS.iter().find(|p| p.id == id).unwrap()
+    }
+
+    #[test]
+    fn aggregate_shape_per_preset() {
+        assert_eq!(aggregate_shape(preset("odbc")), None);
+        let db2 = aggregate_shape(preset("db2")).unwrap();
+        assert_eq!((db2.limit, db2.float_avg, db2.alias_as), (RowLimit::FetchFirst, true, true));
+        let ase = aggregate_shape(preset("sybase")).unwrap();
+        assert_eq!((ase.quote, ase.limit, ase.derived_order_by, ase.derived_with), (Quote::Bracket, RowLimit::Top, false, false));
+        assert_eq!(aggregate_shape(preset("informix")).unwrap().limit, RowLimit::First);
+        assert!(!aggregate_shape(preset("dameng")).unwrap().alias_as);
+        assert_eq!(aggregate_shape(preset("hive")).unwrap().quote, Quote::Backtick);
     }
 
     #[test]

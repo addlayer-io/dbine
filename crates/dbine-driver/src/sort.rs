@@ -24,15 +24,15 @@ pub fn order_list(sort: &[SortKey], quote: Quote) -> String {
 /// Where the clauses of a query start, at the top level (outside quotes,
 /// comments and parentheses).
 #[derive(Default)]
-struct Clauses {
-    from: Option<usize>,
-    order_by: Option<usize>,
+pub(crate) struct Clauses {
+    pub(crate) from: Option<usize>,
+    pub(crate) order_by: Option<usize>,
     /// The first clause that goes after `ORDER BY` (`LIMIT`, `OFFSET`,
     /// `FETCH`, CQL's `ALLOW FILTERING`, `;`), after the `FROM`.
-    tail: Option<usize>,
+    pub(crate) tail: Option<usize>,
 }
 
-fn clauses(query: &str, backslash: bool) -> Clauses {
+pub(crate) fn clauses(query: &str, backslash: bool) -> Clauses {
     let b = query.as_bytes();
     let lower = query.to_ascii_lowercase();
     let lb = lower.as_bytes();

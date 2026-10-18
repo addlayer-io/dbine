@@ -1,3 +1,4 @@
+pub mod chart;
 pub mod compare;
 pub mod rename;
 pub mod conn_import;

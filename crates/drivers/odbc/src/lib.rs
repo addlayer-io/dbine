@@ -263,6 +263,13 @@ impl Driver for OdbcDriver {
         script_dialect(self.preset)
     }
 
+    fn aggregate_query(&self, query: &str, spec: &dbine_driver::AggregateSpec) -> Result<String> {
+        let shape = design::aggregate_shape(self.preset)
+            .ok_or_else(|| Error::Unsupported("este origen ODBC no agrupa gráficos en el servidor".into()))?;
+        let one = dbine_driver::aggregate::single_read(&self.split_script(query), &self.script_dialect(), shape.derived_with)?;
+        dbine_driver::aggregate::grouped_sql(&shape, &one, spec)
+    }
+
     fn script_mode(&self) -> ScriptMode {
         script_mode(self.preset)
     }

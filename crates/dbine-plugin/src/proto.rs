@@ -237,6 +237,10 @@ pub enum Call {
     /// published before it answers `Unsupported`: the grid then sorts the
     /// rows it loaded.
     SortedBrowse { driver: String, query: String, sort: Vec<SortKey> },
+    /// A chart over the whole result: the user's query in a `GROUP BY`
+    /// (`Driver::aggregate_query`). A host published before it answers
+    /// `Unsupported`: the app aggregates the rows itself.
+    AggregateQuery { driver: String, query: String, spec: dbine_driver::AggregateSpec },
 }
 
 /// Host → app.
@@ -732,6 +736,20 @@ mod tests {
                 30,
                 Call::SortedBrowse { driver: "postgres".into(), query: "SELECT * FROM t".into(), sort: vec![SortKey { column: "a".into(), descending: true }] },
                 "SortedBrowse",
+            ),
+            (
+                31,
+                Call::AggregateQuery {
+                    driver: "postgres".into(),
+                    query: "SELECT * FROM t".into(),
+                    spec: dbine_driver::AggregateSpec {
+                        x: "a".into(),
+                        split: None,
+                        measures: vec![dbine_driver::Measure { column: None, func: dbine_driver::AggFn::Count }],
+                        max_groups: 10,
+                    },
+                },
+                "AggregateQuery",
             ),
         ] {
             let body = rmp_serde::to_vec_named(&ToHost::Call { id, call }).unwrap();

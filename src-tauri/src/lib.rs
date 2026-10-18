@@ -359,6 +359,7 @@ pub fn run() {
             commands::query::execute_query,
             commands::export::export_rows_to_file,
             commands::export::export_query_to_file,
+            commands::chart::chart_aggregate,
             commands::schema::database_schema,
             commands::schema::table_ddl,
             commands::schema::insert_script,

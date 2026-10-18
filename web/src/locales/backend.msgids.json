@@ -5545,6 +5545,9 @@
  "DECIMAL de {0} dígitos supera los {1} de {2}: se usa DECFLOAT(34), que los guarda exactos.": [
   "crates/dbine-schema/src/dialect/db2.rs"
  ],
+ "DEL dbine_chart": [
+  "src-tauri/src/commands/chart_live_tests.rs"
+ ],
  "DEL {0}:1 {1}:2": [
   "src-tauri/src/commands/grid_new_rows_live_tests.rs"
  ],
@@ -23594,6 +23597,9 @@
  "aggregate espera un array de etapas, no {0}": [
   "crates/drivers/mongodb/src/shell.rs"
  ],
+ "agregador del gráfico": [
+  "src-tauri/src/commands/chart.rs"
+ ],
  "agregar el período PERIOD FOR SYSTEM_TIME": [
   "crates/dbine-transfer/src/clone_table/mssql.rs"
  ],
@@ -24430,6 +24436,9 @@
  "demasiados archivos (máximo {0})": [
   "src-tauri/src/commands/projects.rs"
  ],
+ "demasiados gráficos para exportar": [
+  "src-tauri/src/commands/notebook.rs"
+ ],
  "demasiados permisos: como mucho {0}": [
   "src-tauri/src/commands/schemas.rs"
  ],
@@ -25261,6 +25270,18 @@
  "el filtro tiene un texto, un nombre entre comillas o un comentario sin cerrar": [
   "crates/drivers/bigquery/src/transfer.rs"
  ],
+ "el gráfico agrupa en el servidor una sola consulta": [
+  "crates/dbine-driver/src/aggregate.rs"
+ ],
+ "el gráfico necesita entre 1 y {0} medidas": [
+  "crates/dbine-driver/src/aggregate.rs"
+ ],
+ "el gráfico sobre todo el resultado lee una sola consulta: dejá solo la consulta del gráfico": [
+  "src-tauri/src/commands/chart.rs"
+ ],
+ "el gráfico solo lee: la consulta tiene una sentencia {0}": [
+  "src-tauri/src/commands/chart.rs"
+ ],
  "el historial de Query Insights": [
   "crates/drivers/sqlserver/src/monitor.rs"
  ],
@@ -25603,6 +25624,9 @@
  ],
  "el repositorio no tiene remoto: agregá uno (Agregar remoto…)": [
   "src-tauri/src/commands/projects_git.rs"
+ ],
+ "el resultado agrupado no tiene las columnas esperadas": [
+  "crates/dbine-driver/src/aggregate.rs"
  ],
  "el rol «{0}»": [
   "crates/drivers/postgres/src/clone.rs"
@@ -26744,6 +26768,12 @@
  "este motor no admite opciones al crear una base": [
   "crates/dbine-driver/src/lib.rs"
  ],
+ "este motor no agrupa en el servidor una consulta con WITH": [
+  "crates/dbine-driver/src/aggregate.rs"
+ ],
+ "este motor no agrupa gráficos en el servidor": [
+  "crates/dbine-driver/src/lib.rs"
+ ],
  "este motor no agrupa por columnas: la consulta queda sin GROUP BY": [
   "src-tauri/src/commands/query_builder.rs"
  ],
@@ -26991,6 +27021,9 @@
  ],
  "este motor todavía no ordena en el servidor": [
   "crates/dbine-driver/src/lib.rs"
+ ],
+ "este origen ODBC no agrupa gráficos en el servidor": [
+  "crates/drivers/odbc/src/lib.rs"
  ],
  "este origen no tiene una lista para examinar": [
   "src-tauri/src/secret_sources/browse.rs"
@@ -27400,6 +27433,18 @@
  ],
  "falta la colección donde guardar el backup (por ejemplo nodelocal://1/backups)": [
   "crates/drivers/postgres/src/backup.rs"
+ ],
+ "falta la columna de una medida": [
+  "crates/dbine-driver/src/aggregate.rs"
+ ],
+ "falta la columna del diagrama de caja": [
+  "crates/dbine-driver/src/aggregate.rs"
+ ],
+ "falta la columna del eje X": [
+  "crates/dbine-driver/src/aggregate.rs"
+ ],
+ "falta la columna del histograma": [
+  "crates/dbine-driver/src/aggregate.rs"
  ],
  "falta la columna «{0}»": [
   "crates/dbine-transfer/src/clone_table/pg.rs"
@@ -27822,6 +27867,9 @@
  ],
  "ifExists no se aplica a `{0}`: solo a comandos de usuarios y roles": [
   "crates/drivers/mongodb/src/security.rs"
+ ],
+ "imagen de gráfico inválida: {0}": [
+  "src-tauri/src/notebook/export.rs"
  ],
  "imagen inválida: {0}": [
   "src-tauri/src/commands/health.rs"
@@ -28543,6 +28591,12 @@
   "src-tauri/src/commands/export.rs",
   "src-tauri/src/tasks/steps.rs"
  ],
+ "la consulta no devolvió filas para el gráfico": [
+  "crates/dbine-driver/src/aggregate.rs"
+ ],
+ "la consulta no devolvió la columna «{0}»": [
+  "crates/dbine-driver/src/aggregate.rs"
+ ],
  "la consulta superó el límite de {0} s y se canceló": [
   "src-tauri/src/mcp/tools.rs"
  ],
@@ -28729,6 +28783,12 @@
  ],
  "la identidad de «{0}» no quedó igual a la del original ({1}); no se clona": [
   "crates/dbine-transfer/src/clone_table.rs"
+ ],
+ "la imagen del gráfico es demasiado grande": [
+  "src-tauri/src/notebook/export.rs"
+ ],
+ "la imagen del gráfico no es un PNG válido": [
+  "src-tauri/src/notebook/export.rs"
  ],
  "la instancia": [
   "crates/drivers/spanner/src/lib.rs"
@@ -28943,6 +29003,7 @@
   "src-tauri/src/commands/project_paths.rs"
  ],
  "la ruta no es válida": [
+  "src-tauri/src/commands/notebook.rs",
   "src-tauri/src/commands/project_paths.rs",
   "src-tauri/src/commands/projects.rs"
  ],
@@ -30028,6 +30089,9 @@
  "no hay conexiones de JetBrains (dataSources.xml) en {0}": [
   "crates/dbine-core/src/conn_import/jetbrains.rs"
  ],
+ "no hay consulta para el gráfico": [
+  "src-tauri/src/commands/chart.rs"
+ ],
  "no hay cómo vaciarla": [
   "crates/dbine-transfer/src/engine.rs"
  ],
@@ -30579,6 +30643,9 @@
  "no se pudo crear {0}: {1}": [
   "src-tauri/src/commands/imports.rs",
   "src-tauri/src/commands/migration.rs"
+ ],
+ "no se pudo crear «{0}»: {1}": [
+  "src-tauri/src/commands/notebook.rs"
  ],
  "no se pudo dar a las restricciones del clon el NOT FOR REPLICATION del original; no se clona": [
   "crates/dbine-transfer/src/clone_table/mssql.rs"
@@ -31272,6 +31339,9 @@
  ],
  "nombre de base inválido: «{0}»": [
   "crates/drivers/cosmosdb/src/properties.rs"
+ ],
+ "nombre de imagen inválido: {0}": [
+  "src-tauri/src/commands/notebook.rs"
  ],
  "nombre de servidor inválido: {0}": [
   "crates/drivers/neo4j/src/bolt.rs"
@@ -32563,6 +32633,12 @@
  "solo se editan filas con las columnas key y value de etcd": [
   "crates/drivers/etcd/src/ddl.rs"
  ],
+ "solo un SELECT se agrupa en el servidor": [
+  "crates/dbine-driver/src/aggregate.rs"
+ ],
+ "solo «Cantidad» puede ir sin columna": [
+  "crates/dbine-driver/src/aggregate.rs"
+ ],
  "spanner: lectura cortada ({0}); se retoma": [
   "crates/drivers/spanner/src/transfer.rs"
  ],
@@ -33091,6 +33167,9 @@
  ],
  "una colección capped necesita el tamaño máximo en bytes": [
   "crates/drivers/mongodb/src/ddl.rs"
+ ],
+ "una exportación Markdown con gráficos necesita la ruta del archivo": [
+  "src-tauri/src/commands/notebook.rs"
  ],
  "una fila": [
   "crates/drivers/neo4j/src/neptune.rs"
@@ -34881,6 +34960,9 @@
  "{0}: máximo": [
   "crates/drivers/iotdb/src/properties.rs"
  ],
+ "{0}: no category {1}": [
+  "src-tauri/src/commands/chart_live_tests.rs"
+ ],
  "{0}: no database list: {1}": [
   "crates/drivers/postgres/src/session.rs"
  ],
@@ -34902,6 +34984,9 @@
  ],
  "{0}: no se pudo ver si ya tiene filas: {1}": [
   "crates/dbine-transfer/src/engine.rs"
+ ],
+ "{0}: no series {1}": [
+  "src-tauri/src/commands/chart_live_tests.rs"
  ],
  "{0}: pasar de tabla a supertabla (o al revés) requiere recrearla; se deja como está.": [
   "crates/drivers/tdengine/src/sync.rs"
@@ -35146,6 +35231,9 @@
  "«{0}» es parte de la clave primaria o de una clave foránea: Firebird no renombra una columna que usa una restricción.": [
   "crates/drivers/firebird/src/rename.rs"
  ],
+ "«{0}» es un enlace: no se sobrescribe": [
+  "src-tauri/src/commands/notebook.rs"
+ ],
  "«{0}» es un espacio o un origen: escribí el script con ON SPACE o ON SOURCE en el editor": [
   "crates/drivers/dremio/src/security.rs"
  ],
@@ -35194,6 +35282,9 @@
  "«{0}» está solo en el destino y no admite nulos": [
   "crates/dbine-transfer/src/check.rs"
  ],
+ "«{0}» existe y no es una carpeta": [
+  "src-tauri/src/commands/notebook.rs"
+ ],
  "«{0}» llegó al tope de filas por tabla: no se copian todas las que cuelgan.": [
   "src-tauri/src/commands/subset/mod.rs"
  ],
@@ -35241,6 +35332,9 @@
  ],
  "«{0}» no es un archivo": [
   "src-tauri/src/commands/projects.rs"
+ ],
+ "«{0}» no es un archivo Markdown (.md) válido": [
+  "src-tauri/src/commands/notebook.rs"
  ],
  "«{0}» no es un arreglo": [
   "crates/drivers/phoenix/src/transfer.rs"

@@ -12,6 +12,7 @@
 //! Results are always tabular ([`QueryOutcome`]); document and key-value
 //! engines flatten what they return (top-level fields as columns).
 
+pub mod aggregate;
 pub mod alter;
 pub mod backup;
 pub mod config;
@@ -40,6 +41,7 @@ pub mod serde_static;
 pub mod sql;
 pub mod transfer;
 
+pub use aggregate::{AggFn, AggregateMethod, AggregateSpec, BoxStats, ChartAggregate, ChartKind, ChartSeries, Histogram, Measure};
 pub use alter::{SyncScript, TableChange};
 pub use backup::{BackupAction, BackupEntry, BackupSpec};
 pub use config::ConnectionConfig;
@@ -306,6 +308,26 @@ pub trait Driver: Send + Sync {
         let backslash = sql::ScriptDialect::for_hint(dialect).backslash_escapes;
         sort::set_order_by_in(query, &sort::order_list(sort, quote), backslash)
             .ok_or_else(|| Error::Unsupported("no se pudo agregar el orden a la consulta de este objeto".into()))
+    }
+
+    /// `query` (the user's, one `SELECT` / `WITH`) wrapped in a `GROUP BY`
+    /// that aggregates a chart over its whole result on the server (see
+    /// [`aggregate`]): what the results grid's and the notebook's charts
+    /// run instead of aggregating only the rows they fetched. SQL dialects
+    /// get [`aggregate::grouped_sql`] with their quoting, row limit and
+    /// subquery rules ([`aggregate::SqlShape::for_dialect`]); drivers whose
+    /// dialect needs something else override it. `Unsupported` (other
+    /// languages, dialects that aren't plain SQL over rows, a query that
+    /// isn't a single read): the app runs the query again and aggregates
+    /// its rows itself.
+    fn aggregate_query(&self, query: &str, spec: &aggregate::AggregateSpec) -> Result<String> {
+        if self.info().language != Language::Sql {
+            return Err(Error::Unsupported("este motor no agrupa gráficos en el servidor".into()));
+        }
+        let shape = aggregate::SqlShape::for_dialect(self.info().dialect)
+            .ok_or_else(|| Error::Unsupported("este motor no agrupa gráficos en el servidor".into()))?;
+        let one = aggregate::single_read(&self.split_script(query), &self.script_dialect(), shape.derived_with)?;
+        aggregate::grouped_sql(&shape, &one, spec)
     }
 
     /// Rows edited in the results grid as code in the driver's language

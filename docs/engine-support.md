@@ -139,6 +139,46 @@ scatter. In addition, "Split by" builds one series per value of a column, and
 there are aggregations (sum, average, count, minimum, maximum) and export to
 PNG.
 
+### Chart aggregation over the whole result
+
+A chart can be computed over every row of its query, not just the rows the
+grid or the notebook cell fetched (`chart_aggregate`, `dbine_driver::aggregate`).
+Works in **all engines**: grouped charts (bars, lines, areas, pie) are
+aggregated on the server where the engine can, and in DBine everywhere
+else; histograms and box plots are always computed in DBine.
+
+- **Server**: `Driver::aggregate_query` wraps the query (one `SELECT` or
+  `WITH`) in `SELECT x, [split], COUNT(*), <agg>(col)… FROM (<query>) q
+  GROUP BY … ORDER BY … <limit max_groups + 1>`, with the dialect's quotes,
+  row limit and subquery rules. Only the groups come back. If the server
+  rejects the grouped statement (a column type that can't be grouped, a
+  construct a derived table refuses), DBine falls back to the client path.
+- **Client (in DBine)**: the query runs again and its rows stream through
+  the aggregator, up to 1,000,000 rows (`rows_capped` beyond that).
+
+Both paths run on a read-only session of their own: `run_read_only` where
+the engine enforces reads (PostgreSQL, MySQL, SQLite, libSQL); elsewhere,
+`execute` only after the read-only guard finds no write in the query nor in
+the generated statement (SQL and CQL), or in the driver's read-only mode
+(other languages). Not exposed to MCP or the AI assistant.
+
+| Engine | Grouped charts | Reason |
+|---|---|---|
+| PostgreSQL and variants, DSQL, SQLite, libSQL, DuckDB, Trino, Presto, Athena, SAP HANA, Flight SQL, Dremio, Snowflake, Phoenix, InfluxDB 3 | server: `"…"`, `LIMIT n`, `AS q` (contract default) | tested live on PostgreSQL, SQLite and DuckDB; the rest by unit tests of the shared builder |
+| MySQL and variants, ClickHouse, BigQuery, Databricks, Spanner, Drill | server: `` `…` ``, `LIMIT n` (contract default) | tested live on MySQL and ClickHouse |
+| SQL Server, Azure SQL, Fabric, Babelfish | server: `SELECT TOP n`, `[…]`, `AVG(x * 1.0E0)` (T-SQL truncates the average of integers); the query's own `ORDER BY` is dropped unless it has `TOP` / `OFFSET` | tested live on SQL Server. A query starting with `WITH` is aggregated in DBine: T-SQL can't nest a CTE in a derived table |
+| Oracle | server: `FETCH FIRST n ROWS ONLY`, no `AS` before the alias | tested live |
+| Firebird | server, its own: `SELECT FIRST n` (2.x has no `FETCH FIRST`), average in floating point | unit tests (no container running) |
+| ODBC presets | server, its own: the preset's quotes and row limit; T-SQL-like engines (Sybase ASE, SQL Anywhere), Teradata, Access and dBase without `ORDER BY` / `WITH` in the derived table; DB2 with the average in floating point | unit tests per preset (no container). The generic ODBC preset (quotes and limit depend on the ODBC driver) and NetSuite aggregate in DBine |
+| OrientDB, TDengine | in DBine | their SQL subqueries and grouping differ from standard SQL; not verified against a server |
+| Cosmos DB, Couchbase (N1QL), DynamoDB (PartiQL), ksqlDB, InfluxDB 1 (InfluxQL), IoTDB | in DBine | their queries aren't plain SQL over rows (`c`, `d.*`, push queries, series paths) |
+| Cassandra, ScyllaDB, Keyspaces | in DBine | CQL has no subqueries |
+| MongoDB and variants, Elasticsearch, OpenSearch, Solr, CouchDB, Neo4j, Memgraph, Neptune, InfluxDB 2 (Flux), Redis and variants, etcd | in DBine | not SQL; tested live on MongoDB and Redis |
+
+Live tests: `src-tauri/src/commands/chart_live_tests.rs` (SQLite always; the
+others with `--ignored`): the server's numbers match a hand-written
+`GROUP BY` (MongoDB: `$group`), and the client path gives the same numbers.
+
 ## Result map
 
 The "Mapa" button in the results bar (next to table, JSON and chart) draws a

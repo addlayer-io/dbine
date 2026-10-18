@@ -38,6 +38,23 @@ Each driver includes, besides what it already reported:
   new one, and the user decides whether to run it.
 - An engine that can't update rows returns `bad_request` with the reason.
 
+## Charts over the whole result (`chart_aggregate`)
+
+| Command | args | Returns |
+|---|---|---|
+| `chart_aggregate` | `{ chart_id, connection_id, database, query, chart: ChartKind }` | `ChartAggregate` |
+
+- `chart` is `{ kind: "group", x, split, measures: [{ column, func }], max_groups }`
+  (`func`: `count`, `sum`, `avg`, `min`, `max`; `column: null` is `COUNT(*)`),
+  `{ kind: "histogram", column, bins }` or `{ kind: "box", column, by, max_groups }`.
+- The answer: `{ categories, series: [{ measure, split, values }], boxes,
+  histogram: { edges, counts, nulls, non_numeric }, method: "server" | "client",
+  rows_scanned, rows_capped, groups_truncated }`. NULL categories and split
+  values are `null`.
+- It runs on a read-only session of its own, `chart:<chart_id>`;
+  `cancel_query` with that `session_id` stops it (`cancelled`). Which engines
+  group on the server: [engine-support.md](engine-support.md#chart-aggregation-over-the-whole-result).
+
 ## Table data with filters (`filtered_browse_query`)
 
 | Command | args | Returns |

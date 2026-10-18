@@ -405,6 +405,15 @@ impl Driver for FirebirdDriver {
         ScriptDialect::firebird()
     }
 
+    /// The chart's `GROUP BY` with Firebird's `SELECT FIRST n` (2.x has no
+    /// `FETCH FIRST`) and `AVG` in floating point (it truncates integers).
+    fn aggregate_query(&self, query: &str, spec: &dbine_driver::AggregateSpec) -> Result<String> {
+        use dbine_driver::aggregate::{grouped_sql, single_read, RowLimit, SqlShape};
+        let shape = SqlShape { limit: RowLimit::First, float_avg: true, ..SqlShape::ansi() };
+        let one = single_read(&self.split_script(query), &self.script_dialect(), shape.derived_with)?;
+        grouped_sql(&shape, &one, spec)
+    }
+
     // `script_mode` stays `Whole`: the shared lexer doesn't yet keep a PSQL
     // unit written without SET TERM whole when it declares variables before
     // its BEGIN (or is a RECREATE, an EXECUTE BLOCK, a package), which this

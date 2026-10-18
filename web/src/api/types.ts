@@ -1103,3 +1103,73 @@ export interface Notebook {
   warnings: string[];
 }
 export interface NotebookRead { notebook: Notebook; text_hash: string }
+
+// -- Charts over the whole result (`dbine_driver::aggregate`, chart_aggregate) --
+
+/** A measure's aggregate (the chart's "Agregación" ids). */
+export type AggFn = 'count' | 'sum' | 'avg' | 'min' | 'max';
+/** `func` over `column`; `column: null` is COUNT(*) (only with 'count').
+ *  COUNT(column) counts its non-null cells. */
+export interface Measure {
+  column: string | null;
+  func: AggFn;
+}
+/** A grouped chart: one category per `x` value, one series per measure
+ *  (per measure and `split` value with a split). Columns as the query's
+ *  result names them. */
+export interface AggregateSpec {
+  x: string;
+  split: string | null;
+  measures: Measure[];
+  /** Most groups (x, or x × split pairs) in the answer (1–10000; default 1000). */
+  max_groups?: number;
+}
+/** What `chart_aggregate` computes. Histograms and box plots always run in DBine. */
+export type ChartKind =
+  | ({ kind: 'group' } & AggregateSpec)
+  /** Equal-width bins (1–200, default 20) between the column's min and max. */
+  | { kind: 'histogram'; column: string; bins?: number }
+  /** Min, quartiles (linear interpolation) and max per `by` value (one box
+   *  with `by` null); at most `max_groups` boxes (default 50). */
+  | { kind: 'box'; column: string; by: string | null; max_groups?: number };
+/** One series: measure `measure` (index in `measures`) for split value
+ *  `split` (null without a split, or the NULL split value); one value per
+ *  category, null where the group has none. */
+export interface ChartSeries {
+  measure: number;
+  split: string | null;
+  values: (number | null)[];
+}
+/** `counts[i]` values in [edges[i], edges[i + 1]) (the last bin closed). */
+export interface ChartHistogram {
+  edges: number[];
+  counts: number[];
+  nulls: number;
+  non_numeric: number;
+}
+export interface BoxStats {
+  /** The `by` value; null: NULL, or no `by`. */
+  category: string | null;
+  count: number;
+  min: number;
+  q1: number;
+  median: number;
+  q3: number;
+  max: number;
+}
+/** A chart's data over the whole result of its query. Category and split
+ *  labels are the cells as `String(v)` gives them; null is NULL (show the
+ *  chart's own "(nulo)" label). */
+export interface ChartAggregate {
+  categories: (string | null)[];
+  series: ChartSeries[];
+  boxes: BoxStats[] | null;
+  histogram: ChartHistogram | null;
+  /** 'server': the engine grouped the rows; 'client': DBine read them. */
+  method: 'server' | 'client';
+  rows_scanned: number | null;
+  /** The client path stopped at 1,000,000 rows: the chart covers those. */
+  rows_capped: boolean;
+  /** More groups than `max_groups`: the last ones were left out. */
+  groups_truncated: boolean;
+}

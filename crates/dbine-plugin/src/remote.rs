@@ -790,6 +790,9 @@ impl Driver for RemoteDriver {
         }
         text(self.blocking(Call::SortedBrowse { driver: self.id(), query: query.to_string(), sort: sort.to_vec() })?)
     }
+    fn aggregate_query(&self, query: &str, spec: &dbine_driver::AggregateSpec) -> Result<String> {
+        text(self.blocking(Call::AggregateQuery { driver: self.id(), query: query.to_string(), spec: spec.clone() })?)
+    }
     fn update_script(&self, target: &ObjectRef, changes: &[RowChange]) -> Result<String> {
         text(self.blocking(Call::UpdateScript { driver: self.id(), target: target.clone(), changes: changes.to_vec() })?)
     }
