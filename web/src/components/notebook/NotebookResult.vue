@@ -5,11 +5,13 @@ import type { CellResult, QueryOutcome } from '../../api/types';
 import { locale } from '../../i18n';
 import { tb } from '../../i18n/backend';
 import { rowCounts } from '../../composables/notebookModel';
-import ResultsPane from '../ResultsPane.vue';
+import { cellChart, readCellChart, type ChartState } from '../../composables/chartSettings';
+import ResultsPane, { type View } from '../ResultsPane.vue';
 
 // A SQL cell's result: the summary line ("100 de 100.000.000 filas · 18/10
 // 14:32 · 41 s · Ventas prod › ventas") and, under it, the editor's results
 // pane — with every row of a run made here, or the preview the file kept.
+// The pane opens in the view the cell keeps (`chart`), with its chart.
 
 const props = defineProps<{
   result: CellResult | null;
@@ -22,8 +24,10 @@ const props = defineProps<{
   source: { connectionId: string; database: string; sql: string } | null;
   dialect: string;
   title: string;
+  /** The cell's stored chart: { view, type, x, y, agg, sort, split, points }. */
+  chart: unknown | null;
 }>();
-const emit = defineEmits<{ group: []; explain: [] }>();
+const emit = defineEmits<{ group: []; explain: []; chart: [chart: Record<string, unknown>] }>();
 const { t } = useTranslation();
 
 const counts = computed(() => (props.result ? rowCounts(props.result) : null));
@@ -65,6 +69,18 @@ const height = computed(() => {
   const rows = Math.max(0, ...(outcome.value?.results ?? []).map((r) => r.rows.length));
   return Math.min(380, Math.max(150, 96 + rows * 24));
 });
+const stored = computed(() => readCellChart(props.chart));
+const VIEWS: View[] = ['table', 'chart', 'tree', 'map'];
+const initialView = computed(() => VIEWS.find((v) => v === stored.value.view));
+const storedPoints = () => (props.chart as { points?: ChartState['points'] } | null)?.points ?? null;
+function onView(v: View) {
+  emit('chart', cellChart(v, stored.value.settings, storedPoints()));
+}
+/** The chart changed. Its points are kept only from a run made here: from a
+ *  cut preview they'd be fewer than the stored ones. */
+function onChart({ points, ...settings }: ChartState) {
+  emit('chart', cellChart('chart', settings, props.live ? points : storedPoints()));
+}
 /** The preview was cut: the summary offers an aggregated version. */
 const cut = computed(() => !!counts.value?.truncated && !props.running);
 </script>
@@ -88,7 +104,18 @@ const cut = computed(() => !!counts.value?.truncated && !props.running);
     </div>
     <div v-if="result?.error && !hasPane && !running" class="nr-error nm-selectable">{{ tb(result.error) }}</div>
     <div v-if="hasPane" class="nr-pane" :style="{ height: `${height}px` }">
-      <ResultsPane :outcome="outcome" :running="false" :source="source" :title="title" :dialect="dialect" hide-status />
+      <ResultsPane
+        :outcome="outcome"
+        :running="false"
+        :source="source"
+        :title="title"
+        :dialect="dialect"
+        hide-status
+        :initial-view="initialView"
+        :chart-settings="stored.settings"
+        @update:view="onView"
+        @update:chart-settings="onChart"
+      />
     </div>
   </div>
 </template>

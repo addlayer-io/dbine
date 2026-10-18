@@ -9,6 +9,7 @@ import type { Cell, ResultColumn } from '../api/types';
 import { locale } from '../i18n';
 import { saveBinaryFile } from '../composables/files';
 import { resolvedTheme } from '../composables/appearance';
+import { chartPoints, resolveChartSettings, type ChartAgg, type ChartKind, type ChartSettings, type ChartSort, type ChartState } from '../composables/chartSettings';
 
 // A chart of a result set, for any engine (it works on the grid's rows).
 // The form comes from the data: a date column → lines, a text column →
@@ -19,7 +20,15 @@ import { resolvedTheme } from '../composables/appearance';
 
 echarts.use([BarChart, LineChart, PieChart, ScatterChart, GridComponent, TooltipComponent, LegendComponent, DataZoomComponent, CanvasRenderer]);
 
-const props = defineProps<{ columns: ResultColumn[]; rows: Cell[][] }>();
+const props = defineProps<{
+  columns: ResultColumn[];
+  rows: Cell[][];
+  /** Settings to start from (by column name); defaults where they don't fit.
+   *  Absent: changes are emitted only once the user makes one. */
+  settings?: ChartSettings | null;
+}>();
+/** The user changed the chart (or its data changed after they did). */
+const emit = defineEmits<{ 'update:settings': [state: ChartState] }>();
 
 const PALETTE = ['#3987e5', '#d95926', '#199e70', '#c98500', '#d55181', '#008300', '#9085e9', '#e66767'];
 const INKS = {
@@ -29,8 +38,8 @@ const INKS = {
 /** Pie and scatter compare every pair of colors: past three, fold to "Otros". */
 const ALL_PAIRS_CAP = 3;
 
-type Kind = 'bar' | 'hbar' | 'stacked' | 'line' | 'area' | 'pie' | 'scatter';
-type Agg = 'none' | 'sum' | 'avg' | 'count' | 'min' | 'max';
+type Kind = ChartKind;
+type Agg = ChartAgg;
 
 const { t } = useTranslation();
 const KINDS = computed<{ id: Kind; label: string }[]>(() =>
@@ -61,7 +70,7 @@ const kind = ref<Kind>('bar');
 const xCol = ref<number>(0);
 const yCols = ref<number[]>([]);
 const agg = ref<Agg>('none');
-const sortBy = ref<'none' | 'value' | 'label'>('none');
+const sortBy = ref<ChartSort>('none');
 /** One series per distinct value of this column (a pivot), or none. */
 const splitCol = ref<number | null>(null);
 /** Series past this fold into "Otros" (fixed palette order, never cycled). */
@@ -102,7 +111,33 @@ function pickDefaults() {
   agg.value = kind.value !== 'scatter' && distinct < props.rows.length * 0.8 ? 'sum' : 'none';
   sortBy.value = 'none';
 }
-watch(() => props.columns, pickDefaults, { immediate: true });
+const settingsNow = computed<ChartSettings>(() => ({
+  kind: kind.value,
+  x: props.columns[xCol.value]?.name ?? null,
+  y: yCols.value.map((i) => props.columns[i]?.name).filter((n): n is string => n !== undefined),
+  agg: agg.value,
+  sort: sortBy.value,
+  split: splitCol.value === null ? null : props.columns[splitCol.value]?.name ?? null,
+}));
+/** The defaults' settings, and whether the chart is emitted: once the user
+ *  changes it, or always when the parent keeps settings (passes the prop,
+ *  even null: it then gets the defaults and their points on mount). */
+let defaultsKey = '';
+let chosen = props.settings !== undefined;
+function applyColumns() {
+  pickDefaults();
+  defaultsKey = JSON.stringify(settingsNow.value);
+  const r = props.settings ? resolveChartSettings(props.settings, props.columns.map((c) => c.name), numericCols.value) : null;
+  if (!r) return;
+  kind.value = r.kind;
+  xCol.value = r.x;
+  yCols.value = r.y;
+  agg.value = r.agg;
+  sortBy.value = r.sort;
+  splitCol.value = r.split;
+  chosen = true;
+}
+watch(() => props.columns, applyColumns, { immediate: true });
 // Splitting shows one measure (one series per value).
 watch(splitCol, (v) => { if (v !== null && yCols.value.length > 1) yCols.value = yCols.value.slice(0, 1); });
 
@@ -289,6 +324,15 @@ const option = computed(() => {
     })),
   };
 });
+
+/** What the chart plots (aggregated, capped): a notebook keeps it. */
+const points = computed(() => chartPoints(shaped.value.cats, shaped.value.series, shaped.value.names));
+defineExpose({ points, settings: settingsNow });
+watch([settingsNow, points], ([s, p]) => {
+  if (!chosen && JSON.stringify(s) === defaultsKey) return;
+  chosen = true;
+  emit('update:settings', { ...s, points: p });
+}, { immediate: true });
 
 // -- rendering ----------------------------------------------------------------------------
 const host = ref<HTMLDivElement | null>(null);

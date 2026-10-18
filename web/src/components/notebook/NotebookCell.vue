@@ -54,6 +54,8 @@ const emit = defineEmits<{
   target: [];
   keep: [];
   explain: [];
+  /** The result's view or chart changed (the cell's `chart`). */
+  chart: [chart: Record<string, unknown>];
   propose: [];
   group: [];
   edit: [on: boolean];
@@ -189,8 +191,10 @@ const counter = computed(() => (props.running ? '*' : props.cell.execution_count
           :source="source"
           :dialect="ctx.dialect ?? ''"
           :title="title"
+          :chart="cell.chart"
           @group="emit('group')"
           @explain="emit('explain')"
+          @chart="(c: Record<string, unknown>) => emit('chart', c)"
         />
       </template>
 

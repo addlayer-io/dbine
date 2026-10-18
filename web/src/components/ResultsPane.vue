@@ -15,6 +15,7 @@ import AddDocumentDialog from './AddDocumentDialog.vue';
 import JsonTreeView from './JsonTreeView.vue';
 import PlanView from './PlanView.vue';
 import ChartView from './ChartView.vue';
+import type { ChartSettings, ChartState } from '../composables/chartSettings';
 import { detectSpatial } from '../composables/geo';
 // Leaflet and the base map load only when a map is shown.
 const MapView = defineAsyncComponent(() => import('./MapView.vue'));
@@ -63,8 +64,16 @@ const props = defineProps<{
   /** Sub-tab names by result index (a run on several databases: the merged
    *  grid, or each database's result). Absent: "Resultado N". */
   labels?: string[] | null;
+  /** The view to start in (a notebook cell's saved one). Absent: the grid,
+   *  or the JSON tree a document engine remembers. */
+  initialView?: View;
+  /** Chart settings to start from (by column name); `update:chartSettings`
+   *  emits the user's changes with the plotted points. */
+  chartSettings?: ChartSettings | null;
 }>();
 const emit = defineEmits<{
+  'update:view': [view: View];
+  'update:chartSettings': [state: ChartState];
   /** "Agregar a la query": the generated DELETE / UPDATE code. */
   script: [code: string];
   filter: [column: string, state: FilterState | null];
@@ -83,16 +92,17 @@ const sets = computed(() => (props.outcome?.results ?? []).map((r, i) => ({ ...r
 const active = ref<number | 'messages' | 'plan'>(0);
 /** How the current result set is shown. Document engines remember table or
  *  JSON tree between results (a per-viewer preference). */
-type View = 'table' | 'chart' | 'tree' | 'map';
+export type View = 'table' | 'chart' | 'tree' | 'map';
 const VIEW_KEY = 'dbine.resultsView.json';
 const documents = computed(() => props.editSource?.language === 'json');
 function savedView(): View {
   try { return documents.value && localStorage.getItem(VIEW_KEY) === 'tree' ? 'tree' : 'table'; } catch { return 'table'; }
 }
-const show = ref<View>(savedView());
+const show = ref<View>(props.initialView ?? savedView());
 // A query tab knows its engine once a script ran: the saved view applies then.
-watch(documents, (d) => { if (d && show.value === 'table') show.value = savedView(); });
+watch(documents, (d) => { if (d && show.value === 'table' && !props.initialView) show.value = savedView(); });
 function setView(v: View) {
+  if (show.value !== v) emit('update:view', v);
   show.value = v;
   if (documents.value && v !== 'chart' && v !== 'map') {
     try { localStorage.setItem(VIEW_KEY, v); } catch { /* storage off */ }
@@ -901,7 +911,14 @@ const statusText = computed(() => {
       <div v-if="current.truncated" class="rp-trunc">
         {{ $t('results:truncated', { shown: current.rows.length.toLocaleString(locale()), total: current.total_rows.toLocaleString(locale()) }) }}
       </div>
-      <ChartView v-if="view === 'chart'" :key="active" :columns="current.columns" :rows="current.rows" />
+      <ChartView
+        v-if="view === 'chart'"
+        :key="active"
+        :columns="current.columns"
+        :rows="current.rows"
+        :settings="chartSettings"
+        @update:settings="(s: ChartState) => emit('update:chartSettings', s)"
+      />
       <MapView v-else-if="view === 'map'" :key="`map-${active}`" :columns="current.columns" :rows="current.rows" :detected="spatial" />
       <JsonTreeView
         v-else-if="view === 'tree'"

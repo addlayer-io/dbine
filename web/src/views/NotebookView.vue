@@ -27,6 +27,7 @@ import { dbKey, objKey, useConnectionsStore } from '../stores/connections';
 import { useOutputStore } from '../stores/output';
 import { useProjectsStore } from '../stores/projects';
 import { useSettingsStore } from '../stores/settings';
+import { sameJson } from '../composables/chartSettings';
 import { readJson, writeJson } from '../stores/storage';
 import { busyTabs, closeGuards, notebookDraftKey, notebookSessions, useTabsStore, type NotebookTab } from '../stores/tabs';
 import { useUiStore } from '../stores/ui';
@@ -188,6 +189,12 @@ function setEditing(cell: NotebookCell, on: boolean) {
 }
 function toggleKeep(cell: NotebookCell) {
   cell.keep_result = !cell.keep_result;
+  touch();
+}
+/** The result's view or chart: stored in the cell (dirty only if it changed). */
+function setChart(cell: NotebookCell, chart: Record<string, unknown>) {
+  if (sameJson(chart, cell.chart)) return;
+  cell.chart = chart;
   touch();
 }
 function clearResults() {
@@ -769,6 +776,7 @@ const breadcrumbDir = computed(() => {
           @kind="(k: 'sql' | 'markdown') => changeKind(cell, k)"
           @target="pickTarget(cell)"
           @keep="toggleKeep(cell)"
+          @chart="(c: Record<string, unknown>) => setChart(cell, c)"
           @explain="explain(cell)"
           @propose="propose(cell)"
           @group="group(cell)"
