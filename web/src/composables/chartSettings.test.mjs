@@ -3,7 +3,7 @@
 // strips the TypeScript types itself). Not part of the app's build.
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { cellChart, chartPoints, readCellChart, resolveChartSettings, sameJson } from './chartSettings.ts';
+import { MAX_LABEL_CHARS, cellChart, chartPoints, readCellChart, resolveChartSettings, sameJson, storablePoints } from './chartSettings.ts';
 
 const s = { kind: 'bar', x: 'region', y: ['total', 'qty'], agg: 'sum', sort: 'value', split: null };
 
@@ -56,4 +56,18 @@ test('a cell chart round-trips; malformed input reads as nothing', () => {
 test('sameJson ignores key order', () => {
   assert.ok(sameJson({ b: 1, a: { d: [1, { y: 2, x: 1 }], c: null } }, { a: { c: null, d: [1, { x: 1, y: 2 }] }, b: 1 }));
   assert.ok(!sameJson({ a: [1, 2] }, { a: [2, 1] }));
+});
+
+test('a cell keeps only aggregated points, capped to its rows, labels cut', () => {
+  const pts = { categories: ['a', 'b', 'c', 'x'.repeat(MAX_LABEL_CHARS + 10)], series: [{ name: 'total', values: [1, 2, 3, 4] }] };
+  const kept = storablePoints({ ...s, agg: 'sum' }, pts, 3);
+  assert.deepEqual(kept, { categories: ['a', 'b', 'c'], series: [{ name: 'total', values: [1, 2, 3] }] });
+  const long = storablePoints({ ...s, agg: 'count' }, pts, 10);
+  assert.equal(long.categories[3].length, MAX_LABEL_CHARS + 1);
+  assert.ok(long.categories[3].endsWith('…'));
+  // Raw rows: no aggregation, or a scatter.
+  assert.equal(storablePoints({ ...s, agg: 'none' }, pts, 10), null);
+  assert.equal(storablePoints({ ...s, kind: 'scatter' }, pts, 10), null);
+  assert.equal(storablePoints(null, pts, 10), null);
+  assert.equal(storablePoints(s, null, 10), null);
 });

@@ -88,3 +88,17 @@ export function sameJson(a: unknown, b: unknown): boolean {
     : v);
   return JSON.stringify(norm(a)) === JSON.stringify(norm(b));
 }
+
+/** A value or label longer than this is cut (as the file cuts cell values). */
+export const MAX_LABEL_CHARS = 4000;
+const cutLabel = (s: string) => (s.length > MAX_LABEL_CHARS ? `${s.slice(0, MAX_LABEL_CHARS)}…` : s);
+
+/** The points a notebook cell may keep: only aggregated ones (no scatter, no
+ *  "none": those are the raw rows), at most `maxRows` each, labels cut. */
+export function storablePoints(s: ChartSettings | null, points: ChartPoints | null, maxRows: number): ChartPoints | null {
+  if (!s || !points || s.kind === 'scatter' || s.agg === 'none') return null;
+  return {
+    categories: points.categories.slice(0, maxRows).map(cutLabel),
+    series: points.series.slice(0, maxRows).map((x) => ({ name: cutLabel(x.name), values: x.values.slice(0, maxRows) })),
+  };
+}

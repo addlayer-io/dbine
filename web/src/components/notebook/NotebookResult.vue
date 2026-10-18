@@ -4,8 +4,9 @@ import { useTranslation } from 'i18next-vue';
 import type { CellResult, QueryOutcome } from '../../api/types';
 import { locale } from '../../i18n';
 import { tb } from '../../i18n/backend';
-import { rowCounts } from '../../composables/notebookModel';
-import { cellChart, readCellChart, type ChartState } from '../../composables/chartSettings';
+import { ROWS_DEFAULT, ROWS_RANGE, ROWS_SETTING, clamp, rowCounts } from '../../composables/notebookModel';
+import { cellChart, readCellChart, sameJson, storablePoints, type ChartState } from '../../composables/chartSettings';
+import { useSettingsStore } from '../../stores/settings';
 import ResultsPane, { type View } from '../ResultsPane.vue';
 
 // A SQL cell's result: the summary line ("100 de 100.000.000 filas · 18/10
@@ -21,6 +22,8 @@ const props = defineProps<{
   running: boolean;
   /** "No guardar el resultado" is on. */
   dropped: boolean;
+  /** Only for a run made here: a full export re-runs exactly that query
+   *  (a stored preview exports just its rows). */
   source: { connectionId: string; database: string; sql: string } | null;
   dialect: string;
   title: string;
@@ -73,13 +76,19 @@ const stored = computed(() => readCellChart(props.chart));
 const VIEWS: View[] = ['table', 'chart', 'tree', 'map'];
 const initialView = computed(() => VIEWS.find((v) => v === stored.value.view));
 const storedPoints = () => (props.chart as { points?: ChartState['points'] } | null)?.points ?? null;
+const settingsStore = useSettingsStore();
+/** The file keeps at most the cell's rows of points. */
+const maxPoints = () => clamp(settingsStore.get<number>(ROWS_SETTING, ROWS_DEFAULT), ROWS_RANGE);
 function onView(v: View) {
-  emit('chart', cellChart(v, stored.value.settings, storedPoints()));
+  emit('chart', cellChart(v, stored.value.settings, storablePoints(stored.value.settings, storedPoints(), maxPoints())));
 }
-/** The chart changed. Its points are kept only from a run made here: from a
- *  cut preview they'd be fewer than the stored ones. */
+/** The chart changed. Its points come from a run made here; on a stored
+ *  preview they'd be from cut rows: the stored ones stay while the settings
+ *  are the same, and go when they change (they'd no longer match). Only
+ *  aggregated points are kept (storablePoints). */
 function onChart({ points, ...settings }: ChartState) {
-  emit('chart', cellChart('chart', settings, props.live ? points : storedPoints()));
+  const pts = props.live ? points : sameJson(settings, stored.value.settings) ? storedPoints() : null;
+  emit('chart', cellChart('chart', settings, storablePoints(settings, pts, maxPoints())));
 }
 /** The preview was cut: the summary offers an aggregated version. */
 const cut = computed(() => !!counts.value?.truncated && !props.running);
