@@ -204,7 +204,7 @@ fn a_plan_rebuilds_the_call_with_resolved_paths() {
 }
 
 fn data(path: &str) -> DataFile {
-    DataFile { path: path.into(), display: path.into(), size: 1, mtime_ms: 1, pattern: None, previous_mtime_ms: None, sidecars: Vec::new() }
+    DataFile { path: path.into(), display: path.into(), size: 1, mtime_ms: 1, ..Default::default() }
 }
 
 #[test]
@@ -383,9 +383,12 @@ async fn notebook_files_globs_and_lists_and_the_row_cap() {
     let (_, loaded) = prep(s.as_mut(), &mut HashMap::new(), &HashSet::new(), "SELECT * FROM read_csv('exports/*.csv')", &[], 4, Some(&dir), &mut out, None, never).await.unwrap();
     assert!(loaded[0].capped && loaded[0].rows == 4, "{loaded:?}");
     assert!(out.log.iter().any(|m| m.text.contains("se cargó con las primeras 4 filas")), "{:?}", out.log);
-    // A URL never reaches DuckDB.
-    let e = prep(s.as_mut(), &mut HashMap::new(), &HashSet::new(), "SELECT * FROM read_parquet('https://example.com/x.parquet')", &[], 4, Some(&dir), &mut out, None, never).await.unwrap_err();
-    assert!(e.to_string().contains("no leen de la red"), "{e}");
+    // An unencrypted or local URL is refused before anything runs (the
+    // rest: notebook::remote's tests).
+    let e = prep(s.as_mut(), &mut HashMap::new(), &HashSet::new(), "SELECT * FROM read_parquet('http://example.com/x.parquet')", &[], 4, Some(&dir), &mut out, None, never).await.unwrap_err();
+    assert!(e.to_string().contains("sin cifrar"), "{e}");
+    let e = prep(s.as_mut(), &mut HashMap::new(), &HashSet::new(), "SELECT * FROM read_parquet('https://127.0.0.1/x.parquet')", &[], 4, Some(&dir), &mut out, None, never).await.unwrap_err();
+    assert!(e.to_string().contains("servidores públicos"), "{e}");
     let _ = std::fs::remove_dir_all(&dir);
 }
 
@@ -522,7 +525,7 @@ async fn notebook_files_a_glob_grant_covers_new_files_of_its_pattern() {
     let store = dbine_core::StateStore::open_in_memory().unwrap();
     let pattern = dir.join("exports").join("ventas_*.csv").to_string_lossy().to_string();
     let grants = vec![dbine_core::file_grants::FileGrant { notebook: "nb".into(), target: pattern, pattern: true, granted_at: String::new() }];
-    let access = Access { notebook: Some("nb".into()), grants, store: Some(&store), policy: Policy::default(), approved: Vec::new() };
+    let access = Access { notebook: Some("nb".into()), grants, store: Some(&store), policy: Policy::default(), approved: Vec::new(), net: Default::default() };
     let mut s = open_sandboxed().await.expect("DuckDB");
     let sql = "SELECT sum(n) FROM read_csv('exports/ventas_*.csv')";
     let r = prepare(s.as_mut(), &mut HashMap::new(), &HashSet::new(), sql, &[], 100, Some(&dir), &access, &mut QueryOutcome::default(), None, never).await.unwrap();

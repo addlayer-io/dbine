@@ -57,12 +57,13 @@ fn st_read_refuses_virtual_paths_urls_and_indirection_formats() {
     write(&dir.join("notas.txt"), "x");
     for (sql, want) in [
         ("SELECT * FROM st_read('/vsizip/datos.zip/zonas.shp')", "ruta virtual de GDAL"),
-        ("SELECT * FROM st_read('/vsicurl/https://example.com/z.geojson')", "no leen de la red"),
+        ("SELECT * FROM st_read('/vsicurl/https://example.com/z.geojson')", "ruta virtual de GDAL"),
         ("SELECT * FROM st_read('/VSIS3/bucket/z.geojson')", "ruta virtual de GDAL"),
         ("SELECT * FROM st_read('/vsimem/z.geojson')", "ruta virtual de GDAL"),
         ("SELECT * FROM st_read('vsigzip/z.geojson')", "ruta virtual de GDAL"),
-        ("SELECT * FROM st_read('https://example.com/z.geojson')", "no leen de la red"),
-        ("SELECT * FROM st_read('WFS:http://example.com/wfs')", "no leen de la red"),
+        ("SELECT * FROM st_read('http://example.com/z.geojson')", "sin cifrar"),
+        ("SELECT * FROM st_read('s3://bucket/z.geojson')", "solo https://"),
+        ("SELECT * FROM st_read('WFS:http://example.com/wfs')", "ni una URL"),
         ("SELECT * FROM read_csv('/vsicurl/x.csv')", "ruta virtual de GDAL"),
         ("SELECT * FROM st_read('capas.vrt')", "apuntan a otros archivos"),
         ("SELECT * FROM st_read('capas.gml')", "apuntan a otros archivos"),
@@ -189,7 +190,8 @@ fn database_readers_check_their_table_names_and_arguments() {
         ("SELECT * FROM read_duckdb('b.duckdb', 'a.b.c')", "no es un nombre de tabla válido"),
         ("SELECT * FROM read_duckdb('b.duckdb', table_name = 'x''y')", "no es un nombre de tabla válido"),
         ("SELECT * FROM read_duckdb('b.duckdb', 't', hive_partitioning = true)", "lleva el archivo y la tabla"),
-        ("SELECT * FROM read_duckdb('https://x/b.duckdb', 't')", "no leen de la red"),
+        ("SELECT * FROM read_duckdb('https://x/b.duckdb', 't')", "solo archivos locales"),
+        ("SELECT * FROM sqlite_scan('s3://bucket/a.db', 't')", "solo archivos locales"),
     ] {
         let e = plan_err(sql, &dir);
         assert!(e.contains(want), "{sql}: {e}");
@@ -548,5 +550,51 @@ async fn notebook_geo_a_geopackage_cannot_point_gdal_at_another_file() {
         assert!(!got.contains("secreto"), "{sql}: {got}");
     }
     assert_eq!(snapshot(&dir), before);
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
+/// A GeoPackage open in another program (WAL mode, changes only in its
+/// `-wal`): the `-wal` is a sidecar, the file is read from a private copy
+/// with it applied, and the originals stay byte- and time-identical.
+#[tokio::test]
+async fn notebook_geo_a_geopackage_with_a_pending_wal_is_read_from_a_copy() {
+    let dir = temp("gpkgwal");
+    let d = dir.to_string_lossy().to_string();
+    {
+        let mut w = writer().await;
+        if !setup(w.as_mut(), "INSTALL spatial; LOAD spatial").await {
+            return;
+        }
+        assert!(setup(w.as_mut(), &format!("COPY (SELECT 'z' AS name, 'POINT(1 1)'::GEOMETRY AS geom) TO {} WITH (FORMAT gdal, DRIVER 'GPKG', LAYER_NAME 'z')", lit(&format!("{d}/z.gpkg")))).await);
+    }
+    // Another program: WAL mode, no checkpoints, a new layer only in the -wal.
+    let other = rusqlite::Connection::open(dir.join("z.gpkg")).unwrap();
+    other
+        .execute_batch(
+            "PRAGMA journal_mode=WAL; PRAGMA wal_autocheckpoint=0;
+             CREATE TABLE extra(fid INTEGER PRIMARY KEY, name TEXT); INSERT INTO extra(name) VALUES ('desde el wal');
+             INSERT INTO gpkg_contents(table_name, data_type, identifier) VALUES ('extra', 'attributes', 'extra');",
+        )
+        .unwrap();
+    assert!(std::fs::metadata(dir.join("z.gpkg-wal")).unwrap().len() > 0);
+    let before = snapshot(&dir);
+    let r = plan("SELECT * FROM st_read('z.gpkg', layer = 'extra')", Some(&dir), None, 100).unwrap();
+    assert_eq!(r[0].files[0].sidecars.iter().map(|f| f.display.as_str()).collect::<Vec<_>>(), ["z.gpkg-wal"]);
+    assert!(r[0].gpkg_copy);
+    let mut s = open_sandboxed_with(true).await.unwrap();
+    let mut tables = HashMap::new();
+    let (run, loaded) = prep(s.as_mut(), &mut tables, "SELECT name FROM st_read('z.gpkg', layer = 'extra')", &[], &dir).await.unwrap();
+    assert_eq!(rows_of(s.as_mut(), &run).await, vec![vec![json!("desde el wal")]]);
+    assert_eq!(loaded[0].files[0].sidecars.len(), 1);
+    let (run, _) = prep(s.as_mut(), &mut tables, "SELECT name FROM st_read('z.gpkg')", &[], &dir).await.unwrap();
+    assert_eq!(rows_of(s.as_mut(), &run).await, vec![vec![json!("z")]]);
+    assert_eq!(snapshot(&dir), before, "the GeoPackage, its -wal or its -shm changed");
+    // Approving the file without its -wal isn't enough.
+    let wal = r[0].files[0].sidecars[0].path.clone();
+    let access = Access { approved: vec![r[0].files[0].path.clone()], ..Default::default() };
+    assert!(matches!(access.gate(&r[0].files), Err(Gate::Ask(_))));
+    let access = Access { approved: vec![r[0].files[0].path.clone(), wal], ..Default::default() };
+    assert!(access.gate(&r[0].files).is_ok());
+    drop(other);
     let _ = std::fs::remove_dir_all(&dir);
 }

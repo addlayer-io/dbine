@@ -16,6 +16,7 @@ pub mod access;
 pub mod export;
 pub mod files;
 pub mod local;
+pub mod remote;
 
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Map, Value};

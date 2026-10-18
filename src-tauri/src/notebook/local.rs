@@ -1049,6 +1049,7 @@ pub(crate) async fn load_files(
     cap: u64,
     out: &mut QueryOutcome,
     cancel: Option<&Notify>,
+    net: &super::remote::Net,
 ) -> CommandResult<Vec<LoadedTable>> {
     let mut loaded = Vec::new();
     let mut seen = HashSet::new();
@@ -1062,15 +1063,41 @@ pub(crate) async fn load_files(
             continue;
         }
         // Only what `allowed_files` let through is ever granted.
+        // (an object found by an approved pattern goes with its pattern)
         let ok: HashSet<&str> = allowed.iter().flat_map(|f| f.all()).map(|f| f.path.as_str()).collect();
-        if let Some(f) = r.files.iter().flat_map(|f| f.all()).find(|f| !ok.contains(f.path.as_str())) {
+        let approved = |f: &DataFile| ok.contains(f.path.as_str()) || f.host.is_some() && f.pattern.as_deref().is_some_and(|p| ok.contains(p) && super::remote::url_pattern_matches(p, &f.path));
+        if let Some(f) = r.files.iter().flat_map(|f| f.all()).find(|f| !approved(f)) {
             return Err(CommandError::BadRequest(format!("no se permitió leer «{}»", f.display)));
         }
         let (columns, rows, capped) = match &r.kind {
             files::ReadKind::Sqlite { .. } => read_sqlite(r, cap, cancel).await?,
             files::ReadKind::Duck { extension } => {
-                let mut reader = files::open_reader(&files::reader_paths(r), *extension).await?;
-                read_file(reader.as_mut(), r, cap, cancel).await?
+                // Objects are downloaded by DBine into a private folder and
+                // read from there; a GeoPackage with a pending -wal is read
+                // from a copy. The folder goes when this read ends.
+                let mut _tmp = None;
+                let mut job = r.clone();
+                let paths = if r.remote {
+                    let tmp = super::remote::TempDir::new("remote").map_err(CommandError::Internal)?;
+                    let never = Notify::new();
+                    let got = tokio::select! {
+                        g = super::remote::download(&r.files, net, &tmp.0) => g?,
+                        _ = cancel.unwrap_or(&never).notified() => return Err(CommandError::Cancelled),
+                    };
+                    job.text = r.text_for(&got);
+                    _tmp = Some(tmp);
+                    got
+                } else if r.gpkg_copy {
+                    let tmp = super::remote::TempDir::new("gpkg").map_err(CommandError::Internal)?;
+                    let copy = files::gpkg_copy(&r.files[0], &tmp.0).map_err(CommandError::Sql)?;
+                    job.text = r.text_for(std::slice::from_ref(&copy));
+                    _tmp = Some(tmp);
+                    vec![copy]
+                } else {
+                    files::reader_paths(r)
+                };
+                let mut reader = files::open_reader(&paths, *extension).await?;
+                read_file(reader.as_mut(), &job, cap, cancel).await?
             }
         };
         let (n, text) = load_rows(s, &r.table, &columns, &rows).await?;
@@ -1131,14 +1158,17 @@ where
         }
     }
     let home = files::home_dir();
-    let cell = files::plan(sql, base, home.as_deref(), cap).map_err(CommandError::BadRequest)?;
+    let net = &access.net;
+    let cell = files::plan_with(sql, base, home.as_deref(), cap, net).map_err(CommandError::BadRequest)?;
     let mut sources = sources.to_vec();
     let mut reads = cell.clone();
+    // Which source each of `reads` belongs to (`None`: the cell's own).
+    let mut owner: Vec<Option<usize>> = vec![None; reads.len()];
     for &i in &locals {
-        let r = files::plan(&sources[i].sql, base, home.as_deref(), cap).map_err(|e| CommandError::BadRequest(format!("la celda «{}»: {e}", sources[i].name)))?;
+        let r = files::plan_with(&sources[i].sql, base, home.as_deref(), cap, net).map_err(|e| CommandError::BadRequest(format!("la celda «{}»: {e}", sources[i].name)))?;
         if !r.is_empty() {
-            sources[i].files_key = r.iter().map(|f| f.key.as_str()).collect::<Vec<_>>().join(",");
             sources[i].sql = files::rewrite(&sources[i].sql, &r);
+            owner.extend(r.iter().map(|_| Some(i)));
             reads.extend(r);
         }
     }
@@ -1157,10 +1187,46 @@ where
     if let Some(f) = wanted.iter().find(|f| !allowed.iter().any(|a| a.path == f.path)) {
         return Err(CommandError::BadRequest(format!("no se permitió leer «{}»", f.display)));
     }
-    // The change notice covers each file and its sidecars.
-    let every: Vec<DataFile> = allowed.iter().flat_map(|f| f.all()).cloned().collect();
+    // Approved: the objects behind each URL and pattern (a HEAD, a listing),
+    // and the reads' keys with their versions.
+    if reads.iter().any(|r| r.remote) {
+        let mut session = super::remote::Session::new(net);
+        let never = Notify::new();
+        for r in reads.iter_mut().filter(|r| r.remote) {
+            let mut objects: Vec<DataFile> = Vec::new();
+            for e in &r.files {
+                let found = tokio::select! {
+                    f = super::remote::expand(e, net, &mut session, files::MAX_FILES) => f?,
+                    _ = cancel.unwrap_or(&never).notified() => return Err(CommandError::Cancelled),
+                };
+                for o in found {
+                    if !objects.iter().any(|x| x.path == o.path) {
+                        objects.push(o);
+                    }
+                }
+            }
+            if objects.len() > files::MAX_FILES {
+                return Err(CommandError::BadRequest(format!("«{}» lee más de {} archivos", r.call.function, files::MAX_FILES)));
+            }
+            r.files = objects;
+            r.rekey(cap);
+        }
+    }
+    for (i, src) in sources.iter_mut().enumerate() {
+        let keys: Vec<&str> = reads.iter().zip(&owner).filter(|(_, o)| **o == Some(i)).map(|(r, _)| r.key.as_str()).collect();
+        if !keys.is_empty() {
+            src.files_key = keys.join(",");
+        }
+    }
+    // The change notice covers each file and its sidecars, and each object.
+    let mut every: Vec<DataFile> = Vec::new();
+    for f in reads.iter().flat_map(|r| r.files.iter()).flat_map(|f| f.all()) {
+        if !every.iter().any(|x| x.path == f.path) {
+            every.push(f.clone());
+        }
+    }
     let seen = super::access::changes(access, &every).await;
-    let mut from_files = if reads.is_empty() { Vec::new() } else { load_files(s, tables, present, &reads, &allowed, cap, out, cancel).await? };
+    let mut from_files = if reads.is_empty() { Vec::new() } else { load_files(s, tables, present, &reads, &allowed, cap, out, cancel, net).await? };
     super::access::remember(access, &seen);
     // The change notice, on each file whose content changed.
     let before = |path: &str| seen.iter().find(|x| x.path == path).and_then(|x| x.previous_mtime_ms);
@@ -1190,6 +1256,7 @@ pub async fn run_local(
     notebook_path: Option<&str>,
     approval: Option<&str>,
     policy: super::access::Policy,
+    net: super::remote::Net,
 ) -> CommandResult<RunLocalResponse> {
     let sql = sql.trim();
     if sql.is_empty() {
@@ -1210,7 +1277,7 @@ pub async fn run_local(
         Some(nb) => state.store.list_file_grants(Some(nb))?,
         None => Vec::new(),
     };
-    let access = super::access::Access { policy, notebook: notebook.clone(), grants, approved, store: Some(state.store.as_ref()) };
+    let access = super::access::Access { policy, notebook: notebook.clone(), grants, approved, store: Some(state.store.as_ref()), net };
     let started = std::time::Instant::now();
     let key = session_key(tab);
     // Spatial functions in the cell, or in a results cell it uses.

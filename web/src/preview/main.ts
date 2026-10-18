@@ -10,7 +10,7 @@
 // |map[&set=points|shapes|latlon|oracle][&theme=light] (the results' map view over the offline base map: preview/map-samples.ts)
 // |chart[&kind=…]|nbcell[&set=charts|map|latlon] (charts of every kind; a notebook cell's charts and map: preview/chart-samples.ts)
 // |nbxresults[&dialog=1] (cells on three engines and a "DataFrame SQL" cell joining them: preview/nbx-samples.ts)
-// |nbperm[&set=one|many|glob|unsaved|settings|notebook] (a notebook's file approval dialog and the grants lists: preview/nbperm-samples.ts)
+// |nbperm[&set=one|many|glob|unsaved|sidecars|remote|settings|notebook] (a notebook's file approval dialog and the grants lists: preview/nbperm-samples.ts)
 // |zoho-wizard[&step=1..4][&filled=1][&result=ok][&error=expired|mismatch] ("Conectar Zoho Vault", each step)
 // |connection&source=zoho|zoho-manual|zoho-missing (the Zoho block: an account, the inline sign-in, an account not on this computer)
 // |account-wizard&kind=<bitwarden|bitwarden_sm|vault|delinea|conjur|ccp|onepassword|aws|azure|gcp|keepass>[&step=n][&result=ok][&error=1][&detect=none|missing]

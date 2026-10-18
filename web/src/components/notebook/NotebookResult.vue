@@ -156,10 +156,14 @@ const tables = computed(() => (props.running ? [] : props.loaded ?? []).map((l) 
   if (sidecars.length) parts.push(t('notebook:loaded.sidecars', { count: sidecars.length, files: n(sidecars.length) }));
   if (files.length) {
     parts.push(formatBytes(every.reduce((x, f) => x + f.size, 0)));
-    parts.push(t('notebook:loaded.modified', { when: when(Math.max(...every.map((f) => f.mtime_ms))) }));
+    // An object whose server gave no Last-Modified has no time (0).
+    const latest = Math.max(...every.map((f) => f.mtime_ms));
+    if (latest > 0) parts.push(t('notebook:loaded.modified', { when: when(latest) }));
   }
   if (!l.cached) parts.push(duration(l.elapsed_ms));
-  parts.push(l.cached ? t('notebook:loaded.cached') : t(`notebook:loaded.${l.origin}`));
+  // Objects from the web or cloud storage: downloaded, not read from disk.
+  const remote = files.some((f) => f.host);
+  parts.push(l.cached ? t('notebook:loaded.cached') : remote ? t('notebook:loaded.remote') : t(`notebook:loaded.${l.origin}`));
   if (l.capped) parts.push(t('notebook:loaded.capped'));
   if (l.as_text) parts.push(t('notebook:loaded.asText'));
   // Its content changed since this notebook last read it (the run went on).
@@ -168,7 +172,7 @@ const tables = computed(() => (props.running ? [] : props.loaded ?? []).map((l) 
   if (changed.length === 1) parts.push(changedText(changed[0]));
   else if (changed.length) parts.push(t('notebook:loaded.changedMany', { count: changed.length, files: n(changed.length) }));
   // A file's tooltip: each path in full, with its size and date.
-  const line = (f: typeof files[number]) => [f.path, formatBytes(f.size), when(f.mtime_ms), ...(f.previous_mtime_ms != null ? [changedText(f)] : [])].join(' · ');
+  const line = (f: typeof files[number]) => [f.path, formatBytes(f.size), ...(f.mtime_ms > 0 ? [when(f.mtime_ms)] : []), ...(f.previous_mtime_ms != null ? [changedText(f)] : [])].join(' · ');
   const tip = files.map((f) => [line(f), ...(f.sidecars ?? []).map((c) => `  + ${line(c)}`)].join('\n')).join('\n');
   return { key: `${l.origin}:${l.name}`, name: l.name, text: parts.join(' · '), warn: l.capped || l.as_text || changed.length > 0, tip };
 }));

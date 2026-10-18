@@ -1,6 +1,6 @@
-// view=nbperm[&set=one|many|glob|unsaved|sidecars|settings|notebook] (preview/main.ts):
+// view=nbperm[&set=one|many|glob|unsaved|sidecars|remote|settings|notebook] (preview/main.ts):
 // "Este notebook quiere leer estos archivos" with one file, several, a
-// glob, an unsaved notebook, a shapefile with its sidecars; the "Archivos que los notebooks pueden leer"
+// glob, an unsaved notebook, a shapefile with its sidecars, URLs and a cloud pattern; the "Archivos que los notebooks pueden leer"
 // list of Configuración › Notebooks and of one notebook, over a fake backend.
 import { h } from 'vue';
 import type { DataFile, FileApprovalRequest, FileGrant } from '../api/types';
@@ -44,6 +44,14 @@ const REQUESTS: Record<string, FileApprovalRequest> = {
         ],
       },
       file('/Users/ana/Proyectos/crm/crm.db', 3_145_728, '2026-10-18T09:40:00'),
+    ],
+  },
+  remote: {
+    token: 't6', saved: true, files: [
+      file('/Users/ana/Downloads/CustomerTest.csv', 48_213, '2026-10-17T09:12:00'),
+      { path: 'https://datos.gob.ar/dataset/ventas-2026.csv', display: 'https://datos.gob.ar/dataset/ventas-2026.csv', size: 0, mtime_ms: 0, host: 'datos.gob.ar' },
+      { path: 's3://ventas-anuales/2026/*.parquet', display: 's3://ventas-anuales/2026/*.parquet', size: 0, mtime_ms: 0, pattern: 's3://ventas-anuales/2026/*.parquet', host: 'ventas-anuales (Amazon S3)' },
+      { path: 'az://datoslake.blob.core.windows.net/crudo/clientes.ndjson', display: 'az://datoslake.blob.core.windows.net/crudo/clientes.ndjson', size: 0, mtime_ms: 0, host: 'datoslake.blob.core.windows.net (Azure)' },
     ],
   },
   unsaved: { token: 't4', saved: false, files: [file('/Users/ana/Downloads/CustomerTest.csv', 48_213, '2026-10-17T09:12:00'), file('/Users/ana/Downloads/precios.parquet', 92_311, '2026-10-15T16:20:00')] },

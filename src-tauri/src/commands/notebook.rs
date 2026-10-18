@@ -257,6 +257,10 @@ pub struct RunLocalArgs {
     /// ([`notebook::access`]): this run may read the files it asked about.
     #[serde(default)]
     pub approval: Option<String>,
+    /// The AWS profile for `s3://` (Settings › Notebooks); none: the
+    /// environment's or `default`.
+    #[serde(default)]
+    pub aws_profile: Option<String>,
 }
 
 /// DBine's own folders (state, data, cache, logs, downloaded components):
@@ -280,7 +284,7 @@ fn app_dirs(app: &tauri::AppHandle) -> Vec<std::path::PathBuf> {
 pub async fn notebook_run_local(app: tauri::AppHandle, state: tauri::State<'_, crate::state::AppState>, args: RunLocalArgs) -> CommandResult<notebook::local::RunLocalResponse> {
     let cap = args.row_cap.unwrap_or(notebook::local::DEFAULT_ROW_CAP);
     let policy = notebook::access::Policy::current(&app_dirs(&app));
-    notebook::local::run_local(&state, &args.tab_id, &args.sql, args.max_rows, cap, &args.sources, args.notebook_path.as_deref(), args.approval.as_deref(), policy).await
+    notebook::local::run_local(&state, &args.tab_id, &args.sql, args.max_rows, cap, &args.sources, args.notebook_path.as_deref(), args.approval.as_deref(), policy, notebook::remote::Net::current(args.aws_profile.as_deref())).await
 }
 
 #[derive(Deserialize)]

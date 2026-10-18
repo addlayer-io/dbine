@@ -47,7 +47,7 @@ export const notebookApi = {
    *  (`nbx:<tabId>`, closed with the tab; cancel_query stops it). */
   /** `notebookPath`: the notebook's file (relative paths in `read_csv('…')` are read from its folder). */
   /** `approval`: the token of the file approval just answered (the run may read those files). */
-  runLocal: (a: { tabId: string; sql: string; maxRows: number; rowCap: number; sources: LocalSource[]; notebookPath: string | null; approval?: string | null }) =>
+  runLocal: (a: { tabId: string; sql: string; maxRows: number; rowCap: number; sources: LocalSource[]; notebookPath: string | null; approval?: string | null; awsProfile?: string | null }) =>
     invoke<RunLocalResponse>('notebook_run_local', { args: a }),
   /** The answer to a run's `approval` request. */
   decideFiles: (token: string, decision: FileDecision) => invoke<void>('notebook_file_decision', { args: { token, decision } }),

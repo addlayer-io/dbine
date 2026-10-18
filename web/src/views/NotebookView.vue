@@ -16,7 +16,7 @@ import { ensureConnectedOrTell } from '../composables/connectionGate';
 import { saveTextFile } from '../composables/files';
 import { chartImages } from '../composables/notebookExport';
 import {
-  BYTES_DEFAULT, BYTES_RANGE, BYTES_SETTING, EditVersion, PREVIEW_NOTICE_SETTING, RESULTS_CAP_DEFAULT, RESULTS_CAP_RANGE, RESULTS_CAP_SETTING,
+  AWS_PROFILE_SETTING, BYTES_DEFAULT, BYTES_RANGE, BYTES_SETTING, EditVersion, PREVIEW_NOTICE_SETTING, RESULTS_CAP_DEFAULT, RESULTS_CAP_RANGE, RESULTS_CAP_SETTING,
   ROWS_DEFAULT, ROWS_RANGE, ROWS_SETTING, RunLock, applyProjectDefault, assignCellNames, cellNameProblem, clamp, completeRows, defaultCellName,
   describeResult, emptyNotebook, emptyTarget, isResultsTarget, newCell, outcomeToResult, outline, promptVariant, resultToOutcome,
 } from '../composables/notebookModel';
@@ -697,7 +697,8 @@ async function runLocal(cell: NotebookCell, script: string, asked: Set<string> |
       sources.push(s);
     }
     const rowCap = clamp(settings.get<number>(RESULTS_CAP_SETTING, RESULTS_CAP_DEFAULT), RESULTS_CAP_RANGE);
-    const args = { tabId: props.tab.id, sql: script, maxRows: settingsMaxRows.value, rowCap, sources, notebookPath: notebookFile.value };
+    const awsProfile = settings.get<string>(AWS_PROFILE_SETTING, '').trim() || null;
+    const args = { tabId: props.tab.id, sql: script, maxRows: settingsMaxRows.value, rowCap, sources, notebookPath: notebookFile.value, awsProfile };
     let r = await notebookApi.runLocal(args);
     // Files nobody allowed yet: nothing ran. Ask, tell the backend, and run
     // again with the answer's token (the backend checks it against the

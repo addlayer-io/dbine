@@ -18,6 +18,10 @@ export const BYTES_RANGE = [64 * 1024, 8 * 1024 * 1024] as const;
 export const RESULTS_CAP_SETTING = 'notebook.resultsRowCap';
 export const RESULTS_CAP_DEFAULT = 1_000_000;
 export const RESULTS_CAP_RANGE = [1_000, 10_000_000] as const;
+/** The AWS profile `s3://` reads use in "DataFrame SQL" cells (empty: the
+ *  environment's AWS_PROFILE, else `default`). Only its name: the keys stay
+ *  in ~/.aws, read by the backend's AWS chain. */
+export const AWS_PROFILE_SETTING = 'notebook.awsProfile';
 /** "Este archivo incluye una vista previa…" was shown once. */
 export const PREVIEW_NOTICE_SETTING = 'notebook.previewNoticeShown';
 

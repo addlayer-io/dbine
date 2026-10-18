@@ -237,8 +237,10 @@ JOIN read_csv('~/Downloads/CustomerTest.csv') t ON t.CustomerID = c.CustomerID
   expression is refused. Each path is resolved to the real file (symlinks
   followed, `..` removed); a missing file, a folder, or a glob that matches
   nothing is an error naming the path.
-- **Local files only:** URLs (`http`, `https`, `s3`, `gs`, `azure`, `hf`…)
-  are refused; nothing goes over the network.
+- **URLs:** `https://`, `s3://`, `gs://` and `az://` / `abfss://` are read
+  too, by DBine and never by DuckDB (see
+  [Reading files from the web and cloud storage](#reading-files-from-the-web-and-cloud-storage));
+  any other scheme (`http`, `file`, `hf`…) is refused.
 - **What the cell shows:** under its summary, next to the cells' tables,
   each file read (shortened: relative to the notebook's folder or with
   `~`), its rows, size and modification time, and whether it was read now or
@@ -256,7 +258,9 @@ JOIN read_csv('~/Downloads/CustomerTest.csv') t ON t.CustomerID = c.CustomerID
   as a table and the call in the cell's SQL is replaced by it. The
   notebook's database is never granted a file, so `COPY … TO`, `ATTACH`,
   `read_text('…')` or `FROM 'file.csv'` on a file the cell reads are still
-  refused by DuckDB. Nothing is written to disk.
+  refused by DuckDB. Nothing is written to disk, except the short-lived
+  private copies described for downloaded objects and GeoPackages with a
+  pending `-wal`.
 - **Refused statements.** These cells refuse, before running anything,
   statements that write, attach or configure: `COPY`, `EXPORT` / `IMPORT
   DATABASE`, `ATTACH` / `DETACH`, `INSTALL` / `LOAD` (and `FORCE INSTALL`,
@@ -305,6 +309,15 @@ GROUP BY ALL
   sidecar that appears later asks again), and a change in any of them reads
   the file again and raises the change notice. The *DataFrames:* line shows the
   file with *"+ N archivos asociados"*, and its tooltip lists them.
+- **A GeoPackage with a pending `-wal`** (open in another program, in WAL
+  mode) or a hot `-journal` isn't the whole layer set by itself: that
+  journal is a sidecar, as for `sqlite_scan` (approved, blocked and cached
+  with the file; the `-shm` is never read). The file and its journal are
+  copied into a private folder in the temp folder, SQLite applies the
+  journal to the copy and leaves it in rollback mode, GDAL reads the copy
+  (the reader session is granted only the copy) and the folder is removed.
+  The originals are never written, so their bytes and modification times
+  don't change.
 - **Parameters:** `layer`, `keep_wkb`, `max_batch_size` and
   `open_options`, with literal values. `open_options` takes only these GDAL
   options, whose values can't contain `/`, `\`, `:` or `vsi`:
@@ -441,8 +454,13 @@ in one place (`allowed_files` in `src-tauri/src/notebook/files.rs`, rules in
   asked about again); the token works once, for that tab and notebook, for
   15 minutes. A blocked file is refused whatever the token says. No MCP
   tool or assistant tool runs a DataFrame SQL cell.
+- **URLs** are approved like files, in the same dialog and with the same
+  three answers, keyed by the canonical URL (see
+  [Reading files from the web and cloud storage](#reading-files-from-the-web-and-cloud-storage)).
 - **Content change notice** (it doesn't stop the run): each run keeps, for
-  each file read, its size, modification time and SHA-256, per notebook.
+  each file read, its size, modification time and SHA-256, per notebook
+  (for an object on the web or in cloud storage, its `ETag` instead of the
+  hash, else its `Last-Modified` and size).
   The hash is computed only when the size or the modification time changed
   since the stored record (no big file is hashed on every run). When a file
   read before has a different hash, the result's *DataFrames:* line says
@@ -460,6 +478,108 @@ in one place (`allowed_files` in `src-tauri/src/notebook/files.rs`, rules in
   when it was granted), each one with its remove button, and *Quitar
   todos*. A notebook's toolbar has *Permisos de archivos…* with that
   notebook's grants.
+
+### Reading files from the web and cloud storage
+
+```sql
+SELECT r.region, sum(v.total)
+FROM read_parquet('s3://ventas-anuales/2026/*.parquet') v
+JOIN read_csv('https://datos.gob.ar/dataset/regiones.csv') r USING (cliente)
+GROUP BY ALL
+```
+
+- **What is read:** `read_csv`, `read_csv_auto`, `read_parquet` /
+  `parquet_scan`, `read_json`, `read_json_auto`, `read_ndjson` and
+  `read_ndjson_auto` take URLs as their path; `st_read` takes one
+  `https://` file of a format that needs no sidecars (a shapefile only
+  zipped, `.shp.zip` or `.shz`), with the same parameters, options and
+  `allowed_drivers` as a local file. `read_xlsx`, `sqlite_scan` and
+  `read_duckdb` read local files only. A call reads either local files or
+  URLs, not both.
+- **Which URLs:**
+  - `https://host/path?query`: one file; no globs. `http://` is refused,
+    since it travels unencrypted (and anyone on the way could change the
+    data).
+  - `s3://bucket/key`, `gs://bucket/key` (or `gcs://`),
+    `az://account.blob.core.windows.net/container/blob`,
+    `abfss://container@account.dfs.core.windows.net/path` and, with
+    `AZURE_STORAGE_ACCOUNT` set, `az://container/blob`. Their keys may be
+    globs (`s3://ventas/2026/*.parquet`, `gs://b/**/*.csv`): DBine lists the
+    bucket under the prefix before the first wildcard and reads the objects
+    that match, up to 1,000.
+  - Refused: a URL with a user or password (`https://ana:clave@…`), or with
+    a signature or token in its query (`X-Amz-Signature`, `X-Goog-Signature`,
+    Azure's `sig=`, `token=`, `key=`, `access_token=`…). Credentials never go
+    in the notebook or the cell's SQL; the message says to use the URL
+    without them and the computer's sign-in. Also refused: keys with `.` or
+    `..` segments, and any other scheme (`file://`, `hf://`, `ftp://`…).
+- **Never DuckDB's network.** Neither the notebook's database nor the
+  reader session ever loads `httpfs` or reaches the network. DuckDB 1.5's
+  `allowed_paths` does filter URLs by their text (a URL not in the list is
+  refused, tested), but `httpfs` would resolve the host itself (so a public
+  name pointing at `127.0.0.1` or `169.254.169.254` couldn't be checked),
+  follow redirects to any host, and need the credentials inside DuckDB.
+  So, once approved, **DBine fetches each object itself**: into a private
+  folder in the temp folder (`0700`, one per reader call), which the reader
+  session is granted exactly like local files (`allowed_paths`, then the
+  lockdown), and which is removed as soon as the call has been read (also
+  when it fails or is cancelled). Each object keeps its key's path below
+  that folder, so Hive partitions (`año=2026/`) and compressed extensions
+  (`.csv.gz`) work as for local files. This is the one place DataFrame
+  SQL cells write to disk.
+- **Which hosts.** Before connecting, DBine resolves the host itself and
+  refuses it if any of its addresses is loopback (`127.0.0.0/8`, `::1`),
+  private (`10/8`, `172.16/12`, `192.168/16`), link-local (`169.254/16`,
+  the cloud metadata service `169.254.169.254` included; `fe80::/10`),
+  unique-local IPv6 (`fc00::/7`, `fd00::/8` included), CGNAT
+  (`100.64/10`), unspecified, multicast, broadcast, documentation or
+  reserved, IPv4-mapped and NAT64 forms included; names such as
+  `localhost`, `*.localhost`, `*.local`, `*.internal` and
+  `metadata.google.internal` are refused before resolving. The connection
+  is pinned to the addresses that were checked (no second lookup that
+  could answer differently) and never goes through a proxy. A redirect is
+  followed only to the same scheme, host and port (at most 5); one to
+  another server stops the read with a message naming it.
+- **Credentials** are the computer's sign-ins, never the notebook's, the
+  same chains as the connections' cloud sign-ins:
+  - **S3:** the AWS chain: environment keys, the profile of
+    **Settings › Notebooks › Perfil de AWS** (else `AWS_PROFILE`, else
+    `default`) with its keys, `credential_process`, SSO or roles through the
+    AWS CLI. DBine signs each request with SigV4 (the keys never leave the
+    process); a bucket in another region is asked again in the region its
+    answer names.
+  - **Google Cloud Storage:** gcloud, then the application default
+    credentials (`gcloud auth application-default login`).
+  - **Azure:** the Azure CLI (`az login`), the Azure Developer CLI, the
+    managed identity.
+
+  Without a sign-in an object is read anonymously (public buckets); a
+  denied read says how to sign in (`aws sso login`,
+  `gcloud auth application-default login`, `az login`). No secret is
+  stored anywhere by this feature, and DuckDB never gets one.
+- **Approval:** the same dialog, grants and token as local files (see
+  [Approving the files a notebook reads](#approving-the-files-a-notebook-reads)).
+  Nothing is sent over the network before the answer. The dialog shows
+  each URL with its host (or bucket and cloud) first, in bold, and the
+  full URL under it. A grant is keyed by the canonical URL (scheme, host,
+  port, path and query; the fragment dropped); a cloud pattern is granted
+  as written (`s3://ventas/2026/*.parquet`) and covers the objects that
+  match it later. The always-blocked list is for local files; URLs have
+  the rules above.
+- **Limits:** 2 GiB per object (`MAX_OBJECT_BYTES`, checked against the
+  listing, the announced length and the bytes received) and 8 GiB per
+  reader call, plus the rows per table of Settings › Notebooks; 15 s to
+  connect and 60 s without a byte. **Cancel** stops the listing or the
+  download.
+- **Cache and change notice:** each run asks for the objects' `ETag` and
+  `Last-Modified` (a `HEAD`, or the listing for a pattern); an object
+  downloads again only when its version changed (an object whose server
+  gives neither is read every run). The change notice compares the
+  `ETag` (else `Last-Modified` and size); nothing is hashed.
+- **What the cell shows:** the URLs on the *DataFrames:* line, with size,
+  time (when the server gave one) and *"descargado de la red"*.
+- **Completion** keeps its rules; granted URLs and cloud patterns are
+  offered inside a reader's quotes like granted files.
 
 ### The DuckDB database
 
