@@ -1595,7 +1595,8 @@
   "crates/drivers/snowflake/src/transfer.rs",
   "crates/drivers/spanner/src/lib.rs",
   "crates/drivers/spanner/src/transfer.rs",
-  "crates/drivers/sqlserver/src/entra.rs"
+  "crates/drivers/sqlserver/src/entra.rs",
+  "src-tauri/src/secret_sources/zoho.rs"
  ],
  "Auto vacuum": [
   "crates/drivers/sqlite/src/monitor.rs",
@@ -23113,6 +23114,57 @@
  "Zoe": [
   "src-tauri/src/commands/grid_new_rows_live_tests.rs"
  ],
+ "Zoho Vault devolvió una cantidad de iteraciones fuera de rango ({0})": [
+  "src-tauri/src/secret_sources/zoho.rs"
+ ],
+ "Zoho Vault necesita la frase de contraseña maestra": [
+  "crates/dbine-core/src/secret_sources.rs"
+ ],
+ "Zoho Vault no devolvió la clave de la organización": [
+  "src-tauri/src/secret_sources/zoho.rs"
+ ],
+ "Zoho Vault no devolvió la sal de la cuenta (GET_LOGIN)": [
+  "src-tauri/src/secret_sources/zoho.rs"
+ ],
+ "Zoho Vault no devolvió los datos de la cuenta (GET_LOGIN)": [
+  "src-tauri/src/secret_sources/zoho.rs"
+ ],
+ "Zoho Vault rechazó el token de acceso (¿el cliente tiene acceso a Zoho Vault en este centro de datos?)": [
+  "src-tauri/src/secret_sources/zoho.rs"
+ ],
+ "Zoho Vault respondió {0}": [
+  "src-tauri/src/secret_sources/zoho.rs"
+ ],
+ "Zoho Vault respondió {0}: {1}": [
+  "src-tauri/src/secret_sources/zoho.rs"
+ ],
+ "Zoho Vault tiene {0} secretos «{1}» (IDs: {2}): indicá el ID del que corresponde": [
+  "src-tauri/src/secret_sources/zoho.rs"
+ ],
+ "Zoho Vault: no existe el secreto con el ID {0}": [
+  "src-tauri/src/secret_sources/zoho.rs"
+ ],
+ "Zoho Vault: no hay un secreto «{0}» (o el usuario no tiene acceso)": [
+  "src-tauri/src/secret_sources/zoho.rs"
+ ],
+ "Zoho Vault: no hay un secreto «{0}» (parecidos: {1})": [
+  "src-tauri/src/secret_sources/zoho.rs"
+ ],
+ "Zoho no devolvió un token de acceso": [
+  "src-tauri/src/secret_sources/zoho.rs"
+ ],
+ "Zoho no permite pedir tokens tan seguido; probá en unos minutos ({0})": [
+  "src-tauri/src/secret_sources/zoho.rs"
+ ],
+ "Zoho rechazó el ID o el secreto del cliente (¿son de este centro de datos?)": [
+  "src-tauri/src/secret_sources/zoho.rs"
+ ],
+ "Zoho rechazó el pedido del token de acceso: {0}": [
+  "src-tauri/src/secret_sources/zoho.rs"
+ ],
+ "Zoho respondió {0} al pedir el token de acceso": [
+  "src-tauri/src/secret_sources/zoho.rs"
+ ],
  "Zona": [
   "crates/drivers/postgres/src/monitor.rs"
  ],
@@ -24449,6 +24501,9 @@
  "el adjunto «{0}» llega sin su contenido (solo la referencia al original); no se puede copiar": [
   "crates/drivers/couchdb/src/transfer.rs"
  ],
+ "el archivo de clave no es válido": [
+  "src-tauri/src/secret_sources/keepass.rs"
+ ],
  "el archivo de puntos de restauración": [
   "crates/drivers/odbc/src/backup.rs"
  ],
@@ -24494,6 +24549,12 @@
  "el campo _id no se puede renombrar": [
   "crates/drivers/mongodb/src/rename.rs"
  ],
+ "el campo de la entrada de KeePass no es válido": [
+  "crates/dbine-core/src/secret_sources.rs"
+ ],
+ "el campo del secreto de Zoho Vault no es válido": [
+  "crates/dbine-core/src/secret_sources.rs"
+ ],
  "el campo «{0}» de la colección de destino no se guarda (stored=false y sin docValues): Solr aceptaría el valor y lo descartaría, así que después se leería como NULL. Cambiá el campo a stored=true o dejalo fuera de la carga.": [
   "crates/drivers/solr/src/transfer.rs"
  ],
@@ -24517,6 +24578,10 @@
  ],
  "el catálogo «{0}» no maneja roles ni permisos: depende del conector y del control de acceso configurado en el servidor (por ejemplo, Hive con hive.security=sql-standard)": [
   "crates/drivers/trino/src/security.rs"
+ ],
+ "el centro de datos de Zoho «{0}» no es válido": [
+  "crates/dbine-core/src/secret_sources.rs",
+  "src-tauri/src/secret_sources/zoho.rs"
  ],
  "el certificado de CA «{0}» no es un PEM válido: {1}": [
   "crates/drivers/postgres/src/lib.rs"
@@ -25202,6 +25267,9 @@
  "el secreto binario de AWS no es texto": [
   "src-tauri/src/secret_sources/aws.rs"
  ],
+ "el secreto es compartido, pero Zoho Vault no devolvió la clave de la organización para este usuario": [
+  "src-tauri/src/secret_sources/zoho.rs"
+ ],
  "el secreto no es un objeto JSON, así que no tiene la clave «{0}»": [
   "crates/dbine-core/src/secret_sources.rs"
  ],
@@ -25210,6 +25278,12 @@
  ],
  "el secreto «{0}» de Vault no tiene la clave «{1}» (tiene: {2})": [
   "src-tauri/src/secret_sources/vault.rs"
+ ],
+ "el secreto «{0}» de Zoho Vault no tiene el campo «{1}» (tiene: {2})": [
+  "src-tauri/src/secret_sources/zoho.rs"
+ ],
+ "el secreto «{0}» de Zoho Vault no tiene usuario (username)": [
+  "src-tauri/src/secret_sources/zoho.rs"
  ],
  "el secreto «{0}» está borrado o no tiene datos": [
   "src-tauri/src/secret_sources/vault.rs"
@@ -25408,6 +25482,12 @@
  ],
  "el tipo {0} no tiene el campo «{1}»; su valor se perdería": [
   "crates/drivers/cassandra/src/transfer.rs"
+ ],
+ "el token de Zoho no tiene los permisos necesarios: generalo con ZohoVault.secrets.READ y ZohoVault.user.READ": [
+  "src-tauri/src/secret_sources/zoho.rs"
+ ],
+ "el token de actualización de Zoho no es válido, venció o se revocó: generá uno nuevo": [
+  "src-tauri/src/secret_sources/zoho.rs"
  ],
  "el trigger": [
   "crates/drivers/mysql/src/rename_db.rs",
@@ -26676,6 +26756,9 @@
  "falta el ID de la aplicación": [
   "crates/drivers/sqlserver/src/variant.rs"
  ],
+ "falta el ID del cliente de Zoho (1000.XXXX)": [
+  "crates/dbine-core/src/secret_sources.rs"
+ ],
  "falta el ID del proyecto": [
   "crates/drivers/bigquery/src/lib.rs"
  ],
@@ -26684,6 +26767,9 @@
  ],
  "falta el archivo de destino": [
   "src-tauri/src/commands/dbdocs.rs"
+ ],
+ "falta el archivo de la base de KeePass (.kdbx)": [
+  "crates/dbine-core/src/secret_sources.rs"
  ],
  "falta el archivo de la clave privada": [
   "src-tauri/src/tunnels.rs"
@@ -26715,6 +26801,9 @@
   "crates/drivers/databricks/src/backup.rs"
  ],
  "falta el comando que devuelve el secreto": [
+  "crates/dbine-core/src/secret_sources.rs"
+ ],
+ "falta el comando que devuelve la contraseña maestra": [
   "crates/dbine-core/src/secret_sources.rs"
  ],
  "falta el código a ejecutar («code» está vacío)": [
@@ -26776,6 +26865,9 @@
   "crates/dbine-core/src/secret_sources.rs"
  ],
  "falta el nombre o el ARN del secreto de AWS": [
+  "crates/dbine-core/src/secret_sources.rs"
+ ],
+ "falta el nombre o el ID del secreto de Zoho Vault": [
   "crates/dbine-core/src/secret_sources.rs"
  ],
  "falta el proyecto de Google Cloud (o no es válido)": [
@@ -26885,6 +26977,15 @@
  "falta la columna «{0}» en el destino": [
   "crates/dbine-transfer/src/check.rs"
  ],
+ "falta la contraseña maestra": [
+  "src-tauri/src/secret_sources/mod.rs"
+ ],
+ "falta la contraseña maestra de la base de KeePass": [
+  "src-tauri/src/secret_sources/keepass.rs"
+ ],
+ "falta la contraseña maestra: escribila en el formulario": [
+  "src-tauri/src/secret_sources/mod.rs"
+ ],
  "falta la copia local del repositorio: volvé a vincularlo": [
   "src-tauri/src/commands/library_git.rs"
  ],
@@ -26894,11 +26995,17 @@
  "falta la cuenta de Entra ID (usuario@dominio)": [
   "crates/drivers/sqlserver/src/variant.rs"
  ],
+ "falta la entrada de KeePass (Grupo/Subgrupo/Título o su UUID)": [
+  "crates/dbine-core/src/secret_sources.rs"
+ ],
  "falta la frase clave del backup en esta máquina: escribila en Configuración › Sincronización": [
   "src-tauri/src/sync.rs"
  ],
  "falta la frase clave en esta máquina": [
   "src-tauri/src/commands/sync.rs"
+ ],
+ "falta la frase de contraseña maestra de Zoho Vault": [
+  "src-tauri/src/secret_sources/zoho.rs"
  ],
  "falta la región (no se pudo deducir del endpoint)": [
   "crates/drivers/dsql/src/lib.rs"
@@ -26935,6 +27042,9 @@
  ],
  "faltan el client ID o el client secret": [
   "crates/drivers/databricks/src/lib.rs"
+ ],
+ "faltan el secreto del cliente y el token de actualización de Zoho: escribilos en el formulario": [
+  "src-tauri/src/secret_sources/zoho.rs"
  ],
  "faltan el tenant ID, el client ID o el client secret": [
   "crates/drivers/databricks/src/lib.rs"
@@ -27174,6 +27284,9 @@
  ],
  "hay varias conexiones llamadas «{0}»: indicá su id (list_connections)": [
   "src-tauri/src/mcp/tools.rs"
+ ],
+ "hay {0} entradas «{1}» en la base de KeePass ({2}): indicá la ruta del grupo o el UUID": [
+  "src-tauri/src/secret_sources/keepass.rs"
  ],
  "heap": [
   "crates/drivers/dremio/src/lib.rs",
@@ -27655,6 +27768,9 @@
  "la clase {0} no tiene la propiedad {1}": [
   "crates/drivers/orientdb/src/rename.rs"
  ],
+ "la clave de la base de KeePass no es válida: {0}": [
+  "src-tauri/src/secret_sources/keepass.rs"
+ ],
  "la clave de la cuenta de servicio no es un JSON válido: {0}": [
   "crates/drivers/bigquery/src/gcp.rs"
  ],
@@ -27906,6 +28022,9 @@
  "la conexión {0} ya se cerró o no existe": [
   "crates/drivers/orientdb/src/processes.rs"
  ],
+ "la conexión «{0}» necesita la contraseña maestra del origen de «{1}»: conectala en DBine para escribirla": [
+  "src-tauri/src/error.rs"
+ ],
  "la conexión «{0}» necesita la contraseña: el usuario tiene que conectarse una vez desde DBine en esta sesión": [
   "src-tauri/src/mcp/tools.rs"
  ],
@@ -27956,6 +28075,12 @@
  ],
  "la consulta {0} ya terminó o no existe": [
   "crates/drivers/couchbase/src/processes.rs"
+ ],
+ "la contraseña maestra o el archivo de clave no abren la base de KeePass": [
+  "src-tauri/src/secret_sources/keepass.rs"
+ ],
+ "la contraseña maestra: {0}": [
+  "src-tauri/src/secret_sources/mod.rs"
  ],
  "la copia de las filas no terminó": [
   "crates/dbine-transfer/src/clone_table.rs"
@@ -28016,6 +28141,12 @@
  "la ejecución terminó sin respuesta": [
   "src-tauri/src/commands/multi_db.rs"
  ],
+ "la entrada «{0}» de KeePass no tiene el campo «{1}» (tiene: {2})": [
+  "src-tauri/src/secret_sources/keepass.rs"
+ ],
+ "la entrada «{0}» de KeePass no tiene usuario (UserName)": [
+  "src-tauri/src/secret_sources/keepass.rs"
+ ],
  "la escala": [
   "crates/drivers/hana/src/transfer.rs"
  ],
@@ -28071,6 +28202,9 @@
  "la frase clave tiene que tener al menos {0} caracteres": [
   "src-tauri/src/commands/sync.rs"
  ],
+ "la frase de contraseña maestra de Zoho Vault no es la correcta": [
+  "src-tauri/src/secret_sources/zoho.rs"
+ ],
  "la frase no es correcta": [
   "crates/dbine-tunnel/src/lib.rs"
  ],
@@ -28107,6 +28241,9 @@
  ],
  "la key no tiene la columna {0}": [
   "crates/drivers/redis/src/transfer.rs"
+ ],
+ "la lectura de la base de KeePass se interrumpió: {0}": [
+  "src-tauri/src/secret_sources/keepass.rs"
  ],
  "la lectura de origen solo admite consultas que no escriben": [
   "crates/drivers/orientdb/src/transfer.rs"
@@ -28291,6 +28428,9 @@
  ],
  "la ruta del archivo": [
   "crates/drivers/odbc/src/backup.rs"
+ ],
+ "la ruta del archivo de clave no es válida": [
+  "crates/dbine-core/src/secret_sources.rs"
  ],
  "la ruta del certificado de la CA no es válida": [
   "crates/dbine-core/src/secret_sources.rs"
@@ -29249,6 +29389,12 @@
  "no existe el archivo adjunto {0}": [
   "src-tauri/src/tasks/mail.rs"
  ],
+ "no existe el archivo de KeePass «{0}»": [
+  "src-tauri/src/secret_sources/keepass.rs"
+ ],
+ "no existe el archivo de clave «{0}»": [
+  "src-tauri/src/secret_sources/keepass.rs"
+ ],
  "no existe el archivo «{0}»": [
   "crates/drivers/duckdb/src/lib.rs",
   "src-tauri/src/open_files.rs"
@@ -29434,6 +29580,12 @@
   "crates/drivers/athena/src/lib.rs",
   "crates/drivers/athena/src/transfer.rs",
   "crates/drivers/snowflake/src/lib.rs"
+ ],
+ "no hay una entrada «{0}» en la base de KeePass": [
+  "src-tauri/src/secret_sources/keepass.rs"
+ ],
+ "no hay una entrada «{0}» en la base de KeePass (parecidas: {1})": [
+  "src-tauri/src/secret_sources/keepass.rs"
  ],
  "no instalado": [
   "crates/dbine-ai/src/detect.rs"
@@ -29833,6 +29985,12 @@
  "no se pudo conectar con Vault en {0}: {1}": [
   "src-tauri/src/secret_sources/vault.rs"
  ],
+ "no se pudo conectar con Zoho ({0}): {1}": [
+  "src-tauri/src/secret_sources/zoho.rs"
+ ],
+ "no se pudo conectar con Zoho Vault ({0}): {1}": [
+  "src-tauri/src/secret_sources/zoho.rs"
+ ],
  "no se pudo conectar con el remoto ({0})": [
   "src-tauri/src/commands/git_cli.rs"
  ],
@@ -29928,6 +30086,12 @@
  ],
  "no se pudo descargar {0}: {1}": [
   "crates/dbine-ai/src/embedded.rs"
+ ],
+ "no se pudo descifrar el campo «{0}» del secreto «{1}» de Zoho Vault (¿la frase de contraseña maestra es la correcta?)": [
+  "src-tauri/src/secret_sources/zoho.rs"
+ ],
+ "no se pudo descifrar la clave de la organización de Zoho Vault": [
+  "src-tauri/src/secret_sources/zoho.rs"
  ],
  "no se pudo describir {0}": [
   "crates/drivers/ksqldb/src/lib.rs"
@@ -30039,6 +30203,12 @@
  ],
  "no se pudo leer el archivo": [
   "crates/dbine-sync/examples/open_backup.rs"
+ ],
+ "no se pudo leer el archivo de KeePass «{0}»: {1}": [
+  "src-tauri/src/secret_sources/keepass.rs"
+ ],
+ "no se pudo leer el archivo de clave «{0}»: {1}": [
+  "src-tauri/src/secret_sources/keepass.rs"
  ],
  "no se pudo leer el archivo: {0}": [
   "src-tauri/src/commands/imports.rs"
@@ -31503,6 +31673,9 @@
  "se necesita la contraseña": [
   "src-tauri/src/error.rs"
  ],
+ "se necesita la contraseña maestra": [
+  "src-tauri/src/secret_sources/mod.rs"
+ ],
  "se omite el índice de texto completo «{0}» de la tabla «{1}» ({2}): no se puede traducir a otro motor; creá el equivalente a mano": [
   "crates/dbine-schema/src/convert.rs"
  ],
@@ -31628,6 +31801,9 @@
  ],
  "sin contraseña (nopass)": [
   "crates/drivers/redis/src/security.rs"
+ ],
+ "sin contraseña maestra, la base de KeePass necesita un archivo de clave": [
+  "crates/dbine-core/src/secret_sources.rs"
  ],
  "sin detalle": [
   "crates/dbine-transfer/src/lib.rs"
@@ -34380,6 +34556,9 @@
  "«{0}» es de todo el servidor: elegí «todo» como objeto": [
   "crates/drivers/neo4j/src/security.rs"
  ],
+ "«{0}» es de una versión de KeePass que no se puede leer (se leen KDBX 3.1 y 4)": [
+  "src-tauri/src/secret_sources/keepass.rs"
+ ],
  "«{0}» es el índice de _id de CouchDB y no se borra.": [
   "crates/drivers/couchdb/src/lib.rs"
  ],
@@ -34848,6 +35027,9 @@
  ],
  "«{0}» no es una acción válida de MongoDB (find, insert, update, remove…)": [
   "crates/drivers/mongodb/src/security.rs"
+ ],
+ "«{0}» no es una base de KeePass (.kdbx) válida: {1}": [
+  "src-tauri/src/secret_sources/keepass.rs"
  ],
  "«{0}» no es una base de usuario": [
   "crates/drivers/couchdb/src/lib.rs",

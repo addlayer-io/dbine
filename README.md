@@ -44,8 +44,9 @@ and queries are organized inside each database.
   [`docs/cloud-authentication.md`](docs/cloud-authentication.md).
 - **Passwords from a command or a secret manager:** any secret field of any
   engine, and the SSH tunnel's, can come from a command, 1Password, HashiCorp
-  Vault, AWS Secrets Manager, Azure Key Vault or Google Secret Manager,
-  resolved at each connection and kept in memory only. A definition that came
+  Vault, AWS Secrets Manager, Azure Key Vault, Google Secret Manager, a
+  KeePass database or Zoho Vault, resolved at each connection and kept in
+  memory only. A definition that came
   from elsewhere (an import, a restored backup) runs only after it's
   confirmed on the computer. Details:
   [`docs/secret-sources.md`](docs/secret-sources.md).

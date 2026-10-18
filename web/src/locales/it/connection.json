@@ -126,7 +126,9 @@
       "vault": "HashiCorp Vault",
       "aws": "AWS Secrets Manager",
       "azure": "Azure Key Vault",
-      "gcp": "Google Secret Manager"
+      "gcp": "Google Secret Manager",
+      "keepass": "KeePass",
+      "zoho": "Zoho Vault"
     },
     "askHelp": "Viene chiesta alla connessione e non viene salvata.",
     "askPlaceholder": "(solo per provare; viene chiesta alla connessione)",
@@ -150,12 +152,30 @@
       "name": "Nome del segreto",
       "version": "Versione (facoltativa)",
       "project": "Progetto",
-      "secret": "Segreto"
+      "secret": "Segreto",
+      "file": "File del database (.kdbx)",
+      "entry": "Voce",
+      "attribute": "Campo (facoltativo)",
+      "key_file": "File chiave (facoltativo)",
+      "master": "Password principale",
+      "master_keepass": "Password principale",
+      "master_zoho": "Passphrase principale",
+      "master_value_keepass": "Password principale",
+      "master_value_zoho": "Passphrase principale",
+      "master_command": "Comando che restituisce la password principale",
+      "data_center": "Data center",
+      "secret_name": "Nome o ID del segreto",
+      "client_id": "ID del client",
+      "client_secret": "Segreto del client",
+      "refresh_token": "Token di aggiornamento",
+      "fill_username_keepass": "Prendi anche l'utente da questa voce (il suo campo «UserName»)",
+      "fill_username_zoho": "Prendi anche l'utente da questo segreto (il suo campo «username»)"
     },
     "placeholder": {
       "command": "pass show database/produzione",
       "token": "VAULT_TOKEN o ~/.vault-token",
-      "latest": "la più recente"
+      "latest": "la più recente",
+      "data_center": "Quello del tuo account Zoho"
     },
     "kvAuto": "Rileva",
     "help": {
@@ -165,7 +185,10 @@
       "vault": "Senza token si usa VAULT_TOKEN o quello di «vault login» (~/.vault-token). Il token inserito viene salvato nel portachiavi di sistema.",
       "aws": "Usa le credenziali AWS di questo computer: variabili d'ambiente, ~/.aws o la CLI di AWS (SSO, ruoli).",
       "azure": "Usa la sessione della CLI di Azure («az login»), di Azure Developer CLI o l'identità gestita.",
-      "gcp": "Usa la sessione di gcloud («gcloud auth login») o le credenziali predefinite dell'applicazione."
+      "gcp": "Usa la sessione di gcloud («gcloud auth login») o le credenziali predefinite dell'applicazione.",
+      "entry": "Gruppo/Sottogruppo/Titolo, solo il titolo se non è ripetuto, o l'UUID della voce.",
+      "keepass": "Il database viene letto su questo computer, senza programmi esterni (KDBX 3.1 e 4). La password principale inserita viene salvata nel portachiavi di sistema; con «Chiedi alla connessione» viene richiesta la prima volta che ti connetti e resta solo in memoria finché non chiudi DBine.",
+      "zoho": "Con un client proprio («Self Client») della console API di Zoho e un token di aggiornamento con i permessi ZohoVault.secrets.READ e ZohoVault.user.READ. I valori vengono decifrati su questo computer con la passphrase principale; il segreto del client, il token e la passphrase inseriti vengono salvati nel portachiavi di sistema."
     },
     "test": "Prova",
     "testOk": "OK · {{n}} caratteri",
@@ -175,6 +198,32 @@
       "body": "La connessione «{{name}}» prende «{{field}}» da questa origine, arrivata da fuori di questo computer (un'importazione o un backup ripristinato). DBine la userà esattamente così:",
       "warning": "Confermala solo se la riconosci: un comando viene eseguito con i tuoi permessi e un gestore di segreti riceve le tue credenziali.",
       "confirm": "Conferma e usa"
+    },
+    "master": {
+      "keychain": "Salvata nel portachiavi",
+      "ask": "Chiedi alla connessione",
+      "command": "Da un comando",
+      "none": "Nessuna (solo il file chiave)"
+    },
+    "dataCenter": {
+      "com": "Stati Uniti ({{domain}})",
+      "eu": "Europa ({{domain}})",
+      "in": "India ({{domain}})",
+      "com_au": "Australia ({{domain}})",
+      "jp": "Giappone ({{domain}})",
+      "ca": "Canada ({{domain}})",
+      "sa": "Arabia Saudita ({{domain}})",
+      "uk": "Regno Unito ({{domain}})",
+      "ae": "Emirati Arabi Uniti ({{domain}})",
+      "sg": "Singapore ({{domain}})",
+      "com_cn": "Cina ({{domain}})"
+    },
+    "unlock": {
+      "title": "Password principale",
+      "keepass": "La connessione «{{name}}» prende «{{field}}» da un database KeePass. Inserisci la sua password principale (non viene salvata):",
+      "zoho": "La connessione «{{name}}» prende «{{field}}» da Zoho Vault. Inserisci la passphrase principale (non viene salvata):",
+      "wrong": "La password inserita non ha aperto il database.",
+      "empty": "Inserisci la password principale"
     }
   }
 }

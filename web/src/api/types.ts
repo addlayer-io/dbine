@@ -202,8 +202,29 @@ export type SecretSource =
   | { kind: 'vault'; address: string; path: string; key: string; namespace?: string; kv_version?: '1' | '2'; ca_file?: string }
   | { kind: 'aws'; secret_id: string; region?: string; profile?: string; json_key?: string; fill_username?: boolean }
   | { kind: 'azure'; vault_url: string; name: string; version?: string; json_key?: string }
-  | { kind: 'gcp'; project: string; secret: string; version?: string; json_key?: string };
+  | { kind: 'gcp'; project: string; secret: string; version?: string; json_key?: string }
+  | {
+    kind: 'keepass'; file: string; entry: string; attribute?: string; key_file?: string;
+    master?: 'ask' | 'command' | 'none'; master_command?: string; fill_username?: boolean;
+  }
+  | {
+    kind: 'zoho'; data_center: string; secret_name: string; attribute?: string; client_id: string;
+    master?: 'ask' | 'command'; master_command?: string; fill_username?: boolean;
+  };
 export type SecretSourceKind = SecretSource['kind'];
+
+/** A `secret_source_unlock` error's `unlock`: a master password to ask for
+ *  (KeePass, Zoho Vault set to "ask"). */
+export interface SecretSourceUnlock {
+  connection_id: string | null;
+  connection_name: string;
+  field: string;
+  /** The field's label (a backend message: `tb()` it). */
+  field_label: string;
+  kind: 'keepass' | 'zoho';
+  /** The one typed before didn't open it. */
+  wrong: boolean;
+}
 
 /** A `secret_source_approval` error's `approval`: the definition to confirm. */
 export interface SecretSourceApproval {
@@ -218,7 +239,7 @@ export interface SecretSourceApproval {
 /** "Probar" of a secret field's source: only the value's length. */
 export interface SecretSourceTest {
   chars: number;
-  /** The secret also had a `username` (AWS, "fill the user"). */
+  /** The secret also had a `username` (AWS, KeePass, Zoho Vault: "fill the user"). */
   username: boolean;
 }
 

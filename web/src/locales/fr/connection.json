@@ -126,7 +126,9 @@
       "vault": "HashiCorp Vault",
       "aws": "AWS Secrets Manager",
       "azure": "Azure Key Vault",
-      "gcp": "Google Secret Manager"
+      "gcp": "Google Secret Manager",
+      "keepass": "KeePass",
+      "zoho": "Zoho Vault"
     },
     "askHelp": "Demandé à la connexion et non enregistré.",
     "askPlaceholder": "(pour tester seulement ; demandé à la connexion)",
@@ -150,12 +152,30 @@
       "name": "Nom du secret",
       "version": "Version (facultatif)",
       "project": "Projet",
-      "secret": "Secret"
+      "secret": "Secret",
+      "file": "Fichier de la base (.kdbx)",
+      "entry": "Entrée",
+      "attribute": "Champ (facultatif)",
+      "key_file": "Fichier de clé (facultatif)",
+      "master": "Mot de passe principal",
+      "master_keepass": "Mot de passe principal",
+      "master_zoho": "Phrase secrète principale",
+      "master_value_keepass": "Mot de passe principal",
+      "master_value_zoho": "Phrase secrète principale",
+      "master_command": "Commande qui renvoie le mot de passe principal",
+      "data_center": "Centre de données",
+      "secret_name": "Nom ou ID du secret",
+      "client_id": "ID du client",
+      "client_secret": "Secret du client",
+      "refresh_token": "Jeton d'actualisation",
+      "fill_username_keepass": "Prendre aussi l'utilisateur de cette entrée (son champ « UserName »)",
+      "fill_username_zoho": "Prendre aussi l'utilisateur de ce secret (son champ « username »)"
     },
     "placeholder": {
       "command": "pass show bases/production",
       "token": "VAULT_TOKEN ou ~/.vault-token",
-      "latest": "la plus récente"
+      "latest": "la plus récente",
+      "data_center": "Celui de votre compte Zoho"
     },
     "kvAuto": "Détecter",
     "help": {
@@ -165,7 +185,10 @@
       "vault": "Sans jeton, on utilise VAULT_TOKEN ou celui de « vault login » (~/.vault-token). Le jeton saisi est enregistré dans le trousseau du système.",
       "aws": "Utilise les identifiants AWS de cet ordinateur : variables d'environnement, ~/.aws ou la CLI AWS (SSO, rôles).",
       "azure": "Utilise votre session de la CLI Azure (« az login »), d'Azure Developer CLI ou l'identité managée.",
-      "gcp": "Utilise votre session gcloud (« gcloud auth login ») ou les identifiants par défaut de l'application."
+      "gcp": "Utilise votre session gcloud (« gcloud auth login ») ou les identifiants par défaut de l'application.",
+      "entry": "Groupe/Sous-groupe/Titre, le titre seul s'il n'est pas répété, ou l'UUID de l'entrée.",
+      "keepass": "La base est lue sur cet ordinateur, sans programme externe (KDBX 3.1 et 4). Le mot de passe principal saisi est enregistré dans le trousseau du système ; avec « Demander à la connexion », il est demandé la première fois que vous vous connectez et reste en mémoire seulement jusqu'à la fermeture de DBine.",
+      "zoho": "Avec un client propre (« Self Client ») de la console d'API de Zoho et un jeton d'actualisation disposant des autorisations ZohoVault.secrets.READ et ZohoVault.user.READ. Les valeurs sont déchiffrées sur cet ordinateur avec la phrase secrète principale ; le secret du client, le jeton et la phrase saisis sont enregistrés dans le trousseau du système."
     },
     "test": "Tester",
     "testOk": "OK · {{n}} caractères",
@@ -175,6 +198,32 @@
       "body": "La connexion « {{name}} » obtient « {{field}} » de cette source, qui provient de l'extérieur de cet ordinateur (un import ou une sauvegarde restaurée). DBine l'utilisera exactement ainsi :",
       "warning": "Ne la confirmez que si vous la reconnaissez : une commande s'exécute avec vos droits et un gestionnaire de secrets reçoit vos identifiants.",
       "confirm": "Confirmer et utiliser"
+    },
+    "master": {
+      "keychain": "Enregistré dans le trousseau",
+      "ask": "Demander à la connexion",
+      "command": "D'une commande",
+      "none": "Aucun (uniquement le fichier de clé)"
+    },
+    "dataCenter": {
+      "com": "États-Unis ({{domain}})",
+      "eu": "Europe ({{domain}})",
+      "in": "Inde ({{domain}})",
+      "com_au": "Australie ({{domain}})",
+      "jp": "Japon ({{domain}})",
+      "ca": "Canada ({{domain}})",
+      "sa": "Arabie saoudite ({{domain}})",
+      "uk": "Royaume-Uni ({{domain}})",
+      "ae": "Émirats arabes unis ({{domain}})",
+      "sg": "Singapour ({{domain}})",
+      "com_cn": "Chine ({{domain}})"
+    },
+    "unlock": {
+      "title": "Mot de passe principal",
+      "keepass": "La connexion « {{name}} » obtient « {{field}} » d'une base KeePass. Saisissez son mot de passe principal (il n'est pas enregistré) :",
+      "zoho": "La connexion « {{name}} » obtient « {{field}} » de Zoho Vault. Saisissez la phrase secrète principale (elle n'est pas enregistrée) :",
+      "wrong": "Le mot de passe saisi n'a pas ouvert la base.",
+      "empty": "Saisissez le mot de passe principal"
     }
   }
 }

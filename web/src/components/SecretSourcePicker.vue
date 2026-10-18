@@ -4,8 +4,10 @@ import { open as openFile } from '@tauri-apps/plugin-dialog';
 import { useTranslation } from 'i18next-vue';
 import { api, errorMessage } from '../api/client';
 import { askApproveSecretSource } from '../composables/secretSourceApproval';
-import { isExternal, missingInputs, REQUIRED, SOURCE_KINDS, sourceFrom, type DraftKind, type SourceDraft } from '../composables/secretSources';
-import type { SecretSourceKind } from '../api/types';
+import { askMasterPassword, unlockOf } from '../composables/secretSourceUnlock';
+import {
+  isExternal, MASTER_SOURCES, missingInputs, SOURCE_KINDS, sourceFrom, typedTokens, ZOHO_DATA_CENTERS, type DraftKind, type SourceDraft,
+} from '../composables/secretSources';
 
 // Where one secret field takes its value (docs/secret-sources.md): the
 // selector, the chosen provider's inputs and "Probar", which resolves it and
@@ -22,7 +24,7 @@ const props = defineProps<{
   connectionId: string | null;
   /** The form's engine (for the field's name in errors). */
   driver: string;
-  /** A Vault token is kept for this field already. */
+  /** The connection is saved: a token typed before is kept for this field. */
   editing: boolean;
 }>();
 const { t } = useTranslation();
@@ -39,12 +41,19 @@ function setKind(k: DraftKind) {
   draft.value.kind = k;
 }
 
-async function browseCa() {
+async function browse(input: 'ca_file' | 'file' | 'key_file') {
   try {
-    const p = await openFile({ multiple: false, directory: false });
-    if (typeof p === 'string') draft.value.ca_file = p;
+    const filters = input === 'file' ? [{ name: 'KeePass', extensions: ['kdbx'] }] : undefined;
+    const p = await openFile({ multiple: false, directory: false, filters });
+    if (typeof p === 'string') draft.value[input] = p;
   } catch { /* no dialog outside Tauri */ }
 }
+
+/** KeePass / Zoho Vault: where the master password comes from. */
+const masters = computed(() => MASTER_SOURCES.filter((m) => m !== 'none' || draft.value.kind === 'keepass'));
+const hasMaster = computed(() => draft.value.kind === 'keepass' || draft.value.kind === 'zoho');
+/** A master password asked while testing ("ask"): this picker's tests only. */
+const asked = ref('');
 
 async function test() {
   const source = sourceFrom(draft.value, props.field);
@@ -56,8 +65,9 @@ async function test() {
   testing.value = true;
   result.value = null;
   try {
-    const token = draft.value.kind === 'vault' && draft.value.token ? draft.value.token : null;
-    const r = await api.testSecretSource(props.connectionId, props.driver, props.field, source, token);
+    const tokens = typedTokens(draft.value);
+    if (hasMaster.value && draft.value.master === 'ask' && asked.value) tokens[''] = asked.value;
+    const r = await api.testSecretSource(props.connectionId, props.driver, props.field, source, tokens);
     result.value = { ok: true, text: t(r.username ? 'connection:source.testOkUser' : 'connection:source.testOk', { n: r.chars }) };
   } catch (e) {
     // Came from outside and not confirmed yet: show it, and test again if confirmed.
@@ -65,14 +75,24 @@ async function test() {
       testing.value = false;
       return test();
     }
+    // The master password is asked: ask it, and test again with it.
+    const unlock = unlockOf(e);
+    if (unlock) {
+      const typed = await askMasterPassword(unlock);
+      if (typed !== null) {
+        asked.value = typed;
+        testing.value = false;
+        return test();
+      }
+    }
     result.value = { ok: false, text: errorMessage(e) };
   } finally {
     testing.value = false;
   }
 }
 
-/** The chosen provider can't do without this input. */
-const req = (k: keyof SourceDraft) => external.value && REQUIRED[draft.value.kind as SecretSourceKind].includes(k);
+/** The chosen provider can't do without this input (as it's set now). */
+const req = (k: keyof SourceDraft) => external.value && missingInputs({ ...draft.value, [k]: '' } as SourceDraft).includes(k);
 </script>
 
 <template>
@@ -132,7 +152,7 @@ const req = (k: keyof SourceDraft) => external.value && REQUIRED[draft.value.kin
         <el-form-item :label="$t('connection:source.input.ca_file')">
           <el-input v-model="draft.ca_file" placeholder="~/vault-ca.pem">
             <template #append>
-              <el-button @click="browseCa"><el-icon><ei-folder-opened /></el-icon></el-button>
+              <el-button @click="browse('ca_file')"><el-icon><ei-folder-opened /></el-icon></el-button>
             </template>
           </el-input>
         </el-form-item>
@@ -175,7 +195,78 @@ const req = (k: keyof SourceDraft) => external.value && REQUIRED[draft.value.kin
         </el-form-item>
         <div class="ss-help ss-wide">{{ $t('connection:source.help.gcp') }}</div>
       </template>
-      <el-form-item v-if="draft.kind !== 'vault'" :label="$t('connection:source.input.json_key')">
+      <template v-else-if="draft.kind === 'keepass'">
+        <el-form-item :label="$t('connection:source.input.file')" :required="req('file')" class="ss-wide">
+          <el-input v-model="draft.file" placeholder="~/Passwords/databases.kdbx" spellcheck="false">
+            <template #append>
+              <el-button @click="browse('file')"><el-icon><ei-folder-opened /></el-icon></el-button>
+            </template>
+          </el-input>
+        </el-form-item>
+        <el-form-item :label="$t('connection:source.input.entry')" :required="req('entry')" class="ss-wide">
+          <el-input v-model="draft.entry" class="ss-mono" placeholder="Databases/Prod/pg-main" spellcheck="false" />
+          <div class="ss-help">{{ $t('connection:source.help.entry') }}</div>
+        </el-form-item>
+        <el-form-item :label="$t('connection:source.input.attribute')">
+          <el-input v-model="draft.attribute" class="ss-mono" placeholder="Password" spellcheck="false" />
+        </el-form-item>
+        <el-form-item :label="$t('connection:source.input.key_file')" :required="req('key_file')">
+          <el-input v-model="draft.key_file" placeholder="~/Passwords/databases.keyx" spellcheck="false">
+            <template #append>
+              <el-button @click="browse('key_file')"><el-icon><ei-folder-opened /></el-icon></el-button>
+            </template>
+          </el-input>
+        </el-form-item>
+      </template>
+      <template v-else-if="draft.kind === 'zoho'">
+        <el-form-item :label="$t('connection:source.input.data_center')" :required="req('data_center')">
+          <el-select v-model="draft.data_center" style="width: 100%" :placeholder="$t('connection:source.placeholder.data_center')">
+            <el-option v-for="[id, domain] in ZOHO_DATA_CENTERS" :key="id" :value="id" :label="$t(`connection:source.dataCenter.${id.replace('.', '_')}`, { domain })" />
+          </el-select>
+        </el-form-item>
+        <el-form-item :label="$t('connection:source.input.secret_name')" :required="req('secret_name')">
+          <el-input v-model="draft.secret_name" class="ss-mono" placeholder="pg-main" spellcheck="false" />
+        </el-form-item>
+        <el-form-item :label="$t('connection:source.input.attribute')">
+          <el-input v-model="draft.attribute" class="ss-mono" placeholder="password" spellcheck="false" />
+        </el-form-item>
+        <el-form-item :label="$t('connection:source.input.client_id')" :required="req('client_id')">
+          <el-input v-model="draft.client_id" class="ss-mono" placeholder="1000.XXXXXXXXXXXXXXXX" spellcheck="false" />
+        </el-form-item>
+        <el-form-item :label="$t('connection:source.input.client_secret')">
+          <el-input
+            v-model="draft.client_secret" type="password" show-password autocomplete="new-password"
+            :placeholder="editing ? $t('connection:form.secretKeptMasc') : ''"
+          />
+        </el-form-item>
+        <el-form-item :label="$t('connection:source.input.refresh_token')">
+          <el-input
+            v-model="draft.refresh_token" type="password" show-password autocomplete="new-password"
+            :placeholder="editing ? $t('connection:form.secretKeptMasc') : '1000.…'"
+          />
+        </el-form-item>
+      </template>
+      <template v-if="hasMaster">
+        <el-form-item :label="$t(`connection:source.input.master_${draft.kind}`)">
+          <el-select v-model="draft.master" style="width: 100%">
+            <el-option v-for="m in masters" :key="m" :value="m" :label="$t(`connection:source.master.${m}`)" />
+          </el-select>
+        </el-form-item>
+        <el-form-item v-if="draft.master === 'keychain'" :label="$t(`connection:source.input.master_value_${draft.kind}`)">
+          <el-input
+            v-model="draft.token" type="password" show-password autocomplete="new-password"
+            :placeholder="editing ? $t('connection:form.secretKeptFem') : ''"
+          />
+        </el-form-item>
+        <el-form-item v-else-if="draft.master === 'command'" :label="$t('connection:source.input.master_command')" :required="req('master_command')">
+          <el-input v-model="draft.master_command" class="ss-mono" :placeholder="$t('connection:source.placeholder.command')" spellcheck="false" />
+        </el-form-item>
+        <el-checkbox v-if="field === 'password'" v-model="draft.fill_username" class="ss-wide">
+          {{ $t(`connection:source.input.fill_username_${draft.kind}`) }}
+        </el-checkbox>
+        <div class="ss-help ss-wide">{{ $t(`connection:source.help.${draft.kind}`) }}</div>
+      </template>
+      <el-form-item v-if="!['vault', 'keepass', 'zoho'].includes(draft.kind)" :label="$t('connection:source.input.json_key')">
         <el-input v-model="draft.json_key" class="ss-mono" placeholder="password" spellcheck="false" />
         <div class="ss-help">{{ $t('connection:source.help.json_key') }}</div>
       </el-form-item>

@@ -126,7 +126,9 @@
       "vault": "HashiCorp Vault",
       "aws": "AWS Secrets Manager",
       "azure": "Azure Key Vault",
-      "gcp": "Google Secret Manager"
+      "gcp": "Google Secret Manager",
+      "keepass": "KeePass",
+      "zoho": "Zoho Vault"
     },
     "askHelp": "Asked for when connecting and not saved.",
     "askPlaceholder": "(for testing only; asked for when connecting)",
@@ -150,12 +152,30 @@
       "name": "Secret name",
       "version": "Version (optional)",
       "project": "Project",
-      "secret": "Secret"
+      "secret": "Secret",
+      "file": "Database file (.kdbx)",
+      "entry": "Entry",
+      "attribute": "Field (optional)",
+      "key_file": "Key file (optional)",
+      "master": "Master password",
+      "master_keepass": "Master password",
+      "master_zoho": "Master passphrase",
+      "master_value_keepass": "Master password",
+      "master_value_zoho": "Master passphrase",
+      "master_command": "Command that returns the master password",
+      "data_center": "Data center",
+      "secret_name": "Secret name or ID",
+      "client_id": "Client ID",
+      "client_secret": "Client secret",
+      "refresh_token": "Refresh token",
+      "fill_username_keepass": "Also take the user from this entry (its «UserName» field)",
+      "fill_username_zoho": "Also take the user from this secret (its «username» field)"
     },
     "placeholder": {
       "command": "pass show databases/production",
       "token": "VAULT_TOKEN or ~/.vault-token",
-      "latest": "the latest"
+      "latest": "the latest",
+      "data_center": "The one for your Zoho account"
     },
     "kvAuto": "Detect",
     "help": {
@@ -165,7 +185,10 @@
       "vault": "Without a token, VAULT_TOKEN or the one from «vault login» (~/.vault-token) is used. The token you type is saved in the system keychain.",
       "aws": "Uses this computer's AWS credentials: environment variables, ~/.aws or the AWS CLI (SSO, roles).",
       "azure": "Uses your Azure CLI session («az login»), Azure Developer CLI or the managed identity.",
-      "gcp": "Uses your gcloud session («gcloud auth login») or the application default credentials."
+      "gcp": "Uses your gcloud session («gcloud auth login») or the application default credentials.",
+      "entry": "Group/Subgroup/Title, the title alone if it isn't repeated, or the entry's UUID.",
+      "keepass": "The database is read on this computer, with no external programs (KDBX 3.1 and 4). The master password you type is saved in the system keychain; with «Ask when connecting» it is asked the first time you connect and stays in memory only until you close DBine.",
+      "zoho": "With your own client («Self Client») from the Zoho API console and a refresh token with the ZohoVault.secrets.READ and ZohoVault.user.READ scopes. Values are decrypted on this computer with the master passphrase; the client secret, the token and the passphrase you type are saved in the system keychain."
     },
     "test": "Test",
     "testOk": "OK · {{n}} characters",
@@ -175,6 +198,32 @@
       "body": "The connection «{{name}}» takes «{{field}}» from this source, which came from outside this computer (an import or a restored backup). DBine will use it exactly as shown:",
       "warning": "Confirm it only if you recognize it: a command runs with your permissions and a secrets manager receives your credentials.",
       "confirm": "Confirm and use"
+    },
+    "master": {
+      "keychain": "Saved in the keychain",
+      "ask": "Ask when connecting",
+      "command": "From a command",
+      "none": "None (key file only)"
+    },
+    "dataCenter": {
+      "com": "United States ({{domain}})",
+      "eu": "Europe ({{domain}})",
+      "in": "India ({{domain}})",
+      "com_au": "Australia ({{domain}})",
+      "jp": "Japan ({{domain}})",
+      "ca": "Canada ({{domain}})",
+      "sa": "Saudi Arabia ({{domain}})",
+      "uk": "United Kingdom ({{domain}})",
+      "ae": "United Arab Emirates ({{domain}})",
+      "sg": "Singapore ({{domain}})",
+      "com_cn": "China ({{domain}})"
+    },
+    "unlock": {
+      "title": "Master password",
+      "keepass": "The connection «{{name}}» takes «{{field}}» from a KeePass database. Type its master password (it isn't saved):",
+      "zoho": "The connection «{{name}}» takes «{{field}}» from Zoho Vault. Type the master passphrase (it isn't saved):",
+      "wrong": "The password you typed didn't open it.",
+      "empty": "Type the master password"
     }
   }
 }
