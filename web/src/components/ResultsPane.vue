@@ -9,7 +9,7 @@ import { save } from '@tauri-apps/plugin-dialog';
 import { api, errorMessage } from '../api/client';
 import type { Cell, Message, MessageLevel, ObjectRef, QueryOutcome, ResultColumn, SortKey, StatementResult } from '../api/types';
 import { sortRows } from '../composables/gridSort';
-import { buildChanges, buildInserts, inferTarget, resolveEditing, rowKey, skippedKeyColumns, type EditSetup, type Edits } from '../composables/gridEdit';
+import { buildChanges, buildInserts, inferColumnSources, inferTarget, resolveEditing, rowKey, skippedKeyColumns, type EditSetup, type Edits } from '../composables/gridEdit';
 import ResultGrid from './ResultGrid.vue';
 import AddDocumentDialog from './AddDocumentDialog.vue';
 import JsonTreeView from './JsonTreeView.vue';
@@ -20,6 +20,8 @@ import type { FilterState } from '../composables/gridFilter';
 import { EXPORT_FORMATS, defaultOptions, exportApi, fileName, type ExportFormat } from '../composables/export';
 import { inCodeEditor, isSaveShortcut, modalOpen } from '../composables/shortcuts';
 import { startTask, useTasksStore, type TaskHandle } from '../stores/tasks';
+import { useConnectionsStore } from '../stores/connections';
+import { jumpFilters, linksFor, openFiltered, relationsSchema, type FkLink, type GridLinks } from '../composables/fkJump';
 
 // What a run produced: one sub-tab per result set, "Plan de ejecución" when
 // the run asked for plans, and "Mensajes" (server messages, affected rows,
@@ -236,6 +238,48 @@ watch(
   },
   { immediate: true },
 );
+// -- jumps by foreign key (composables/fkJump) ---------------------------------------------
+// Where the result's table is known (a table's data, or a query on one
+// table whose columns map to its own) and the engine reports foreign keys.
+const conns = useConnectionsStore();
+const links = ref<GridLinks | null>(null);
+let linksSeq = 0;
+watch(
+  () => [editKey.value, active.value, props.outcome] as const,
+  async () => {
+    const seq = ++linksSeq;
+    links.value = null;
+    const src = props.editSource;
+    const r = current.value;
+    if (!src || !r || typeof active.value !== 'number') return;
+    if (!conns.driverOf(src.connectionId)?.capabilities.foreign_keys) return;
+    let target = src.target ?? null;
+    let source: ((name: string) => string | null) | null = (n) => n;
+    if (!target) {
+      const pos = sets.value.findIndex((x) => x.i === active.value);
+      target = inferTarget(src.script ?? '', pos, src.language).target;
+      source = inferColumnSources(src.script ?? '', pos);
+    }
+    if (!target || !source) return;
+    try {
+      const tables = await relationsSchema(src.connectionId, src.database);
+      if (seq !== linksSeq) return;
+      const found = linksFor(tables, target, r.columns.map((c) => c.name), source);
+      links.value = found.parents.length || found.children.length ? found : null;
+    } catch {
+      // No relations to offer: the grid works as before.
+    }
+  },
+  { immediate: true },
+);
+function follow(link: FkLink, row: number) {
+  const src = props.editSource;
+  const values = link.cols.map((c) => current.value?.rows[row]?.[c] ?? null);
+  const filters = jumpFilters(link, values);
+  if (!src || !filters) return;
+  openFiltered(src.connectionId, src.database, link.table, filters);
+}
+
 const canEdit = computed(() => !!setup.value && typeof setup.value !== 'string');
 const noEditReason = computed(() => (typeof setup.value === 'string' ? setup.value : props.editSource ? t('results:edit.lookingUpTable') : null));
 
@@ -868,6 +912,8 @@ const statusText = computed(() => {
         :insertable="canInsert"
         sortable
         :sort="gridSort"
+        :links="links"
+        @follow="follow"
         @edit="onEdit"
         @delete="onDelete"
         @add="addRow"

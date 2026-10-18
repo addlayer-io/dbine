@@ -4,7 +4,8 @@ import { ElMessage, ElMessageBox } from 'element-plus';
 import { t } from '../i18n';
 import { CaretBottom, CaretTop, Filter, MoreFilled } from '@element-plus/icons-vue';
 import { coerce, coerceNew, sameValue, type Edits } from '../composables/gridEdit';
-import { isSaveShortcut } from '../composables/shortcuts';
+import { isMac, isSaveShortcut } from '../composables/shortcuts';
+import type { FkLink, GridLinks } from '../composables/fkJump';
 import type { Cell, ResultColumn, SortKey } from '../api/types';
 import { nextSort } from '../composables/gridSort';
 import ContextMenu, { type MenuItem } from './ContextMenu.vue';
@@ -48,6 +49,9 @@ const props = defineProps<{
   sortable?: boolean;
   /** The current sort, shown on the headers; the parent sorts the rows. */
   sort?: SortKey[];
+  /** Foreign keys from and to the rows' table: the menu offers the jumps
+   *  and ⌘/Ctrl+click on a key cell goes to the referenced row. */
+  links?: GridLinks | null;
 }>();
 const emit = defineEmits<{
   /** A cell's new value; `undefined` reverts it. */
@@ -60,6 +64,8 @@ const emit = defineEmits<{
   add: [];
   /** The sort after a header click (empty: none). */
   sort: [keys: SortKey[]];
+  /** Open the rows `link` leads to from row `row` (its key isn't NULL). */
+  follow: [link: FkLink, row: number];
 }>();
 
 const ROW_H = 22;
@@ -186,6 +192,13 @@ function selectCell(r: number, c: number) {
 let dragging = false;
 function onCellDown(e: MouseEvent, r: number, c: number) {
   if (e.button !== 0) return;
+  // ⌘/Ctrl on a foreign key cell: the referenced row (not another block).
+  if ((e.metaKey || e.ctrlKey) && isLinkCell(r, c)) {
+    e.preventDefault();
+    const link = parentsAt(c).find((l) => keyOf(l, r));
+    if (link) emit('follow', link, r);
+    return;
+  }
   // ⌘/Ctrl: keep what's selected and start another block here.
   if ((e.metaKey || e.ctrlKey) && selection.value && !rowSel.value) {
     const s = selection.value;
@@ -643,6 +656,62 @@ function keepPeek() {
 }
 onBeforeUnmount(() => hideSoon(0));
 
+// -- foreign keys ----------------------------------------------------------------------
+const parentsAt = (c: number) => props.links?.parents.filter((l) => l.cols.includes(c)) ?? [];
+const childrenAt = (c: number) => props.links?.children.filter((l) => l.cols.includes(c)) ?? [];
+/** The row's saved key values for `link`, or null when one is NULL (or the
+ *  row is new: it isn't in the table yet). */
+function keyOf(link: FkLink, r: number): Cell[] | null {
+  if (isAdded(r)) return null;
+  const v = link.cols.map((c) => props.rows[r]?.[c] ?? null);
+  return v.some((x) => x === null) ? null : v;
+}
+const isLinkCell = (r: number, c: number) => parentsAt(c).some((l) => keyOf(l, r));
+/** ⌘/Ctrl held: key cells look like links. */
+const modHeld = ref(false);
+function onMod(e: KeyboardEvent) { modHeld.value = isMac ? e.metaKey : e.ctrlKey; }
+function offMod() { modHeld.value = false; }
+onMounted(() => {
+  window.addEventListener('keydown', onMod);
+  window.addEventListener('keyup', onMod);
+  window.addEventListener('blur', offMod);
+});
+onBeforeUnmount(() => {
+  window.removeEventListener('keydown', onMod);
+  window.removeEventListener('keyup', onMod);
+  window.removeEventListener('blur', offMod);
+});
+const tableName = (l: FkLink) => (l.table.schema ? `${l.table.schema}.${l.table.name}` : l.table.name);
+const clickKey = () => t('results:grid.modClick', { key: isMac ? '⌘' : 'Ctrl' });
+function linkItems(r: number, c: number): MenuItem[] {
+  const items: MenuItem[] = [];
+  const parents = parentsAt(c);
+  parents.forEach((l, k) => items.push({
+    label: parents.length > 1 ? t('results:grid.goToReferencedIn', { table: tableName(l) }) : t('results:grid.goToReferenced'),
+    shortcut: k === 0 ? clickKey() : undefined,
+    divided: k === 0,
+    disabled: !keyOf(l, r),
+    hint: keyOf(l, r) ? tableName(l) : isAdded(r) ? t('results:grid.linkNewRow') : t('results:grid.linkNull'),
+    action: () => emit('follow', l, r),
+  }));
+  const children = childrenAt(c);
+  if (children.length) {
+    const none = children.every((l) => !keyOf(l, r));
+    items.push({
+      label: t('results:grid.referencingRows'),
+      divided: !parents.length,
+      disabled: none,
+      hint: none ? (isAdded(r) ? t('results:grid.linkNewRow') : t('results:grid.linkNull')) : undefined,
+      children: none ? undefined : children.map((l) => ({
+        label: t('results:grid.referencingIn', { table: tableName(l), columns: l.otherColumns.join(', ') }),
+        hint: l.name ?? undefined,
+        action: () => emit('follow', l, r),
+      })),
+    });
+  }
+  return items;
+}
+
 // -- viewer / menu ---------------------------------------------------------------
 const viewer = ref<{ title: string; value: Cell } | null>(null);
 function openViewer(r: number, c: number) {
@@ -680,6 +749,7 @@ function onContext(e: MouseEvent, r: number, c: number | null) {
   if (c === null) items.push(delItem, addItem);
   if (c !== null) items.push({ label: t('results:grid.copyCell'), shortcut: copyFormat.value === 'tsv' ? '⌘C' : undefined, action: () => copy(tsv(props.rows[r][c])) });
   if (c !== null) items.push({ label: t('results:grid.viewValue'), action: () => openViewer(r, c) });
+  if (c !== null) items.push(...linkItems(r, c));
   if (c !== null) {
     items.push({ label: t('results:grid.editCell'), shortcut: 'F2', divided: true, disabled: !canEditRow(r), action: () => startEdit(r, c) });
     items.push({ label: t('results:grid.setNull'), disabled: !canEditRow(r) || isDeleted(r), action: () => setNull(r, c) });
@@ -821,7 +891,7 @@ function columnsMenu(e: MouseEvent) {
           :key="c"
           v-show="!isHidden(c)"
           class="rg-cell"
-          :class="[isUnset(i, c) ? 'rg-default' : cellClass(valueAt(i, c)), { active: selection && selection.r === i && selection.c === c, ranged: inBlock(i, c), edited: isEdited(i, c) }]"
+          :class="[isUnset(i, c) ? 'rg-default' : cellClass(valueAt(i, c)), { active: selection && selection.r === i && selection.c === c, ranged: inBlock(i, c), edited: isEdited(i, c), 'rg-link': modHeld && isLinkCell(i, c) }]"
           :style="{ width: widths[c] + 'px' }"
           :title="isEdited(i, c) ? $t('results:grid.before', { value: display(v) }) : undefined"
           @mousedown="onCellDown($event, i, c)"
@@ -957,6 +1027,7 @@ function columnsMenu(e: MouseEvent) {
 .rg-finput::placeholder { color: var(--nm-text-muted); opacity: 0.6; }
 .rg-finput:focus { box-shadow: inset 0 0 0 1px var(--ide-focus); background: var(--ide-input, transparent); }
 .rg-fcell.on { background: color-mix(in srgb, var(--ide-focus) 16%, transparent); }
+.rg-cell.rg-link { cursor: pointer; text-decoration: underline; color: var(--nm-accent-2); }
 .rg-fmenu {
   flex-shrink: 0;
   display: flex;
