@@ -24,9 +24,10 @@ const { t } = useTranslation();
 
 const s = reactive(emptyWizard());
 if (props.account) {
-  s.label = props.account.label;
-  s.master = props.account.master ?? 'keychain';
-  s.master_command = props.account.master_command ?? '';
+  const zoho = props.account as Extract<SecretAccount, { kind: 'zoho' }>;
+  s.label = zoho.label;
+  s.master = zoho.master ?? 'keychain';
+  s.master_command = zoho.master_command ?? '';
 }
 if (props.preview) Object.assign(s, props.preview);
 if (props.initialStep) s.step = props.initialStep;

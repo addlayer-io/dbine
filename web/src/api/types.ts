@@ -198,17 +198,17 @@ export interface ConnectionConfig {
  *  Stored as JSON in the `secret_sources` option, by field key. */
 export type SecretSource =
   | { kind: 'command'; command: string; json_key?: string }
-  | { kind: 'onepassword'; reference: string; account?: string; json_key?: string; fill_username?: boolean; user_field?: string }
+  | { kind: 'onepassword'; reference: string; account?: string; json_key?: string; fill_username?: boolean; user_field?: string; secret_account?: string }
   | {
-    kind: 'vault'; address: string; path: string; key: string; namespace?: string; kv_version?: '1' | '2'; ca_file?: string;
-    auth?: 'approle'; approle_mount?: string; role_id?: string;
+    kind: 'vault'; address?: string; path: string; key: string; namespace?: string; kv_version?: '1' | '2'; ca_file?: string;
+    auth?: 'approle'; approle_mount?: string; role_id?: string; secret_account?: string;
   }
-  | { kind: 'aws'; secret_id: string; region?: string; profile?: string; json_key?: string; fill_username?: boolean }
-  | { kind: 'azure'; vault_url: string; name: string; version?: string; json_key?: string }
-  | { kind: 'gcp'; project: string; secret: string; version?: string; json_key?: string }
+  | { kind: 'aws'; secret_id: string; region?: string; profile?: string; json_key?: string; fill_username?: boolean; secret_account?: string }
+  | { kind: 'azure'; vault_url?: string; name: string; version?: string; json_key?: string; tenant?: string; secret_account?: string }
+  | { kind: 'gcp'; project?: string; secret: string; version?: string; json_key?: string; secret_account?: string }
   | {
-    kind: 'keepass'; file: string; entry: string; attribute?: string; key_file?: string;
-    master?: 'ask' | 'command' | 'none'; master_command?: string; fill_username?: boolean; user_field?: string;
+    kind: 'keepass'; file?: string; entry: string; attribute?: string; key_file?: string;
+    master?: 'ask' | 'command' | 'none'; master_command?: string; fill_username?: boolean; user_field?: string; secret_account?: string;
   }
   | {
     kind: 'zoho'; data_center?: string; secret_name: string; attribute?: string; client_id?: string;
@@ -217,28 +217,29 @@ export type SecretSource =
     account?: string;
   }
   | {
-    kind: 'vault_db'; address: string; mount?: string; role: string; static_role?: boolean; namespace?: string; ca_file?: string;
-    auth?: 'approle'; approle_mount?: string; role_id?: string;
+    kind: 'vault_db'; address?: string; mount?: string; role: string; static_role?: boolean; namespace?: string; ca_file?: string;
+    auth?: 'approle'; approle_mount?: string; role_id?: string; secret_account?: string;
   }
   | {
-    kind: 'conjur'; url: string; conjur_account: string; login: string; variable: string; username_variable?: string; json_key?: string; ca_file?: string;
+    kind: 'conjur'; url?: string; conjur_account?: string; login?: string; variable: string; username_variable?: string; json_key?: string; ca_file?: string;
+    secret_account?: string;
   }
   | {
-    kind: 'ccp'; url: string; app_id: string; safe?: string; folder?: string; object?: string; account_user?: string; account_address?: string;
-    client_cert?: string; client_key?: string; ca_file?: string; fill_username?: boolean;
+    kind: 'ccp'; url?: string; app_id?: string; safe?: string; folder?: string; object?: string; account_user?: string; account_address?: string;
+    client_cert?: string; client_key?: string; ca_file?: string; fill_username?: boolean; secret_account?: string;
   }
   | {
-    kind: 'delinea'; url: string; platform_url?: string; username: string; domain?: string; secret_name: string; attribute?: string;
-    master?: 'ask' | 'command'; master_command?: string; fill_username?: boolean; user_field?: string;
+    kind: 'delinea'; url?: string; platform_url?: string; username?: string; domain?: string; secret_name: string; attribute?: string;
+    master?: 'ask' | 'command'; master_command?: string; fill_username?: boolean; user_field?: string; secret_account?: string;
   }
   | {
-    kind: 'bitwarden'; server?: string; item: string; attribute?: string; json_key?: string; client_id: string;
-    master?: 'ask' | 'command'; master_command?: string; fill_username?: boolean; user_field?: string;
+    kind: 'bitwarden'; server?: string; item: string; attribute?: string; json_key?: string; client_id?: string;
+    master?: 'ask' | 'command'; master_command?: string; fill_username?: boolean; user_field?: string; secret_account?: string;
   }
-  | { kind: 'bitwarden_sm'; server?: string; secret: string; json_key?: string }
+  | { kind: 'bitwarden_sm'; server?: string; secret: string; json_key?: string; secret_account?: string }
   | {
     kind: 'ssm'; parameter: string; version?: string; region?: string; profile?: string; list_index?: string; json_key?: string;
-    fill_username?: boolean;
+    fill_username?: boolean; secret_account?: string;
   };
 export type SecretSourceKind = SecretSource['kind'];
 
@@ -1255,21 +1256,42 @@ export interface ChartAggregate {
 }
 
 
+/** The kinds of secret-manager account (dbine_core::secret_accounts::AccountConfig). */
+export type SecretAccountKind = 'zoho' | 'bitwarden' | 'bitwarden_sm' | 'vault' | 'delinea' | 'conjur' | 'ccp' | 'onepassword' | 'aws' | 'azure' | 'gcp' | 'keepass';
+
+/** What an account signs in with, by kind (dbine_core::secret_accounts::AccountConfig;
+ *  the defaults are left out). Secrets aren't here. */
+export type SecretAccountConfig =
+  | { kind: 'zoho'; data_center: string; client_id: string; master?: 'ask' | 'command'; master_command?: string }
+  | { kind: 'bitwarden'; server: string; client_id: string; master?: 'ask' | 'command'; master_command?: string }
+  | { kind: 'bitwarden_sm'; server: string }
+  | { kind: 'vault'; address: string; namespace?: string; ca_file?: string; auth?: 'approle'; approle_mount?: string; role_id?: string }
+  | { kind: 'delinea'; url: string; platform_url?: string; username: string; domain?: string; master?: 'ask' | 'command'; master_command?: string }
+  | { kind: 'conjur'; url: string; conjur_account: string; login: string; ca_file?: string }
+  | { kind: 'ccp'; url: string; app_id: string; client_cert?: string; client_key?: string; ca_file?: string }
+  | { kind: 'onepassword'; account: string }
+  | { kind: 'aws'; profile?: string; region: string }
+  | { kind: 'azure'; tenant?: string; vault_url: string }
+  | { kind: 'gcp'; project: string }
+  | { kind: 'keepass'; file: string; key_file?: string; master?: 'ask' | 'command' | 'none'; master_command?: string };
+
 /** A secret manager's account saved on this computer (dbine_core::secret_accounts):
- *  never exported nor synced; its secrets are in the keychain. */
-export interface SecretAccount {
+ *  never exported nor synced; its secrets are in the keychain. The config's
+ *  fields are flattened next to these. */
+export type SecretAccount = SecretAccountConfig & {
   id: string;
-  kind: 'zoho';
   label: string;
-  /** The account's e-mail or user name ('' when the manager didn't say). */
+  /** Who signed in, as the manager said ('' when it didn't). */
   identity: string;
-  data_center: string;
-  client_id: string;
-  /** Where the master passphrase comes from; absent: the keychain. */
-  master?: 'ask' | 'command';
-  master_command?: string;
   created_at: string;
   updated_at: string;
+};
+
+/** `connect_secret_account`'s answer: the account saved and what the check
+ *  found besides who signed in (a backend message: `tb()` it; '' if none). */
+export interface ConnectedAccount {
+  account: SecretAccount;
+  detail: string;
 }
 
 /** "Conectar Zoho Vault", step 3: the code exchanged (src-tauri: accounts::ZohoExchanged). */

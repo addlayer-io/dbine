@@ -96,6 +96,31 @@ async fn op_json(args: &[&str], account: &str) -> Result<serde_json::Value, Stri
     parsed
 }
 
+/// Whether the 1Password CLI is installed (the account wizard's first step).
+pub fn installed() -> bool {
+    find_op().is_some()
+}
+
+/// `op account list`: the accounts the CLI knows, as `{url, email,
+/// user_uuid, account_uuid, shorthand}` (whichever it gives; nothing secret).
+pub async fn accounts() -> Result<Vec<serde_json::Value>, String> {
+    let v = op_json(&["account", "list"], "").await?;
+    let keep = ["url", "email", "user_uuid", "account_uuid", "shorthand"];
+    Ok(v.as_array()
+        .into_iter()
+        .flatten()
+        .map(|a| serde_json::Value::Object(keep.iter().filter_map(|k| a.get(*k).filter(|v| v.is_string()).map(|v| (k.to_string(), v.clone()))).collect()))
+        .collect())
+}
+
+/// `op whoami` for the account: who the CLI is signed in as there (its
+/// e-mail, else the sign-in address).
+pub async fn whoami(account: &str) -> Result<String, String> {
+    let v = op_json(&["whoami"], account).await?;
+    let s = |k: &str| v.get(k).and_then(serde_json::Value::as_str).map(str::trim).filter(|x| !x.is_empty()).map(str::to_string);
+    s("email").or_else(|| s("url")).or_else(|| s("user_uuid")).ok_or_else(|| "«op whoami» no dijo con qué cuenta inició sesión".to_string())
+}
+
 /// A segment of an `op://` reference: the name when it can be one (no
 /// slash, nothing `op` would read otherwise, not repeated), else the ID.
 fn segment(name: &str, id: &str, unique: bool) -> String {

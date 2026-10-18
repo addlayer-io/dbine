@@ -172,7 +172,7 @@
       "master_command": "Command that returns the master password",
       "data_center": "Data center",
       "secret_name": "Secret name or ID",
-      "zoho_account": "Account",
+      "account_id": "Account",
       "client_id": "Client ID",
       "client_secret": "Client secret",
       "refresh_token": "Refresh token",
@@ -215,7 +215,8 @@
       "list_index": "List item (optional)",
       "master_bitwarden": "Master password",
       "master_value_bitwarden": "Master password",
-      "fill_username_bitwarden": "Also take the user from this item (its username)"
+      "fill_username_bitwarden": "Also take the user from this item (its username)",
+      "tenant": "Tenant (Microsoft Entra)"
     },
     "placeholder": {
       "command": "pass show databases/production",

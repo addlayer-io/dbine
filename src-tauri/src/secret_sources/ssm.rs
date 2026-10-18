@@ -33,7 +33,7 @@ pub fn host(region: &str) -> String {
 }
 
 /// `(URL, host to sign)` of an endpoint override: `http(s)://host[:port]`.
-fn endpoint_override(url: &str) -> Option<(String, String)> {
+pub(super) fn endpoint_override(url: &str) -> Option<(String, String)> {
     let u = url.trim().trim_end_matches('/');
     let rest = u.strip_prefix("https://").or_else(|| u.strip_prefix("http://"))?;
     (!rest.is_empty() && rest.chars().all(|c| c.is_ascii_alphanumeric() || matches!(c, '.' | '-' | ':' | '[' | ']'))).then(|| (format!("{u}/"), rest.to_string()))
@@ -306,12 +306,13 @@ mod tests {
             list_index: String::new(),
             json_key: "password".into(),
             fill_username: true,
+            secret_account: String::new(),
         };
         let mut cfg = dbine_driver::ConnectionConfig { driver: "postgres".into(), host: "127.0.0.1".into(), port: 25010, database: "postgres".into(), username: Some("someone-else".into()), ..Default::default() };
         let sources: SecretSources = [("password".to_string(), src)].into();
         super::super::fill(&store, &mut cfg, &sources, &Default::default(), super::super::Origin::Form { id: None, name: "" }).await.unwrap();
         assert_eq!((cfg.password.as_deref(), cfg.username.as_deref()), (Some("pw"), Some("postgres")));
-        let listed = SecretSource::Ssm { parameter: "/dbine/list".into(), version: String::new(), region: "us-east-1".into(), profile: String::new(), list_index: "2".into(), json_key: String::new(), fill_username: false };
+        let listed = SecretSource::Ssm { parameter: "/dbine/list".into(), version: String::new(), region: "us-east-1".into(), profile: String::new(), list_index: "2".into(), json_key: String::new(), fill_username: false, secret_account: String::new() };
         assert_eq!(super::super::fetch(&listed, &Default::default()).await.unwrap().value, "pw");
         if std::env::var("DBINE_TEST_PG_SECRETS").is_ok() {
             let mut s = dbine_drivers::open_session(&cfg, None).await.unwrap_or_else(|e| panic!("connect: {e}"));

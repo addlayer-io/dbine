@@ -663,6 +663,15 @@
  "AUTO_SHRINK está apagado": [
   "crates/drivers/sqlserver/src/health.rs"
  ],
+ "AWS STS no devolvió la identidad": [
+  "src-tauri/src/secret_sources/aws.rs"
+ ],
+ "AWS STS respondió {0}": [
+  "src-tauri/src/secret_sources/aws.rs"
+ ],
+ "AWS STS respondió {0}: {1}": [
+  "src-tauri/src/secret_sources/aws.rs"
+ ],
  "AWS Secrets Manager no devolvió un valor para «{0}»": [
   "src-tauri/src/secret_sources/aws.rs"
  ],
@@ -703,7 +712,11 @@
   "src-tauri/src/secret_sources/aws.rs",
   "src-tauri/src/secret_sources/ssm.rs"
  ],
+ "AWS rechazó las credenciales del perfil ({0}): {1}": [
+  "src-tauri/src/secret_sources/aws.rs"
+ ],
  "AWS_ENDPOINT_URL no es una URL http(s)://host[:puerto]": [
+  "src-tauri/src/secret_sources/aws.rs",
   "src-tauri/src/secret_sources/ssm.rs"
  ],
  "Abierta hace (s)": [
@@ -1440,7 +1453,8 @@
   "crates/drivers/orientdb/src/monitor.rs"
  ],
  "Arn": [
-  "crates/drivers/postgres/src/cloud_auth.rs"
+  "crates/drivers/postgres/src/cloud_auth.rs",
+  "src-tauri/src/secret_sources/aws.rs"
  ],
  "Arquitectura (bits)": [
   "crates/drivers/redis/src/monitor.rs"
@@ -2247,6 +2261,7 @@
   "crates/drivers/postgres/src/plan.rs"
  ],
  "Bitwarden": [
+  "src-tauri/src/secret_sources/accounts.rs",
   "src-tauri/src/secret_sources/mod.rs"
  ],
  "Bitwarden Secrets Manager respondió {0}": [
@@ -2268,6 +2283,7 @@
   "src-tauri/src/secret_sources/bitwarden.rs"
  ],
  "Bitwarden necesita la contraseña maestra": [
+  "crates/dbine-core/src/secret_accounts.rs",
   "crates/dbine-core/src/secret_sources.rs"
  ],
  "Bitwarden no devolvió el correo de la cuenta": [
@@ -3818,7 +3834,8 @@
   "crates/drivers/postgres/src/profiler.rs"
  ],
  "Code": [
-  "crates/drivers/mysql/src/session.rs"
+  "crates/drivers/mysql/src/session.rs",
+  "src-tauri/src/secret_sources/aws.rs"
  ],
  "Codex": [
   "crates/dbine-ai/src/cli.rs",
@@ -4658,6 +4675,7 @@
   "crates/dbine-schema/src/dialect/tdengine.rs"
  ],
  "Conjur": [
+  "crates/dbine-core/src/secret_accounts.rs",
   "src-tauri/src/secret_sources/cyberark.rs"
  ],
  "Conjur no devolvió un token de acceso": [
@@ -5981,7 +5999,11 @@
  "Dejarlo como está": [
   "crates/drivers/odbc/src/backup.rs"
  ],
+ "Delinea": [
+  "src-tauri/src/secret_sources/accounts.rs"
+ ],
  "Delinea necesita la contraseña (o el secreto del cliente)": [
+  "crates/dbine-core/src/secret_accounts.rs",
   "crates/dbine-core/src/secret_sources.rs"
  ],
  "Delinea no devolvió un token de acceso": [
@@ -13326,6 +13348,9 @@
  ],
  "Microsegundos (us)": [
   "crates/drivers/tdengine/src/create_db.rs"
+ ],
+ "Microsoft Entra ID no dijo para quién es el token": [
+  "src-tauri/src/secret_sources/azure.rs"
  ],
  "Microsoft Entra ID no reconoce la cuenta {0}: revisá el usuario (usuario@dominio)": [
   "crates/drivers/sqlserver/src/entra.rs"
@@ -22821,6 +22846,9 @@
  "Varios miembros separados por coma: host1:27017,host2:27017.": [
   "crates/drivers/mongodb/src/lib.rs"
  ],
+ "Vault": [
+  "crates/dbine-core/src/secret_accounts.rs"
+ ],
  "Vault está sellado o no disponible": [
   "src-tauri/src/secret_sources/vault.rs"
  ],
@@ -22837,6 +22865,9 @@
   "src-tauri/src/secret_sources/vault.rs"
  ],
  "Vault rechazó el role_id o el secret_id de AppRole (¿venció el secret_id?)": [
+  "src-tauri/src/secret_sources/vault.rs"
+ ],
+ "Vault rechazó el token (¿venció, o es de otro servidor o espacio de nombres?)": [
   "src-tauri/src/secret_sources/vault.rs"
  ],
  "Vault respondió con una redirección: usá la dirección del servidor activo": [
@@ -23378,6 +23409,9 @@
  "Zoho Vault respondió {0}: {1}": [
   "src-tauri/src/secret_sources/zoho.rs"
  ],
+ "Zoho Vault se conecta con su propio asistente": [
+  "src-tauri/src/secret_sources/accounts.rs"
+ ],
  "Zoho Vault tiene {0} secretos «{1}» (IDs: {2}): indicá el ID del que corresponde": [
   "src-tauri/src/secret_sources/zoho.rs"
  ],
@@ -23513,7 +23547,7 @@
  "a la clave le faltan client_email o private_key": [
   "crates/drivers/bigquery/src/gcp.rs"
  ],
- "a la cuenta de Zoho Vault le faltan datos en el llavero: reconectala en Configuración › Gestores de secretos": [
+ "a la cuenta «{0}» le faltan datos en el llavero: reconectala en Configuración › Gestores de secretos": [
   "src-tauri/src/secret_sources/accounts.rs"
  ],
  "acceso a la API REST de seguridad (all_access o security_rest_api_access)": [
@@ -24080,6 +24114,9 @@
  "con una cuenta de Zoho Vault, el centro de datos, el cliente y la frase son los de la cuenta": [
   "crates/dbine-core/src/secret_sources.rs"
  ],
+ "con una cuenta guardada, el servidor, la identidad y las credenciales son los de la cuenta": [
+  "crates/dbine-core/src/secret_sources.rs"
+ ],
  "con vencimiento": [
   "crates/drivers/redis/src/monitor.rs"
  ],
@@ -24115,6 +24152,12 @@
   "crates/drivers/sqlite/src/lib.rs",
   "crates/drivers/sqlite/src/read_only.rs",
   "crates/drivers/sqlite/src/transfer.rs"
+ ],
+ "conexión TLS aceptada (HTTP {0}), sin certificado de cliente; el AppID se prueba con «Probar» en una conexión": [
+  "src-tauri/src/secret_sources/accounts.rs"
+ ],
+ "conexión TLS con el certificado de cliente aceptada (HTTP {0}); el AppID se prueba con «Probar» en una conexión": [
+  "src-tauri/src/secret_sources/accounts.rs"
  ],
  "conexión inexistente": [
   "src-tauri/src/commands/compare.rs",
@@ -25126,6 +25169,7 @@
   "src-tauri/src/commands/compare.rs"
  ],
  "el dominio de Delinea no es válido": [
+  "crates/dbine-core/src/secret_accounts.rs",
   "crates/dbine-core/src/secret_sources.rs"
  ],
  "el dominio no conoce el servicio MSSQLSvc de ese servidor (usá el nombre completo del host, no la IP ni un alias)": [
@@ -25193,6 +25237,7 @@
   "src-tauri/src/commands/projects.rs"
  ],
  "el espacio de nombres de Vault no es válido": [
+  "crates/dbine-core/src/secret_accounts.rs",
   "crates/dbine-core/src/secret_sources.rs"
  ],
  "el esquema de partición {0}({1})": [
@@ -25287,6 +25332,11 @@
  ],
  "el inquilino (tenant ID) no es válido": [
   "crates/drivers/sqlserver/src/variant.rs"
+ ],
+ "el inquilino de Microsoft Entra no es válido (su ID o su dominio)": [
+  "crates/dbine-core/src/secret_accounts.rs",
+  "crates/dbine-core/src/secret_sources.rs",
+  "src-tauri/src/secret_sources/azure.rs"
  ],
  "el inquilino «{0}» no es válido": [
   "crates/drivers/postgres/src/cloud_auth.rs"
@@ -25518,6 +25568,7 @@
   "src-tauri/src/tasks/steps.rs"
  ],
  "el perfil de AWS no es válido": [
+  "crates/dbine-core/src/secret_accounts.rs",
   "crates/dbine-core/src/secret_sources.rs"
  ],
  "el permiso para «{0}» no tiene privilegios": [
@@ -25707,6 +25758,7 @@
   "src-tauri/src/secret_sources/bitwarden.rs"
  ],
  "el servidor de Bitwarden tiene que ser bitwarden.com, bitwarden.eu o la URL https:// del servidor propio": [
+  "crates/dbine-core/src/secret_accounts.rs",
   "crates/dbine-core/src/secret_sources.rs"
  ],
  "el servidor de correo rechazó el mail: {0}": [
@@ -25891,6 +25943,9 @@
  ],
  "el token de actualización de Zoho no es válido, venció o se revocó: generá uno nuevo": [
   "src-tauri/src/secret_sources/zoho.rs"
+ ],
+ "el token es del inquilino {0}, no de {1}": [
+  "src-tauri/src/secret_sources/azure.rs"
  ],
  "el trigger": [
   "crates/drivers/mysql/src/rename_db.rs",
@@ -26738,6 +26793,9 @@
  "este celular no tiene permiso para terminar sesiones: se habilita en DBine, Configuración › Dispositivos": [
   "src-tauri/src/link.rs"
  ],
+ "este gestor de secretos no tiene nada que detectar": [
+  "src-tauri/src/secret_sources/accounts.rs"
+ ],
  "este host incluye varios drivers: indicá cuál con --package": [
   "crates/dbine-plugin-host/src/main.rs"
  ],
@@ -27178,6 +27236,7 @@
   "src-tauri/src/tasks/mail.rs"
  ],
  "falta el AppID del Central Credential Provider": [
+  "crates/dbine-core/src/secret_accounts.rs",
   "crates/dbine-core/src/secret_sources.rs"
  ],
  "falta el ID de la aplicación": [
@@ -27209,6 +27268,7 @@
   "src-tauri/src/commands/dbdocs.rs"
  ],
  "falta el archivo de la base de KeePass (.kdbx)": [
+  "crates/dbine-core/src/secret_accounts.rs",
   "crates/dbine-core/src/secret_sources.rs"
  ],
  "falta el archivo de la clave privada": [
@@ -27241,7 +27301,11 @@
   "crates/drivers/databricks/src/backup.rs"
  ],
  "falta el client_id de la clave de API de Bitwarden (user.xxxxxxxx-…)": [
+  "crates/dbine-core/src/secret_accounts.rs",
   "crates/dbine-core/src/secret_sources.rs"
+ ],
+ "falta el client_secret de la clave de API de Bitwarden": [
+  "src-tauri/src/secret_sources/accounts.rs"
  ],
  "falta el client_secret de la clave de API de Bitwarden: escribilo en el formulario": [
   "src-tauri/src/secret_sources/bitwarden.rs"
@@ -27286,6 +27350,7 @@
   "crates/drivers/sqlserver/src/variant.rs"
  ],
  "falta el login de Conjur (host/<id> o un usuario)": [
+  "crates/dbine-core/src/secret_accounts.rs",
   "crates/dbine-core/src/secret_sources.rs"
  ],
  "falta el motor de IA que viene con DBine ({0})": [
@@ -27328,6 +27393,7 @@
   "crates/dbine-core/src/secret_sources.rs"
  ],
  "falta el proyecto de Google Cloud (o no es válido)": [
+  "crates/dbine-core/src/secret_accounts.rs",
   "crates/dbine-core/src/secret_sources.rs"
  ],
  "falta el puerto del servidor de correo": [
@@ -27365,6 +27431,9 @@
  "falta el token de acceso (PAT)": [
   "crates/drivers/snowflake/src/lib.rs"
  ],
+ "falta el token de acceso de la cuenta de máquina": [
+  "src-tauri/src/secret_sources/accounts.rs"
+ ],
  "falta el token de acceso de la cuenta de máquina: escribilo en el formulario (o definí BWS_ACCESS_TOKEN)": [
   "src-tauri/src/secret_sources/bitwarden.rs"
  ],
@@ -27375,6 +27444,7 @@
   "src-tauri/src/tunnels.rs"
  ],
  "falta el usuario de Delinea (o el ID del cliente en Delinea Platform)": [
+  "crates/dbine-core/src/secret_accounts.rs",
   "crates/dbine-core/src/secret_sources.rs"
  ],
  "falta el usuario de dominio (DOMINIO\\usuario)": [
@@ -27431,6 +27501,9 @@
  "falta la clave JSON de la cuenta de servicio": [
   "crates/drivers/bigquery/src/gcp.rs"
  ],
+ "falta la clave de API de Conjur": [
+  "src-tauri/src/secret_sources/cyberark.rs"
+ ],
  "falta la clave de API de Conjur: escribila en el formulario": [
   "src-tauri/src/secret_sources/cyberark.rs"
  ],
@@ -27461,6 +27534,9 @@
  "falta la columna «{0}» en el destino": [
   "crates/dbine-transfer/src/check.rs"
  ],
+ "falta la contraseña de Delinea": [
+  "src-tauri/src/secret_sources/accounts.rs"
+ ],
  "falta la contraseña de Delinea: escribila en el formulario": [
   "src-tauri/src/secret_sources/delinea.rs"
  ],
@@ -27468,6 +27544,7 @@
   "src-tauri/src/secret_sources/mod.rs"
  ],
  "falta la contraseña maestra de Bitwarden": [
+  "src-tauri/src/secret_sources/accounts.rs",
   "src-tauri/src/secret_sources/bitwarden.rs"
  ],
  "falta la contraseña maestra de la base de KeePass": [
@@ -27483,6 +27560,7 @@
   "crates/drivers/snowflake/src/lib.rs"
  ],
  "falta la cuenta de Conjur (o no es válida)": [
+  "crates/dbine-core/src/secret_accounts.rs",
   "crates/dbine-core/src/secret_sources.rs"
  ],
  "falta la cuenta de Entra ID (usuario@dominio)": [
@@ -28114,6 +28192,7 @@
   "crates/dbine-core/src/secret_sources.rs"
  ],
  "la URL de Delinea Platform tiene que ser https://<inquilino>.delinea.app": [
+  "crates/dbine-core/src/secret_accounts.rs",
   "crates/dbine-core/src/secret_sources.rs",
   "src-tauri/src/secret_sources/delinea.rs"
  ],
@@ -28121,12 +28200,14 @@
   "crates/dbine-core/src/secret_sources.rs"
  ],
  "la URL de {0} tiene que ser https:// (http:// solo para esta computadora)": [
+  "crates/dbine-core/src/secret_accounts.rs",
   "src-tauri/src/secret_sources/https.rs"
  ],
  "la URL del Central Credential Provider tiene que ser https:// (http:// solo para esta computadora)": [
   "crates/dbine-core/src/secret_sources.rs"
  ],
  "la URL del almacén tiene que ser https://<nombre>.vault.azure.net": [
+  "crates/dbine-core/src/secret_accounts.rs",
   "crates/dbine-core/src/secret_sources.rs",
   "src-tauri/src/secret_sources/azure.rs"
  ],
@@ -28395,6 +28476,7 @@
   "crates/drivers/snowflake/src/lib.rs"
  ],
  "la clave privada necesita su certificado de cliente": [
+  "crates/dbine-core/src/secret_accounts.rs",
   "crates/dbine-core/src/secret_sources.rs"
  ],
  "la clave privada no está en formato PEM": [
@@ -28691,6 +28773,7 @@
   "crates/dbine-transfer/src/clone_table.rs"
  ],
  "la cuenta de 1Password no es válida": [
+  "crates/dbine-core/src/secret_accounts.rs",
   "crates/dbine-core/src/secret_sources.rs"
  ],
  "la cuenta de Bitwarden no tiene contraseña maestra (¿inicia sesión con SSO o un conector de claves?): DBine no puede abrir su bóveda": [
@@ -28705,11 +28788,23 @@
  "la cuenta de Zoho Vault no es válida": [
   "crates/dbine-core/src/secret_sources.rs"
  ],
+ "la cuenta de {0} de esta conexión no está en esta computadora: elegí o conectá una cuenta de {1} en la conexión": [
+  "src-tauri/src/secret_sources/accounts.rs"
+ ],
  "la cuenta del Central Credential Provider no tiene usuario (UserName)": [
   "src-tauri/src/secret_sources/cyberark.rs"
  ],
+ "la cuenta es de otro gestor de secretos": [
+  "src-tauri/src/secret_sources/accounts.rs"
+ ],
  "la cuenta es federada pero ADFS no publica sus metadatos (MEX)": [
   "crates/drivers/sqlserver/src/entra.rs"
+ ],
+ "la cuenta guardada del gestor de secretos no es válida": [
+  "crates/dbine-core/src/secret_sources.rs"
+ ],
+ "la cuenta no es de este gestor de secretos": [
+  "src-tauri/src/secret_sources/accounts.rs"
  ],
  "la cuenta no se guardó": [
   "crates/dbine-core/src/secret_accounts.rs"
@@ -28719,6 +28814,9 @@
  ],
  "la cuenta {0} no es federada (no inicia sesión con ADFS), así que la autenticación integrada no está disponible. Usá «Microsoft Entra ID: interactivo (MFA)» o «Microsoft Entra ID: predeterminada».": [
   "crates/drivers/sqlserver/src/entra.rs"
+ ],
+ "la cuenta «{0}» de esta conexión es de otro gestor de secretos: elegí una cuenta de {1} en la conexión": [
+  "src-tauri/src/secret_sources/accounts.rs"
  ],
  "la cuenta «{0}» no se pudo leer: {1}": [
   "crates/dbine-core/src/secret_accounts.rs"
@@ -29014,6 +29112,7 @@
   "crates/dbine-core/src/secret_sources.rs"
  ],
  "la región de AWS «{0}» no es válida": [
+  "crates/dbine-core/src/secret_accounts.rs",
   "crates/dbine-core/src/secret_sources.rs",
   "crates/drivers/postgres/src/cloud_auth.rs",
   "src-tauri/src/secret_sources/aws.rs",
@@ -29065,9 +29164,11 @@
   "crates/drivers/odbc/src/backup.rs"
  ],
  "la ruta del archivo de clave no es válida": [
+  "crates/dbine-core/src/secret_accounts.rs",
   "crates/dbine-core/src/secret_sources.rs"
  ],
  "la ruta del certificado de la CA no es válida": [
+  "crates/dbine-core/src/secret_accounts.rs",
   "crates/dbine-core/src/secret_sources.rs"
  ],
  "la ruta es demasiado larga": [
@@ -29383,6 +29484,9 @@
  ],
  "las credenciales de AWS traen una fecha de vencimiento no válida": [
   "crates/drivers/postgres/src/cloud_auth.rs"
+ ],
+ "las credenciales temporales de AWS vencieron: volvé a iniciar sesión (aws sso login)": [
+  "src-tauri/src/secret_sources/aws.rs"
  ],
  "las entradas de un stream de Redis no se pueden modificar": [
   "crates/drivers/redis/src/ddl.rs"
@@ -30610,6 +30714,9 @@
  "no se pudo conectar al servidor SSH {0}:{1}: {2}": [
   "crates/dbine-tunnel/src/lib.rs"
  ],
+ "no se pudo conectar con AWS STS: {0}": [
+  "src-tauri/src/secret_sources/aws.rs"
+ ],
  "no se pudo conectar con AWS Secrets Manager: {0}": [
   "src-tauri/src/secret_sources/aws.rs"
  ],
@@ -30966,7 +31073,7 @@
  "no se pudo leer la contraseña de «{0}» del llavero: {1}": [
   "crates/dbine-sync/src/engine.rs"
  ],
- "no se pudo leer la cuenta de Zoho Vault del llavero: {0}": [
+ "no se pudo leer la cuenta «{0}» del llavero: {1}": [
   "src-tauri/src/secret_sources/accounts.rs"
  ],
  "no se pudo leer la definición de la clave primaria; no se clona": [
@@ -31773,6 +31880,9 @@
  "política de desalojo": [
   "crates/drivers/couchbase/src/create_db.rs"
  ],
+ "políticas: {0}": [
+  "src-tauri/src/secret_sources/accounts.rs"
+ ],
  "políticas: {0} / {1}": [
   "crates/dbine-transfer/src/clone_table/pg.rs"
  ],
@@ -31900,6 +32010,9 @@
  ],
  "put {0} v1\nput {1} v2\n# --rev=N lee la clave como estaba en esa revisión.\nget {2} --rev=1\n": [
   "crates/drivers/etcd/src/ddl.rs"
+ ],
+ "página desconocida": [
+  "src-tauri/src/secret_sources/accounts.rs"
  ],
  "páginas": [
   "crates/dbine-driver/src/profiler.rs",
@@ -32511,6 +32624,7 @@
   "crates/drivers/redis/src/security.rs"
  ],
  "sin contraseña maestra, la base de KeePass necesita un archivo de clave": [
+  "crates/dbine-core/src/secret_accounts.rs",
   "crates/dbine-core/src/secret_sources.rs"
  ],
  "sin detalle": [
@@ -33108,6 +33222,7 @@
   "src-tauri/src/secret_sources/mod.rs"
  ],
  "un dato del Central Credential Provider no es válido": [
+  "crates/dbine-core/src/secret_accounts.rs",
   "crates/dbine-core/src/secret_sources.rs"
  ],
  "un decimal de más de {0} dígitos no se copia (sería enorme sin exponente)": [
@@ -34406,6 +34521,9 @@
  "{0} se reconstruye (tabla nueva, copia de los datos y cambio de nombre): este motor no modifica columnas en el lugar.": [
   "crates/dbine-driver/src/alter.rs"
  ],
+ "{0} secretos visibles para la cuenta de máquina": [
+  "src-tauri/src/secret_sources/accounts.rs"
+ ],
  "{0} secuencias usaron más del 75 % de su rango": [
   "crates/drivers/postgres/src/health.rs"
  ],
@@ -35215,6 +35333,15 @@
  ],
  "«analysis» tiene que ser un objeto JSON (analyzer, tokenizer, filter…).": [
   "crates/drivers/elasticsearch/src/ddl.rs"
+ ],
+ "«az account show» no devolvió JSON": [
+  "src-tauri/src/secret_sources/azure.rs"
+ ],
+ "«gcloud config list» no devolvió JSON": [
+  "src-tauri/src/secret_sources/gcp.rs"
+ ],
+ "«op whoami» no dijo con qué cuenta inició sesión": [
+  "src-tauri/src/secret_sources/onepassword.rs"
  ],
  "«op» falló sin explicar por qué": [
   "src-tauri/src/secret_sources/onepassword.rs"

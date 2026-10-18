@@ -16,6 +16,28 @@ pub async fn get_secret(project: &str, secret: &str, version: &str) -> Result<St
     get_secret_at(&client, ENDPOINT, project.trim(), secret.trim(), version.trim(), &token).await
 }
 
+/// What `gcloud config list` says (the wizard's starting point): the
+/// account and the project. Nothing secret.
+pub async fn current_config() -> Result<Value, String> {
+    let out = cloud_auth::run_cli("gcloud", &["config", "list", "--format", "json"], &[], &[], "gcloud auth login").await.map_err(|e| e.to_string())?;
+    let json: Value = serde_json::from_str(&out).map_err(|_| "«gcloud config list» no devolvió JSON".to_string())?;
+    let s = |p: &str| json.pointer(p).and_then(Value::as_str).unwrap_or("").to_string();
+    Ok(serde_json::json!({ "account": s("/core/account"), "project": s("/core/project") }))
+}
+
+/// The account wizard's check: a token comes from the same chain the
+/// connections use (gcloud, the application default credentials, the
+/// metadata server); who it's for, as far as the chain says.
+pub async fn whoami() -> Result<String, String> {
+    let (mut token, _, email) = cloud_auth::gcp_token(None, true).await.map_err(|e| e.to_string())?;
+    dbine_core::secret_sources::wipe(&mut token);
+    if let Some(e) = email {
+        return Ok(e);
+    }
+    let account = cloud_auth::run_cli("gcloud", &["config", "get-value", "account", "--quiet"], &[], &[], "gcloud auth login").await.map(|a| a.trim().to_string()).unwrap_or_default();
+    Ok(if account.contains('@') { account } else { String::new() })
+}
+
 pub fn access_url(base: &str, project: &str, secret: &str, version: &str) -> String {
     let version = if version.is_empty() { "latest" } else { version };
     format!("{}/v1/projects/{}/secrets/{}/versions/{}:access", base.trim_end_matches('/'), uri_encode(project), uri_encode(secret), uri_encode(version))

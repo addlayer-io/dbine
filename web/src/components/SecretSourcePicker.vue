@@ -6,14 +6,16 @@ import { api, errorKind, errorMessage } from '../api/client';
 import { askApproveSecretSource } from '../composables/secretSourceApproval';
 import { askMasterPassword, unlockOf } from '../composables/secretSourceUnlock';
 import {
-  BITWARDEN_CLOUDS, ENTRY_FIELDS, ENTRY_KINDS, fieldsQuery, isExternal, missingForBrowse, missingInputs, orderedKinds, passwordField, setPasswordField, sourceFrom,
-  typedTokens, userFromSource, VAULT_AUTHS, ZOHO_DATA_CENTERS, applyBrowse, type DraftKind, type SourceDraft,
+  accountKindOf, accountMode, BITWARDEN_CLOUDS, ENTRY_FIELDS, ENTRY_KINDS, fieldsQuery, isExternal, missingForBrowse, missingInputs, orderedKinds, passwordField, setPasswordField,
+  sourceFrom, typedTokens, userFromSource, VAULT_AUTHS, ZOHO_DATA_CENTERS, applyBrowse, type DraftKind, type SourceDraft,
 } from '../composables/secretSources';
 import type { SecretBrowseEntry } from '../api/types';
 import SecretBrowseDialog from './SecretBrowseDialog.vue';
 import SecretMasterInputs from './SecretMasterInputs.vue';
 import ZohoConnectWizard from './ZohoConnectWizard.vue';
-import { loadSecretAccounts, secretAccounts, secretAccountsLoaded } from '../composables/secretAccounts';
+import AccountConnectWizard from './AccountConnectWizard.vue';
+import { accountsOf, loadSecretAccounts, PROVIDER, secretAccounts, secretAccountsLoaded } from '../composables/secretAccounts';
+import type { WizardKind } from '../composables/accountWizards';
 import type { SecretAccount } from '../api/types';
 
 // Where one secret field takes its value (docs/secret-sources.md): a
@@ -61,6 +63,9 @@ const external = computed(() => isExternal(draft.value));
 const missing = computed(() => missingInputs(draft.value));
 
 function setKind(k: DraftKind) {
+  // Another manager: a new definition, through one of its accounts.
+  if (accountKindOf(k) !== accountKindOf(draft.value.kind)) draft.value.account_id = '';
+  if (k !== draft.value.kind) draft.value.manual = false;
   draft.value.kind = k;
   // Zoho Vault and Bitwarden always need their passphrase, Delinea its password.
   if ((k === 'zoho' || k === 'delinea' || k === 'bitwarden') && draft.value.master === 'none') draft.value.master = 'keychain';
@@ -94,8 +99,7 @@ async function test() {
   testing.value = true;
   result.value = null;
   try {
-    const tokens = typedTokens(draft.value);
-    if (hasMaster.value && draft.value.master === 'ask' && asked.value) tokens[''] = asked.value;
+    const tokens = formTokens();
     const r = await api.testSecretSource(props.connectionId, props.driver, props.field, source, tokens);
     result.value = { ok: true, text: t(r.username ? 'connection:source.testOkUser' : 'connection:source.testOk', { n: r.chars }) };
   } catch (e) {
@@ -133,41 +137,45 @@ const fillUserHint = computed(() => {
 });
 const userShown = computed(() => !userFromSource(draft.value));
 
-// ---- Zoho Vault: a saved account, or the inline sign-in ("modo manual") -----------
-// New definitions name an account (Settings › Cuentas de gestores de secretos);
-// older ones, and whoever asks for it, keep the client and token in the form.
-const zohoAccounts = computed(() => secretAccounts.value.filter((a) => a.kind === 'zoho'));
-const zohoAccountMode = computed(() => draft.value.kind === 'zoho' && !draft.value.manual);
+// ---- A saved account, or the inline sign-in ("modo manual") ---------------------------
+// New definitions name an account of their manager (Settings › Gestores de
+// secretos); older ones, and whoever asks for it, keep the sign-in in the form.
+const acctKind = computed(() => accountKindOf(draft.value.kind));
+const acctMode = computed(() => accountMode(draft.value));
+const kindAccounts = computed(() => accountsOf(secretAccounts.value, acctKind.value));
 /** The definition names an account this computer doesn't have (an import, a restore, removed). */
-const accountMissing = computed(() => zohoAccountMode.value && secretAccountsLoaded.value && !!draft.value.zoho_account
-  && !zohoAccounts.value.some((a) => a.id === draft.value.zoho_account));
-const accountValue = computed(() => (accountMissing.value ? '' : draft.value.zoho_account));
+const accountMissing = computed(() => acctMode.value && secretAccountsLoaded.value && !!draft.value.account_id
+  && !kindAccounts.value.some((a) => a.id === draft.value.account_id));
+const accountValue = computed(() => (accountMissing.value ? '' : draft.value.account_id));
+const providerName = computed(() => (acctKind.value ? PROVIDER[acctKind.value] : ''));
 const CONNECT_ACCOUNT = '__connect__';
 const wizardOpen = ref(false);
 watch(() => draft.value.kind, async (k) => {
-  if (k !== 'zoho') return;
+  const ak = accountKindOf(k);
+  if (!ak) return;
   const list = secretAccountsLoaded.value ? secretAccounts.value : await loadSecretAccounts();
-  // A new definition and only one account: that one.
-  const zoho = list.filter((a) => a.kind === 'zoho');
-  if (!draft.value.manual && !draft.value.zoho_account && zoho.length === 1) draft.value.zoho_account = zoho[0].id;
+  // A new definition and only one account of its manager: that one.
+  const mine = accountsOf(list, ak);
+  if (!draft.value.manual && !draft.value.account_id && mine.length === 1) draft.value.account_id = mine[0].id;
 }, { immediate: true });
 function pickAccount(v: string) {
   if (v === CONNECT_ACCOUNT) wizardOpen.value = true;
-  else draft.value.zoho_account = v;
+  else draft.value.account_id = v;
 }
 function accountConnected(a: SecretAccount) {
-  draft.value.zoho_account = a.id;
+  draft.value.account_id = a.id;
 }
 
 // ---- "Examinar" ----------------------------------------------------------------
 // Disabled, with what's missing in its tooltip, until what signs in is filled.
 const browseMissing = computed(() => {
   const m = missingForBrowse(draft.value, props.editing);
-  return accountMissing.value && !m.includes('zoho_account') ? [...m, 'zoho_account' as keyof SourceDraft] : m;
+  return accountMissing.value && !m.includes('account_id') ? [...m, 'account_id' as keyof SourceDraft] : m;
 });
 /** An input's name, for "Completá primero". */
 function inputLabel(k: keyof SourceDraft): string {
   const kind = draft.value.kind;
+  if (k === 'account_id') return t('secretAccounts:picker.account');
   if (k === 'token') {
     if (hasMaster.value) return t(`connection:source.input.master_value_${kind}`);
     if (kind === 'conjur') return t('connection:source.input.api_key');
@@ -187,7 +195,8 @@ const entryUser = computed(() => credentials.value && !!entryDefaults.value && d
 /** The form's tokens, with a master password asked here. */
 function formTokens(): Record<string, string> {
   const tokens = typedTokens(draft.value);
-  if (hasMaster.value && draft.value.master === 'ask' && asked.value) tokens[''] = asked.value;
+  // Asked here: the field's own master password, or its account's.
+  if (asked.value && (acctMode.value || (hasMaster.value && draft.value.master === 'ask'))) tokens[''] = asked.value;
   return tokens;
 }
 
@@ -213,7 +222,7 @@ function picked(entry: SecretBrowseEntry, field: string | null, userField?: stri
 // ---- "Configuración avanzada": the entry's user and password fields ---------------
 // Collapsed, always at the bottom. The entry's field names load in the
 // background (names only) so they're there when it's opened.
-const hasAdvanced = computed(() => !!entryDefaults.value);
+const hasAdvanced = computed(() => !!entryDefaults.value || !!acctKind.value);
 const advancedOpen = ref(false);
 const userFieldShown = computed(() => credentials.value && draft.value.fill_username);
 const userFieldModel = computed({
@@ -237,7 +246,7 @@ const fieldsState = ref<'idle' | 'loading' | 'ready' | 'locked' | 'error'>('idle
 const fieldsError = ref('');
 /** What the field names depend on: the entry and how to sign in. */
 const fieldsKey = computed(() => {
-  if (!hasAdvanced.value) return '';
+  if (!entryDefaults.value) return '';
   const q = fieldsQuery(draft.value);
   if (!q || browseMissing.value.length) return '';
   const src = { ...(sourceFrom(draft.value, props.field) as unknown as Record<string, unknown>) };
@@ -309,8 +318,24 @@ const req = (k: keyof SourceDraft) => external.value && missingInputs({ ...draft
     </el-form-item>
     <template v-if="credentials && !external"><slot name="local" /></template>
     <template v-if="external">
-      <!-- Each source: what signs in first, then the item (with "Examinar"),
-           so browsing has everything it needs; "Configuración avanzada" last. -->
+      <!-- Each source: what signs in first (a saved account, or the inline
+           sign-in in manual mode), then the item (with "Examinar"), so
+           browsing has everything it needs; "Configuración avanzada" last. -->
+      <el-form-item v-if="acctMode" :label="$t('secretAccounts:picker.account')" :required="!draft.account_id" class="ss-wide">
+        <el-select
+          :model-value="accountValue" class="ss-account" style="width: 100%" :placeholder="$t('secretAccounts:picker.choose')" :data-account-kind="acctKind"
+          @update:model-value="pickAccount"
+        >
+          <el-option v-for="a in kindAccounts" :key="a.id" :value="a.id" :label="a.label">
+            <span>{{ a.label }}</span><span v-if="a.identity && !a.label.includes(a.identity)" class="ss-opt-detail">{{ a.identity }}</span>
+          </el-option>
+          <el-option :value="CONNECT_ACCOUNT" :label="$t('secretAccounts:picker.connect')" class="ss-opt-connect">
+            <el-icon><ei-plus /></el-icon><span>{{ $t('secretAccounts:picker.connect') }}</span>
+          </el-option>
+        </el-select>
+        <div v-if="accountMissing" class="ss-missing" role="alert"><el-icon><ei-warning-filled /></el-icon>{{ $t('secretAccounts:picker.missingAny', { provider: providerName }) }}</div>
+      </el-form-item>
+      <div v-else-if="draft.manual && acctKind && draft.kind !== 'zoho'" class="ss-help ss-wide">{{ $t('secretAccounts:picker.manualNoteAny') }}</div>
       <template v-if="draft.kind === 'command'">
         <el-form-item :label="$t('connection:source.input.command')" :required="req('command')" class="ss-wide">
           <el-input v-model="draft.command" class="ss-mono" :placeholder="$t('connection:source.placeholder.command')" spellcheck="false" />
@@ -319,7 +344,7 @@ const req = (k: keyof SourceDraft) => external.value && missingInputs({ ...draft
       </template>
 
       <template v-else-if="draft.kind === 'onepassword'">
-        <el-form-item :label="$t('connection:source.input.account')">
+        <el-form-item v-if="!acctMode" :label="$t('connection:source.input.account')">
           <el-input v-model="draft.account" placeholder="my-team.1password.com" />
         </el-form-item>
         <el-form-item :label="$t('connection:source.input.reference')" :required="req('reference')" class="ss-wide">
@@ -331,6 +356,7 @@ const req = (k: keyof SourceDraft) => external.value && missingInputs({ ...draft
       </template>
 
       <template v-else-if="isVault">
+        <template v-if="!acctMode">
         <el-form-item :label="$t('connection:source.input.address')" :required="req('address')" class="ss-wide">
           <el-input v-model="draft.address" placeholder="https://vault.example.com:8200" spellcheck="false" />
         </el-form-item>
@@ -365,6 +391,7 @@ const req = (k: keyof SourceDraft) => external.value && missingInputs({ ...draft
           </el-form-item>
           <div class="ss-help ss-wide">{{ $t('connection:source.help.approle') }}</div>
         </template>
+        </template>
         <template v-if="draft.kind === 'vault'">
           <el-form-item :label="$t('connection:source.input.path')" :required="req('path')" class="ss-wide">
             <el-input v-model="draft.path" class="ss-mono" placeholder="secret/myapp/db" spellcheck="false">
@@ -381,7 +408,7 @@ const req = (k: keyof SourceDraft) => external.value && missingInputs({ ...draft
               <el-option value="1" label="KV v1" />
             </el-select>
           </el-form-item>
-          <div class="ss-help ss-wide">{{ $t('connection:source.help.vault') }}</div>
+          <div v-if="!acctMode" class="ss-help ss-wide">{{ $t('connection:source.help.vault') }}</div>
         </template>
         <template v-else>
           <el-form-item :label="$t('connection:source.input.mount')">
@@ -398,12 +425,14 @@ const req = (k: keyof SourceDraft) => external.value && missingInputs({ ...draft
       </template>
 
       <template v-else-if="draft.kind === 'aws' || draft.kind === 'ssm'">
-        <el-form-item :label="$t('connection:source.input.region')">
-          <el-input v-model="draft.region" placeholder="us-east-1" />
-        </el-form-item>
-        <el-form-item :label="$t('connection:source.input.profile')">
-          <el-input v-model="draft.profile" placeholder="default" />
-        </el-form-item>
+        <template v-if="!acctMode">
+          <el-form-item :label="$t('connection:source.input.region')">
+            <el-input v-model="draft.region" placeholder="us-east-1" />
+          </el-form-item>
+          <el-form-item :label="$t('connection:source.input.profile')">
+            <el-input v-model="draft.profile" placeholder="default" />
+          </el-form-item>
+        </template>
         <el-form-item v-if="draft.kind === 'aws'" :label="$t('connection:source.input.secret_id')" :required="req('secret_id')" class="ss-wide">
           <el-input v-model="draft.secret_id" class="ss-mono" placeholder="prod/myapp/db" spellcheck="false">
             <template #append><el-button class="ss-browse" :disabled="!!browseMissing.length" :title="browseTitle" :aria-label="$t('connection:source.browse.button')" @click="openBrowse"><el-icon><ei-search /></el-icon></el-button></template>
@@ -426,9 +455,14 @@ const req = (k: keyof SourceDraft) => external.value && missingInputs({ ...draft
       </template>
 
       <template v-else-if="draft.kind === 'azure'">
-        <el-form-item :label="$t('connection:source.input.vault_url')" :required="req('vault_url')" class="ss-wide">
-          <el-input v-model="draft.vault_url" placeholder="https://my-vault.vault.azure.net" spellcheck="false" />
-        </el-form-item>
+        <template v-if="!acctMode">
+          <el-form-item :label="$t('connection:source.input.vault_url')" :required="req('vault_url')" class="ss-wide">
+            <el-input v-model="draft.vault_url" placeholder="https://my-vault.vault.azure.net" spellcheck="false" />
+          </el-form-item>
+          <el-form-item :label="$t('connection:source.input.tenant')" class="ss-wide">
+            <el-input v-model="draft.tenant" class="ss-mono" placeholder="contoso.onmicrosoft.com" spellcheck="false" />
+          </el-form-item>
+        </template>
         <el-form-item :label="$t('connection:source.input.name')" :required="req('name')">
           <el-input v-model="draft.name" class="ss-mono" placeholder="db-password" spellcheck="false">
             <template #append><el-button class="ss-browse" :disabled="!!browseMissing.length" :title="browseTitle" :aria-label="$t('connection:source.browse.button')" @click="openBrowse"><el-icon><ei-search /></el-icon></el-button></template>
@@ -441,10 +475,12 @@ const req = (k: keyof SourceDraft) => external.value && missingInputs({ ...draft
       </template>
 
       <template v-else-if="draft.kind === 'gcp'">
-        <el-form-item :label="$t('connection:source.input.project')" :required="req('project')">
-          <el-input v-model="draft.project" placeholder="my-project" spellcheck="false" />
-        </el-form-item>
-        <div />
+        <template v-if="!acctMode">
+          <el-form-item :label="$t('connection:source.input.project')" :required="req('project')">
+            <el-input v-model="draft.project" placeholder="my-project" spellcheck="false" />
+          </el-form-item>
+          <div />
+        </template>
         <el-form-item :label="$t('connection:source.input.secret')" :required="req('secret')">
           <el-input v-model="draft.secret" class="ss-mono" placeholder="db-password" spellcheck="false">
             <template #append><el-button class="ss-browse" :disabled="!!browseMissing.length" :title="browseTitle" :aria-label="$t('connection:source.browse.button')" @click="openBrowse"><el-icon><ei-search /></el-icon></el-button></template>
@@ -457,6 +493,7 @@ const req = (k: keyof SourceDraft) => external.value && missingInputs({ ...draft
       </template>
 
       <template v-else-if="draft.kind === 'keepass'">
+        <template v-if="!acctMode">
         <el-form-item :label="$t('connection:source.input.file')" :required="req('file')" class="ss-wide">
           <el-input v-model="draft.file" placeholder="~/Passwords/databases.kdbx" spellcheck="false">
             <template #append><el-button @click="browse('file')"><el-icon><ei-folder-opened /></el-icon></el-button></template>
@@ -468,6 +505,7 @@ const req = (k: keyof SourceDraft) => external.value && missingInputs({ ...draft
           </el-input>
         </el-form-item>
         <SecretMasterInputs v-model="draft" :editing="editing" :required-command="req('master_command')" />
+        </template>
         <el-form-item :label="$t('connection:source.input.entry')" :required="req('entry')" class="ss-wide">
           <el-input v-model="draft.entry" class="ss-mono" placeholder="Databases/Prod/pg-main" spellcheck="false">
             <template #append><el-button class="ss-browse" :disabled="!!browseMissing.length" :title="browseTitle" :aria-label="$t('connection:source.browse.button')" @click="openBrowse"><el-icon><ei-search /></el-icon></el-button></template>
@@ -477,21 +515,7 @@ const req = (k: keyof SourceDraft) => external.value && missingInputs({ ...draft
       </template>
 
       <template v-else-if="draft.kind === 'zoho' && !draft.manual">
-        <!-- Through a saved account: the account, then the secret. -->
-        <el-form-item :label="$t('secretAccounts:picker.account')" :required="!draft.zoho_account" class="ss-wide">
-          <el-select
-            :model-value="accountValue" class="ss-account" style="width: 100%" :placeholder="$t('secretAccounts:picker.choose')" data-zoho-account
-            @update:model-value="pickAccount"
-          >
-            <el-option v-for="a in zohoAccounts" :key="a.id" :value="a.id" :label="a.label">
-              <span>{{ a.label }}</span><span v-if="a.identity && !a.label.includes(a.identity)" class="ss-opt-detail">{{ a.identity }}</span>
-            </el-option>
-            <el-option :value="CONNECT_ACCOUNT" :label="$t('secretAccounts:picker.connect')" class="ss-opt-connect">
-              <el-icon><ei-plus /></el-icon><span>{{ $t('secretAccounts:picker.connect') }}</span>
-            </el-option>
-          </el-select>
-          <div v-if="accountMissing" class="ss-missing" role="alert"><el-icon><ei-warning-filled /></el-icon>{{ $t('secretAccounts:picker.missing') }}</div>
-        </el-form-item>
+        <!-- Through a saved account (above): the secret. -->
         <el-form-item :label="$t('connection:source.input.secret_name')" :required="req('secret_name')" class="ss-wide">
           <el-input v-model="draft.secret_name" class="ss-mono" placeholder="pg-main" spellcheck="false">
             <template #append><el-button class="ss-browse" :disabled="!!browseMissing.length" :title="browseTitle" :aria-label="$t('connection:source.browse.button')" @click="openBrowse"><el-icon><ei-search /></el-icon></el-button></template>
@@ -525,6 +549,7 @@ const req = (k: keyof SourceDraft) => external.value && missingInputs({ ...draft
       </template>
 
       <template v-else-if="draft.kind === 'conjur'">
+        <template v-if="!acctMode">
         <el-form-item :label="$t('connection:source.input.url')" :required="req('url')" class="ss-wide">
           <el-input v-model="draft.url" placeholder="https://conjur.example.com" spellcheck="false" />
         </el-form-item>
@@ -542,6 +567,7 @@ const req = (k: keyof SourceDraft) => external.value && missingInputs({ ...draft
             <template #append><el-button @click="browse('ca_file')"><el-icon><ei-folder-opened /></el-icon></el-button></template>
           </el-input>
         </el-form-item>
+        </template>
         <el-form-item :label="$t('connection:source.input.variable')" :required="req('variable')">
           <el-input v-model="draft.variable" class="ss-mono" placeholder="db/prod/password" spellcheck="false">
             <template #append><el-button class="ss-browse" :disabled="!!browseMissing.length" :title="browseTitle" :aria-label="$t('connection:source.browse.button')" @click="openBrowse"><el-icon><ei-search /></el-icon></el-button></template>
@@ -550,10 +576,11 @@ const req = (k: keyof SourceDraft) => external.value && missingInputs({ ...draft
         <el-form-item v-if="field === 'password'" :label="$t('connection:source.input.username_variable')">
           <el-input v-model="draft.username_variable" class="ss-mono" placeholder="db/prod/username" spellcheck="false" />
         </el-form-item>
-        <div class="ss-help ss-wide">{{ $t('connection:source.help.conjur') }}</div>
+        <div v-if="!acctMode" class="ss-help ss-wide">{{ $t('connection:source.help.conjur') }}</div>
       </template>
 
       <template v-else-if="draft.kind === 'ccp'">
+        <template v-if="!acctMode">
         <el-form-item :label="$t('connection:source.input.url')" :required="req('url')" class="ss-wide">
           <el-input v-model="draft.url" placeholder="https://ccp.example.com" spellcheck="false" />
         </el-form-item>
@@ -578,6 +605,7 @@ const req = (k: keyof SourceDraft) => external.value && missingInputs({ ...draft
         <el-form-item :label="$t('connection:source.input.cert_passphrase')" class="ss-wide">
           <el-input v-model="draft.token" type="password" show-password autocomplete="new-password" :placeholder="editing ? $t('connection:form.secretKeptFem') : ''" />
         </el-form-item>
+        </template>
         <el-form-item :label="$t('connection:source.input.safe')">
           <el-input v-model="draft.safe" class="ss-mono" placeholder="Databases" spellcheck="false" />
         </el-form-item>
@@ -593,10 +621,11 @@ const req = (k: keyof SourceDraft) => external.value && missingInputs({ ...draft
         <el-form-item :label="$t('connection:source.input.account_address')">
           <el-input v-model="draft.account_address" class="ss-mono" placeholder="db.example.com" spellcheck="false" />
         </el-form-item>
-        <div class="ss-help ss-wide">{{ $t('connection:source.help.ccp') }}</div>
+        <div v-if="!acctMode" class="ss-help ss-wide">{{ $t('connection:source.help.ccp') }}</div>
       </template>
 
       <template v-else-if="draft.kind === 'delinea'">
+        <template v-if="!acctMode">
         <el-form-item :label="$t('connection:source.input.url')" :required="req('url')" class="ss-wide">
           <el-input v-model="draft.url" placeholder="https://mytenant.secretservercloud.com" spellcheck="false" />
         </el-form-item>
@@ -610,6 +639,7 @@ const req = (k: keyof SourceDraft) => external.value && missingInputs({ ...draft
           <el-input v-model="draft.domain" class="ss-mono" spellcheck="false" />
         </el-form-item>
         <SecretMasterInputs v-model="draft" :editing="editing" :required-command="req('master_command')" />
+        </template>
         <el-form-item :label="$t('connection:source.input.secret_name')" :required="req('secret_name')" class="ss-wide">
           <el-input v-model="draft.secret_name" class="ss-mono" placeholder="pg-prod" spellcheck="false">
             <template #append><el-button class="ss-browse" :disabled="!!browseMissing.length" :title="browseTitle" :aria-label="$t('connection:source.browse.button')" @click="openBrowse"><el-icon><ei-search /></el-icon></el-button></template>
@@ -618,20 +648,22 @@ const req = (k: keyof SourceDraft) => external.value && missingInputs({ ...draft
       </template>
 
       <template v-else-if="draft.kind === 'bitwarden' || draft.kind === 'bitwarden_sm'">
-        <el-form-item :label="$t('connection:source.input.server')" class="ss-wide">
+        <el-form-item v-if="!acctMode" :label="$t('connection:source.input.server')" class="ss-wide">
           <el-select v-model="draft.server" filterable allow-create default-first-option style="width: 100%" :placeholder="$t('connection:source.placeholder.server')">
             <el-option v-for="c in BITWARDEN_CLOUDS" :key="c" :value="c" :label="$t(`connection:source.bitwardenCloud.${c.replace('bitwarden.', '')}`, { domain: c })" />
           </el-select>
           <div class="ss-help">{{ $t('connection:source.help.server') }}</div>
         </el-form-item>
         <template v-if="draft.kind === 'bitwarden'">
-          <el-form-item :label="$t('connection:source.input.client_id')" :required="req('client_id')">
-            <el-input v-model="draft.client_id" class="ss-mono" placeholder="user.xxxxxxxx-xxxx-…" spellcheck="false" />
-          </el-form-item>
-          <el-form-item :label="$t('connection:source.input.client_secret')">
-            <el-input v-model="draft.client_secret" type="password" show-password autocomplete="new-password" :placeholder="editing ? $t('connection:form.secretKeptMasc') : ''" />
-          </el-form-item>
-          <SecretMasterInputs v-model="draft" :editing="editing" :required-command="req('master_command')" />
+          <template v-if="!acctMode">
+            <el-form-item :label="$t('connection:source.input.client_id')" :required="req('client_id')">
+              <el-input v-model="draft.client_id" class="ss-mono" placeholder="user.xxxxxxxx-xxxx-…" spellcheck="false" />
+            </el-form-item>
+            <el-form-item :label="$t('connection:source.input.client_secret')">
+              <el-input v-model="draft.client_secret" type="password" show-password autocomplete="new-password" :placeholder="editing ? $t('connection:form.secretKeptMasc') : ''" />
+            </el-form-item>
+            <SecretMasterInputs v-model="draft" :editing="editing" :required-command="req('master_command')" />
+          </template>
           <el-form-item :label="$t('connection:source.input.item')" :required="req('item')" class="ss-wide">
             <el-input v-model="draft.item" class="ss-mono" placeholder="pg-main" spellcheck="false">
               <template #append><el-button class="ss-browse" :disabled="!!browseMissing.length" :title="browseTitle" :aria-label="$t('connection:source.browse.button')" @click="openBrowse"><el-icon><ei-search /></el-icon></el-button></template>
@@ -639,7 +671,7 @@ const req = (k: keyof SourceDraft) => external.value && missingInputs({ ...draft
           </el-form-item>
         </template>
         <template v-else>
-          <el-form-item :label="$t('connection:source.input.access_token')" class="ss-wide">
+          <el-form-item v-if="!acctMode" :label="$t('connection:source.input.access_token')" class="ss-wide">
             <el-input v-model="draft.token" type="password" show-password autocomplete="new-password" :placeholder="editing ? $t('connection:form.secretKeptMasc') : 'BWS_ACCESS_TOKEN'" />
           </el-form-item>
           <el-form-item :label="$t('connection:source.input.secret_uuid')" :required="req('secret')" class="ss-wide">
@@ -647,7 +679,7 @@ const req = (k: keyof SourceDraft) => external.value && missingInputs({ ...draft
               <template #append><el-button class="ss-browse" :disabled="!!browseMissing.length" :title="browseTitle" :aria-label="$t('connection:source.browse.button')" @click="openBrowse"><el-icon><ei-search /></el-icon></el-button></template>
             </el-input>
           </el-form-item>
-          <div class="ss-help ss-wide">{{ $t('connection:source.help.bitwarden_sm') }}</div>
+          <div v-if="!acctMode" class="ss-help ss-wide">{{ $t('connection:source.help.bitwarden_sm') }}</div>
         </template>
       </template>
 
@@ -676,6 +708,7 @@ const req = (k: keyof SourceDraft) => external.value && missingInputs({ ...draft
           <span v-if="advancedSummary" class="ss-adv-sum">{{ advancedSummary }}</span>
         </button>
         <div v-show="advancedOpen" class="ss-adv-body">
+          <template v-if="entryDefaults">
           <el-form-item v-if="userFieldShown" :label="$t('connection:source.advanced.userField')">
             <el-select
               v-model="userFieldModel" filterable allow-create default-first-option clearable class="ss-mono-select" style="width: 100%"
@@ -696,13 +729,14 @@ const req = (k: keyof SourceDraft) => external.value && missingInputs({ ...draft
             <el-input v-model="draft.json_key" class="ss-mono" placeholder="password" spellcheck="false" />
             <div class="ss-help">{{ $t('connection:source.help.json_key') }}</div>
           </el-form-item>
-          <!-- Zoho Vault: the inline sign-in, for whoever needs it, and back. -->
-          <div v-if="draft.kind === 'zoho'" class="ss-adv-mode ss-wide">
-            <el-button link type="primary" size="small" data-zoho-mode @click="draft.manual = !draft.manual">
-              {{ draft.manual ? $t('secretAccounts:picker.accountLink') : $t('secretAccounts:picker.manualLink') }}
+          </template>
+          <!-- The inline sign-in, for whoever needs it, and back to an account. -->
+          <div v-if="acctKind" class="ss-adv-mode ss-wide">
+            <el-button link type="primary" size="small" data-account-mode @click="draft.manual = !draft.manual">
+              {{ draft.manual ? $t('secretAccounts:picker.accountLink') : $t(draft.kind === 'zoho' ? 'secretAccounts:picker.manualLink' : 'secretAccounts:picker.manualLinkAny') }}
             </el-button>
           </div>
-          <div class="ss-adv-state ss-wide">
+          <div v-if="entryDefaults" class="ss-adv-state ss-wide">
             <span v-if="fieldsState === 'loading'">{{ $t('connection:source.advanced.loading') }}</span>
             <template v-else-if="fieldsState === 'locked' || fieldsState === 'error'">
               <span v-if="fieldsState === 'error'" class="bad" :title="fieldsError">{{ $t('connection:source.advanced.failed') }}</span>
@@ -714,7 +748,10 @@ const req = (k: keyof SourceDraft) => external.value && missingInputs({ ...draft
         </div>
       </div>
     </template>
-    <ZohoConnectWizard v-if="wizardOpen" @connected="accountConnected" @close="wizardOpen = false" />
+    <template v-if="wizardOpen && acctKind">
+      <ZohoConnectWizard v-if="acctKind === 'zoho'" @connected="accountConnected" @close="wizardOpen = false" />
+      <AccountConnectWizard v-else :kind="acctKind as WizardKind" @connected="accountConnected" @close="wizardOpen = false" />
+    </template>
     <SecretBrowseDialog
       v-if="browsing" :kind="draft.kind" :source="browsing.source" :tokens="browsing.tokens" :field="field" :connection-id="connectionId" :driver="driver"
       :roles="browsing.roles" @pick="picked" @close="browsing = null"

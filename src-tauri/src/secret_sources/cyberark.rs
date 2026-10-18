@@ -105,6 +105,34 @@ async fn conjur_variable(client: &reqwest::Client, req: &Conjur<'_>, token: &str
     }
 }
 
+/// The account wizard's check: the API key's access token, then `GET
+/// /whoami`. `login (account)`.
+pub async fn conjur_whoami(req: &Conjur<'_>, api_key: &str) -> Result<String, String> {
+    let client = https::client(req.url, "Conjur", req.ca_file, None)?;
+    conjur_whoami_with(&client, req, api_key).await
+}
+
+pub async fn conjur_whoami_with(client: &reqwest::Client, req: &Conjur<'_>, api_key: &str) -> Result<String, String> {
+    let key = Some(api_key.trim()).filter(|k| !k.is_empty()).ok_or("falta la clave de API de Conjur")?;
+    let mut token = conjur_token(client, req, key).await?;
+    let resp = client.get(format!("{}/whoami", https::base(req.url))).header("Authorization", format!("Token token=\"{token}\"")).send().await;
+    wipe(&mut token);
+    let resp = resp.map_err(|e| format!("no se pudo conectar con Conjur en {}: {}", https::base(req.url), e.without_url()))?;
+    let status = resp.status().as_u16();
+    let body = resp.text().await.unwrap_or_default();
+    match status {
+        200 => {
+            let json: Value = serde_json::from_str(&body).unwrap_or(Value::Null);
+            let s = |k: &str| json.get(k).and_then(Value::as_str).unwrap_or("").trim().to_string();
+            let user = Some(s("username")).filter(|u| !u.is_empty()).unwrap_or_else(|| req.login.trim().to_string());
+            let account = Some(s("account")).filter(|a| !a.is_empty()).unwrap_or_else(|| req.account.trim().to_string());
+            Ok(format!("{user} ({account})"))
+        }
+        401 => Err("Conjur rechazó el token de acceso".into()),
+        _ => Err(conjur_error(status, &body)),
+    }
+}
+
 pub fn conjur_error(status: u16, body: &str) -> String {
     let json: Value = serde_json::from_str(body).unwrap_or(Value::Null);
     let msg = json.pointer("/error/message").and_then(Value::as_str).unwrap_or("");
@@ -238,6 +266,31 @@ pub async fn ccp_read_with(client: &reqwest::Client, req: &Ccp<'_>) -> Result<(S
     Ok((content, username))
 }
 
+/// The account wizard's check. The Central Credential Provider has no
+/// call that reads nothing (every Accounts query hands out a password), so
+/// this checks the connection only: the TLS handshake with the client
+/// certificate (when there is one) and the server's trust, with a request
+/// to the URL's root that carries no AppID and no query. Any HTTP answer
+/// means the TLS connection, client certificate included, was accepted.
+pub async fn ccp_handshake(url: &str, client_cert: &str, client_key: &str, ca_file: &str, passphrase: Option<&str>) -> Result<u16, String> {
+    let identity = match client_cert.trim() {
+        "" => None,
+        cert => Some(https::identity(cert, client_key, passphrase)?),
+    };
+    let client = https::client(url, "Central Credential Provider", ca_file, identity)?;
+    ccp_handshake_with(&client, url).await
+}
+
+pub async fn ccp_handshake_with(client: &reqwest::Client, url: &str) -> Result<u16, String> {
+    let base = https::base(url);
+    let root = match base.split_once("://") {
+        Some((scheme, rest)) => format!("{scheme}://{}/", rest.split('/').next().unwrap_or(rest)),
+        None => format!("{base}/"),
+    };
+    let resp = client.get(root).send().await.map_err(|e| format!("no se pudo conectar con el Central Credential Provider en {base}: {}", e.without_url()))?;
+    Ok(resp.status().as_u16())
+}
+
 pub fn ccp_error(status: u16, json: &Value) -> String {
     let code = json.get("ErrorCode").and_then(Value::as_str).unwrap_or("");
     let msg = super::exec::first_lines(json.get("ErrorMsg").and_then(Value::as_str).unwrap_or(""), 300);
@@ -289,6 +342,16 @@ mod tests {
                     }
                     let b64 = h.get("accept-encoding").and_then(|v| v.to_str().ok()) == Some("base64");
                     (StatusCode::OK, if b64 { base64::engine::general_purpose::STANDARD.encode(TOKEN_JSON) } else { TOKEN_JSON.to_string() })
+                }),
+            )
+            .route(
+                "/whoami",
+                get(|h: HeaderMap| async move {
+                    let want = format!("Token token=\"{}\"", base64::engine::general_purpose::STANDARD.encode(TOKEN_JSON));
+                    if h.get("authorization").and_then(|v| v.to_str().ok()) != Some(want.as_str()) {
+                        return (StatusCode::UNAUTHORIZED, String::new());
+                    }
+                    (StatusCode::OK, json!({ "client_ip": "127.0.0.1", "user_agent": "x", "account": "myorg", "username": "host/apps/dbine", "token_issued_at": "2026-10-18T10:00:00.000+00:00" }).to_string())
                 }),
             )
             .route(
@@ -530,5 +593,23 @@ mod tests {
         let mut other = ccp(&url, &cert, &key, &ca, "DBine");
         other.object = "missing";
         assert!(ccp_read(&other, None).await.unwrap_err().contains("no hay una cuenta"));
+        // The account wizard's check: the TLS handshake with the client
+        // certificate, no AppID sent; any HTTP answer is a yes.
+        assert_eq!(ccp_handshake(&url, &cert, &key, &ca, None).await.unwrap(), 404);
+        assert_eq!(ccp_handshake(&url, &p12, "", &ca, Some("dummy-p12-pass")).await.unwrap(), 404);
+        assert!(ccp_handshake(&url, &p12, "", &ca, Some("nope")).await.unwrap_err().contains("PKCS#12"));
+        assert!(ccp_handshake(&url, "", "", &ca, None).await.unwrap_err().starts_with("no se pudo conectar con el Central Credential Provider"), "the server wants a certificate");
+        assert!(ccp_handshake(&url, &cert, &key, "", None).await.is_err(), "a server not trusted");
+        assert!(ccp_handshake(&url.replace("https://", "http://"), &cert, &key, &ca, None).await.is_err());
+    }
+
+    /// The account wizard's check for Conjur: authenticate, then whoami.
+    #[tokio::test]
+    async fn conjur_whoami_against_a_mock() {
+        let url = conjur_mock().await;
+        assert_eq!(conjur_whoami(&conjur(&url, "", ""), "dummy-api-key").await.unwrap(), "host/apps/dbine (myorg)");
+        let e = conjur_whoami(&conjur(&url, "", ""), "wrong").await.unwrap_err();
+        assert!(e.contains("rechazó el login") && !e.contains("wrong"), "{e}");
+        assert!(conjur_whoami(&conjur(&url, "", ""), " ").await.unwrap_err().contains("clave de API"));
     }
 }

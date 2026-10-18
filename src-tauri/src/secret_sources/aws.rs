@@ -87,6 +87,114 @@ async fn session(secret_id: &str, region: &str, profile: &str) -> Result<(reqwes
     Ok((client, region, creds))
 }
 
+// ---- the account wizard ------------------------------------------------------
+
+/// The profiles in `~/.aws/config` and `~/.aws/credentials` (or
+/// `AWS_CONFIG_FILE` / `AWS_SHARED_CREDENTIALS_FILE`): names only, sorted,
+/// and each one's region when the config sets it.
+pub fn profiles() -> Vec<(String, String)> {
+    let env = |k: &str| std::env::var(k).ok().filter(|v| !v.trim().is_empty());
+    let home = env("HOME").or_else(|| env("USERPROFILE")).map(std::path::PathBuf::from);
+    let path = |var: &str, file: &str| env(var).map(std::path::PathBuf::from).or_else(|| home.as_ref().map(|h| h.join(".aws").join(file)));
+    let read = |p: Option<std::path::PathBuf>| p.and_then(|p| std::fs::read_to_string(p).ok()).unwrap_or_default();
+    profiles_of(&read(path("AWS_CONFIG_FILE", "config")), &read(path("AWS_SHARED_CREDENTIALS_FILE", "credentials")))
+}
+
+/// The profiles of a config (`[default]`, `[profile x]`) and a credentials
+/// file (`[x]`), with the config's `region`. Only the names and regions are
+/// read: keys are never looked at.
+pub fn profiles_of(config: &str, credentials: &str) -> Vec<(String, String)> {
+    let mut out: std::collections::BTreeMap<String, String> = Default::default();
+    for (text, is_config) in [(config, true), (credentials, false)] {
+        let mut current: Option<String> = None;
+        for line in text.lines() {
+            let l = line.trim();
+            if let Some(h) = l.strip_prefix('[').and_then(|h| h.strip_suffix(']')) {
+                let h = h.trim();
+                let name = if is_config { if h == "default" { Some(h) } else { h.strip_prefix("profile ").map(str::trim) } } else { Some(h) };
+                current = name.filter(|n| dbine_core::secret_sources::valid_aws_profile(n)).map(str::to_string);
+                if let Some(n) = &current {
+                    out.entry(n.clone()).or_default();
+                }
+            } else if let (Some(n), true, Some((k, v))) = (&current, is_config, l.split_once('=')) {
+                if k.trim() == "region" && dbine_core::secret_sources::valid_aws_region(v.trim()) {
+                    out.insert(n.clone(), v.trim().to_string());
+                }
+            }
+        }
+    }
+    out.into_iter().collect()
+}
+
+/// STS's regional endpoint.
+pub fn sts_host(region: &str) -> String {
+    if region.starts_with("cn-") {
+        format!("sts.{region}.amazonaws.com.cn")
+    } else {
+        format!("sts.{region}.amazonaws.com")
+    }
+}
+
+/// The account wizard's check: `sts:GetCallerIdentity` with the profile's
+/// credentials (the same chain the connections use), signed here. Only the
+/// signature travels, to AWS's STS endpoint for the region (or the one in
+/// `AWS_ENDPOINT_URL_STS` / `AWS_ENDPOINT_URL`). The caller's ARN.
+pub async fn caller_identity(profile: &str, region: &str) -> Result<String, String> {
+    let region = region.trim();
+    if !dbine_core::secret_sources::valid_aws_region(region) {
+        return Err(format!("la región de AWS «{region}» no es válida"));
+    }
+    let env = |k: &str| std::env::var(k).ok().filter(|v| !v.trim().is_empty());
+    let files = AwsFiles::load(&env);
+    let profile_field = Some(profile.trim()).filter(|p| !p.is_empty());
+    let profile_name = profile_field.map(str::to_string).or_else(|| env("AWS_PROFILE")).unwrap_or_else(|| "default".into());
+    let (creds, _) = cloud_auth::aws_credentials(profile_field.is_some(), &profile_name, &files, &env).await.map_err(|e| e.to_string())?;
+    let client = reqwest::Client::builder()
+        .connect_timeout(Duration::from_secs(10))
+        .timeout(Duration::from_secs(20))
+        .redirect(reqwest::redirect::Policy::none())
+        .build()
+        .map_err(|e| e.to_string())?;
+    let (url, host) = match env("AWS_ENDPOINT_URL_STS").or_else(|| env("AWS_ENDPOINT_URL")) {
+        Some(e) => super::ssm::endpoint_override(&e).ok_or("AWS_ENDPOINT_URL no es una URL http(s)://host[:puerto]")?,
+        None => {
+            let h = sts_host(region);
+            (format!("https://{h}/"), h)
+        }
+    };
+    caller_identity_at(&client, &url, &host, region, &creds).await
+}
+
+pub async fn caller_identity_at(client: &reqwest::Client, url: &str, host: &str, region: &str, creds: &AwsCreds) -> Result<String, String> {
+    const FORM: &str = "application/x-www-form-urlencoded; charset=utf-8";
+    let body = b"Action=GetCallerIdentity&Version=2011-06-15".to_vec();
+    let headers = sign("POST", host, "/", &[("content-type", FORM)], &body, creds, region, "sts", cloud_auth::now());
+    let mut req = client.post(url).header("content-type", FORM).header("accept", "application/json").body(body);
+    for (k, v) in headers {
+        if k != "content-type" {
+            req = req.header(k, v);
+        }
+    }
+    let resp = req.send().await.map_err(|e| format!("no se pudo conectar con AWS STS: {}", e.without_url()))?;
+    let status = resp.status().as_u16();
+    let text = resp.text().await.unwrap_or_default();
+    let json: Value = serde_json::from_str(&text).unwrap_or(Value::Null);
+    let xml = |tag: &str| text.split_once(&format!("<{tag}>")).and_then(|(_, r)| r.split_once(&format!("</{tag}>"))).map(|(v, _)| v.trim().to_string());
+    if status == 200 {
+        let arn = json.pointer("/GetCallerIdentityResponse/GetCallerIdentityResult/Arn").and_then(Value::as_str).map(str::to_string).or_else(|| xml("Arn"));
+        return arn.filter(|a| a.starts_with("arn:")).ok_or_else(|| "AWS STS no devolvió la identidad".to_string());
+    }
+    let code = json.pointer("/Error/Code").and_then(Value::as_str).map(str::to_string).or_else(|| xml("Code")).unwrap_or_default();
+    let msg = json.pointer("/Error/Message").and_then(Value::as_str).map(str::to_string).or_else(|| xml("Message")).unwrap_or_default();
+    let msg = super::exec::first_lines(&msg, 300);
+    Err(match code.as_str() {
+        "InvalidClientTokenId" | "SignatureDoesNotMatch" => format!("AWS rechazó las credenciales del perfil ({code}): {msg}"),
+        "ExpiredToken" => "las credenciales temporales de AWS vencieron: volvé a iniciar sesión (aws sso login)".into(),
+        "" => format!("AWS STS respondió {status}"),
+        _ => format!("AWS STS respondió {code}: {msg}"),
+    })
+}
+
 // ---- browse ------------------------------------------------------------------
 
 /// The secrets' names (ListSecrets), or a secret's JSON keys (`item`).
@@ -261,5 +369,47 @@ mod tests {
         let at = crate::secret_sources::browse::At { item: Some("dbine/pg"), ..Default::default() };
         let l = browse_at(&client, &url, &host, "us-east-1", &creds, at).await.unwrap();
         assert_eq!(l.fields.as_deref().unwrap(), ["password", "username"]);
+    }
+
+    #[test]
+    fn profiles_from_the_files() {
+        let config = "[default]\nregion = us-east-1\n\n[profile prod]\nregion=eu-west-1\nsso_start_url = https://x\n[profile --bad]\n[sso-session s]\nsso_region = us-east-1\n";
+        let credentials = "[default]\naws_access_key_id = AKIA\naws_secret_access_key = SECRET\n[ci]\naws_access_key_id = X\n";
+        let p = profiles_of(config, credentials);
+        assert_eq!(p, [("ci".to_string(), String::new()), ("default".to_string(), "us-east-1".to_string()), ("prod".to_string(), "eu-west-1".to_string())]);
+        assert!(!format!("{p:?}").contains("SECRET"));
+        assert_eq!(sts_host("eu-west-1"), "sts.eu-west-1.amazonaws.com");
+        assert_eq!(sts_host("cn-north-1"), "sts.cn-north-1.amazonaws.com.cn");
+    }
+
+    /// The account wizard's check against a mock of STS: the request is
+    /// signed for `sts` in the region, the ARN comes back (JSON or XML),
+    /// AWS's refusals are said.
+    #[tokio::test]
+    async fn caller_identity_against_a_mock() {
+        use axum::http::{HeaderMap, StatusCode};
+        use axum::routing::post;
+        use axum::Router;
+        let app = Router::new().route("/", post(|h: HeaderMap, body: String| async move {
+            let auth = h.get("authorization").and_then(|v| v.to_str().ok()).unwrap_or("").to_string();
+            assert_eq!(body, "Action=GetCallerIdentity&Version=2011-06-15");
+            if !auth.starts_with("AWS4-HMAC-SHA256 Credential=AKIDEXAMPLE/") || !auth.contains("/eu-west-1/sts/aws4_request") {
+                return (StatusCode::FORBIDDEN, "<ErrorResponse><Error><Code>InvalidClientTokenId</Code><Message>The security token included in the request is invalid.</Message></Error></ErrorResponse>".to_string());
+            }
+            if h.get("accept").and_then(|v| v.to_str().ok()) == Some("application/json") {
+                (StatusCode::OK, r#"{"GetCallerIdentityResponse":{"GetCallerIdentityResult":{"Account":"123456789012","Arn":"arn:aws:iam::123456789012:user/ana","UserId":"AIDA"}}}"#.to_string())
+            } else {
+                (StatusCode::OK, "<GetCallerIdentityResponse><GetCallerIdentityResult><Arn>arn:aws:iam::123456789012:user/ana</Arn></GetCallerIdentityResult></GetCallerIdentityResponse>".to_string())
+            }
+        }));
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let addr = listener.local_addr().unwrap();
+        tokio::spawn(async move { axum::serve(listener, app).await.unwrap() });
+        let (url, host) = (format!("http://{addr}/"), addr.to_string());
+        let c = reqwest::Client::new();
+        assert_eq!(caller_identity_at(&c, &url, &host, "eu-west-1", &example()).await.unwrap(), "arn:aws:iam::123456789012:user/ana");
+        let e = caller_identity_at(&c, &url, &host, "us-east-1", &example()).await.unwrap_err();
+        assert!(e.contains("InvalidClientTokenId") && !e.contains("wJalr"), "{e}");
+        assert!(caller_identity("default", "evil.com/").await.unwrap_err().contains("no es válida"));
     }
 }
