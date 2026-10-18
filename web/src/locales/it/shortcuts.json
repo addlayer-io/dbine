@@ -26,7 +26,8 @@
       "newQuery": "Nuova query",
       "newWindow": "Nuova finestra",
       "closeTab": "Chiudi la scheda",
-      "save": "Salva"
+      "save": "Salva",
+      "open": "Apri file…"
     },
     "app": {
       "settings": "Impostazioni",

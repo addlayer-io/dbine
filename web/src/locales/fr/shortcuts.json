@@ -26,7 +26,8 @@
       "newQuery": "Nouvelle requête",
       "newWindow": "Nouvelle fenêtre",
       "closeTab": "Fermer l'onglet",
-      "save": "Enregistrer"
+      "save": "Enregistrer",
+      "open": "Ouvrir un fichier…"
     },
     "app": {
       "settings": "Paramètres",

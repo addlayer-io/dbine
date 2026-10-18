@@ -107,6 +107,10 @@ zeroize = { version = "1", optional = true, features = ["derive"] }
 [target.'cfg(target_os = "linux")'.dependencies]
 # Same as the list above, on Linux.
 num-bigint = { version = "0.4", optional = true }
+# Files dropped on a window (src/open_files.rs): their paths, read next to
+# the webview's own drag and drop. The versions wry already uses.
+gtk = "0.18"
+webkit2gtk = "2.0"
 
 # The Dock menu's "Nueva ventana" (src/dock_macos.rs): the same versions tao
 # already uses, so nothing new is compiled in.
@@ -138,6 +142,9 @@ windows = { version = "0.61", features = [
 windows-result = { version = "0.4", optional = true }
 windows-sys-0-60 = { package = "windows-sys", version = "0.60", optional = true, features = ["Win32_Security_Authentication_Identity", "Win32_Security_Credentials", "Win32_System_Rpc"] }
 windows-sys-0-61 = { package = "windows-sys", version = "0.61", optional = true, features = ["Win32_Security_Authentication_Identity", "Win32_System_Registry"] }
+# Files dropped on a window (src/open_files.rs): WebView2 gives their paths
+# to the app. The version wry already uses.
+webview2-com = "0.38"
 
 [features]
 # Every driver crate in the app's process: dev (`cargo tauri dev` keeps the

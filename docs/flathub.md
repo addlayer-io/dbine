@@ -119,6 +119,13 @@ reviewers (the linter reports them until it is granted).
 - **Files outside the home folder** (other disks, `/mnt`, `/media`) open
   through the file chooser, one file at a time; a SQLite database there may
   not be able to write its journal.
+- **Opening files from the file manager** ("Open with DBine", a drop on the
+  window): the desktop entry passes `%F` and Flatpak forwards the files. Under
+  the home folder the app gets the real path. Elsewhere it gets the document
+  portal's copy-free path (`/run/user/<uid>/doc/…`) to that one file: CSV,
+  Parquet, JSON and Excel open normally, and a SQLite or DuckDB database
+  opens but may fail to write (its journal and WAL files can't be created
+  next to it there).
 - **Cloud sync with Google Drive and OneDrive** needs the client IDs in the
   manifest (repository variables, see the workflow). Without them the build
   behaves like any build without client IDs ([`sync.md`](sync.md)): Google

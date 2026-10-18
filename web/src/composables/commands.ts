@@ -42,6 +42,7 @@ export const COMMANDS: CommandDef[] = reactive([
   // General
   { id: 'file.newQuery', label: 'shortcuts:cmd.file.newQuery', group: 'general', scope: 'global', key: 'Mod-n' },
   { id: 'file.newWindow', label: 'shortcuts:cmd.file.newWindow', group: 'general', scope: 'global', key: 'Mod-Shift-n' },
+  { id: 'file.open', label: 'shortcuts:cmd.file.open', group: 'general', scope: 'global', key: 'Mod-o' },
   { id: 'file.closeTab', label: 'shortcuts:cmd.file.closeTab', group: 'general', scope: 'global', key: 'Mod-w' },
   { id: 'file.save', label: 'shortcuts:cmd.file.save', group: 'general', scope: 'editor', key: 'Mod-s' },
   { id: 'app.settings', label: 'shortcuts:cmd.app.settings', group: 'general', scope: 'global', key: 'Mod-,' },

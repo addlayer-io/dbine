@@ -26,7 +26,8 @@
       "newQuery": "Nueva consulta",
       "newWindow": "Nueva ventana",
       "closeTab": "Cerrar la pestaña",
-      "save": "Guardar"
+      "save": "Guardar",
+      "open": "Abrir archivo…"
     },
     "app": {
       "settings": "Configuración",

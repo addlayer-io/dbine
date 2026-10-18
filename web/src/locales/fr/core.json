@@ -125,5 +125,14 @@
     "timeSeries": "Séries temporelles",
     "streaming": "Streaming",
     "graph": "Graphes"
+  },
+  "openFiles": {
+    "failed": "Impossible d’ouvrir « {{name}} » : {{error}}",
+    "opened": "Fichier ouvert : {{name}}",
+    "dialogTitle": "Ouvrir un fichier",
+    "filterName": "Bases et fichiers de données",
+    "saved": "« {{name}} » est enregistrée dans vos connexions",
+    "dropTitle": "Déposez pour ouvrir",
+    "dropHint": "SQLite, DuckDB, CSV, TSV, Parquet, JSON ou Excel. Chaque fichier s’ouvre comme une connexion temporaire."
   }
 }

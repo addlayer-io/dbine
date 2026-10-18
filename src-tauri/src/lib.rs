@@ -13,6 +13,7 @@ mod link;
 mod lint;
 mod mcp;
 mod menu;
+mod open_files;
 mod optimizer;
 mod state;
 mod sync;
@@ -117,8 +118,8 @@ pub fn run() {
     // LaunchServices already keeps one instance. Not in debug builds: a
     // `cargo tauri dev` run must not hand itself over to an installed release.
     #[cfg(all(any(windows, target_os = "linux"), not(debug_assertions)))]
-    let builder = builder.plugin(tauri_plugin_single_instance::init(|app, argv, _cwd| {
-        windows::handle_second_launch(app, argv)
+    let builder = builder.plugin(tauri_plugin_single_instance::init(|app, argv, cwd| {
+        windows::handle_second_launch(app, argv, &cwd)
     }));
     builder
         .plugin(tauri_plugin_dialog::init())
@@ -186,6 +187,17 @@ pub fn run() {
 
             // 4. State store.
             let store = StateStore::open(&state_path).expect("open state store");
+            // Files opened in the last run and not saved (open_files.rs).
+            match store.purge_temporary_connections() {
+                Ok(0) => {}
+                Ok(n) => tracing::info!(n, "dropped the last run's opened files"),
+                Err(e) => tracing::warn!("dropping the last run's opened files: {e}"),
+            }
+            // Files on the command line (Windows, Linux; "Open with DBine"):
+            // the first window takes them when its UI starts.
+            if let Ok(cwd) = std::env::current_dir() {
+                open_files::queue(open_files::paths_from_args(std::env::args().skip(1), &cwd));
+            }
             // Every window reloads what another one (or MCP, or a restore)
             // changed.
             let handle = app.handle().clone();
@@ -250,6 +262,7 @@ pub fn run() {
 
             if let Some(win) = app.get_webview_window(windows::MAIN) {
                 windows::watch_show(&win);
+                open_files::attach(&win);
             }
             // "Nueva ventana" in the Dock menu (macOS) and the taskbar Jump
             // List (Windows); Linux's is in the .desktop file.
@@ -532,6 +545,8 @@ pub fn run() {
             commands::ai::ai_delete_model,
             commands::ai::ai_start_ollama,
             commands::ai::ai_pull_ollama,
+            open_files::open_files_take,
+            open_files::open_file,
         ])
         .build(context)
         .expect("error building tauri app")
@@ -552,6 +567,12 @@ pub fn run() {
             #[cfg(target_os = "macos")]
             if let tauri::RunEvent::Reopen { has_visible_windows: false, .. } = &event {
                 windows::reopen(app);
+            }
+            // Files opened from Finder ("Open with", a double click, a drop
+            // on the Dock icon), at launch and while running.
+            #[cfg(target_os = "macos")]
+            if let tauri::RunEvent::Opened { urls } = &event {
+                open_files::received(app, urls.iter().filter_map(|u| u.to_file_path().ok()).collect(), None);
             }
             if let tauri::RunEvent::Exit = event {
                 exit_cleanup(app);

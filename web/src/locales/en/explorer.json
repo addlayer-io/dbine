@@ -4,7 +4,8 @@
     "newConnection": "New connection",
     "newFolder": "New folder",
     "importConnections": "Import connections from DBeaver or DbGate",
-    "reload": "Reload connections"
+    "reload": "Reload connections",
+    "openFile": "Open a file (SQLite, DuckDB, CSV, Parquet, JSON, Excel)"
   },
   "filter": {
     "placeholder": "Filter (or tag:prod)",
@@ -14,7 +15,8 @@
     "tagTitle": "Show only the connections tagged «{{tag}}»"
   },
   "empty": {
-    "noConnections": "No connections yet."
+    "noConnections": "No connections yet.",
+    "openFile": "Open a file…"
   },
   "tree": {
     "queries": "Queries",
@@ -48,7 +50,9 @@
     "noProjects": "No projects: right-click › Link project…",
     "projectChanges_one": "{{count}} uncommitted change",
     "projectChanges_other": "{{count}} uncommitted changes",
-    "projectChanges_many": "{{count}} uncommitted changes"
+    "projectChanges_many": "{{count}} uncommitted changes",
+    "file": "File",
+    "fileTitle": "Opened from {{path}}. It isn't kept when DBine closes: right-click › Save connection to keep it."
   },
   "confirm": {
     "deleteConnection": "Delete the connection \"{{name}}\"?\n\nIts saved queries and its password in the keychain are deleted too.",
@@ -101,7 +105,9 @@
     "linkProject": "Link project…",
     "cloneProject": "Clone repository…",
     "openInProjects": "Open in Projects",
-    "useThisDatabase": "Use this database"
+    "useThisDatabase": "Use this database",
+    "saveConnection": "Save connection",
+    "closeFile": "Close file"
   },
   "keySearch": {
     "placeholderPrefix": "Prefix, e.g. /config/",

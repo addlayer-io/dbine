@@ -118,6 +118,7 @@ pub fn open_new(app: &AppHandle) -> tauri::Result<WebviewWindow> {
     *lock(&LAST_OPENED) = Some(label.clone());
     tracing::info!(%label, "window opened");
     watch_show(&win);
+    crate::open_files::attach(&win);
     Ok(win)
 }
 
@@ -264,9 +265,14 @@ pub fn on_window_event(w: &Window, e: &WindowEvent) {
 /// A second launch (Windows taskbar task, Linux desktop action, a second
 /// double click): the single-instance plugin hands its arguments here, and
 /// it opens a window in this process. `--new-window` and no arguments do the
-/// same.
+/// same. Files among the arguments ("Open with DBine") open instead, in the
+/// window in front.
 #[cfg_attr(any(target_os = "macos", debug_assertions), allow(dead_code))]
-pub fn handle_second_launch(app: &AppHandle, argv: Vec<String>) {
+pub fn handle_second_launch(app: &AppHandle, argv: Vec<String>, cwd: &str) {
+    // "Open with DBine" while it runs: the files open in a window here.
+    if crate::open_files::second_launch(app, &argv, cwd) {
+        return;
+    }
     tracing::info!(?argv, "second launch: opening a window");
     spawn_new(app);
 }

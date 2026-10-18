@@ -211,6 +211,9 @@ export interface SavedConnection {
   /** MCP access (docs/mcp.md); null/absent = the global default. */
   mcp_level?: 'disabled' | 'schema' | 'read' | 'write' | null;
   updated_at: string;
+  /** A file opened from the OS and not saved yet (src-tauri/src/open_files.rs):
+   *  gone at the next start unless "Guardar conexión". */
+  temporary?: boolean;
 }
 
 export interface ConnectionFolder {

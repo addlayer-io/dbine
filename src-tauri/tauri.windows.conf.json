@@ -1,0 +1,12 @@
+{
+  "bundle": {
+    "fileAssociations": [
+      { "ext": ["sqlite", "sqlite3", "db3"], "name": "DBine.sqlite", "description": "SQLite database", "role": "Editor" },
+      { "ext": ["duckdb", "ddb"], "name": "DBine.duckdb", "description": "DuckDB database", "role": "Editor" },
+      { "ext": ["parquet"], "name": "DBine.parquet", "description": "Apache Parquet file", "role": "Viewer" }
+    ],
+    "windows": {
+      "nsis": { "installerHooks": "windows/file-associations.nsh" }
+    }
+  }
+}

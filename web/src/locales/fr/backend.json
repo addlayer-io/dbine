@@ -10523,5 +10523,12 @@
   "{0} — identidad: {1}": "{0} — identité : {1}",
   "{0} (perfil {1})": "{0} (profil {1})",
   "AWS IAM: clave {0}": "AWS IAM : clé {0}",
-  "Microsoft Entra ID: identidad {0}": "Microsoft Entra ID : identité {0}"
+  "Microsoft Entra ID: identidad {0}": "Microsoft Entra ID : identité {0}",
+  "Contraseña o token de IAM (gcloud sql generate-login-token); el token exige TLS.": "Mot de passe ou jeton IAM (gcloud sql generate-login-token) ; le jeton exige TLS.",
+  "Contraseña o token de autenticación IAM (aws rds generate-db-auth-token); el token exige TLS.": "Mot de passe ou jeton d'authentification IAM (aws rds generate-db-auth-token) ; le jeton exige TLS.",
+  "Abre únicamente el archivo elegido (también un .xlsx), no toda la carpeta.": "Ouvre uniquement le fichier choisi (un .xlsx aussi), pas tout le dossier.",
+  "DBine no abre este tipo de archivo: «{0}»": "DBine n’ouvre pas ce type de fichier : « {0} »",
+  "Sólo este archivo": "Ce fichier seulement",
+  "no es un archivo de datos: «{0}»": "ce n’est pas un fichier de données : « {0} »",
+  "no existe el archivo «{0}»": "le fichier « {0} » n’existe pas"
 }

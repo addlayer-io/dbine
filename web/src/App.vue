@@ -24,8 +24,10 @@ import LibraryDialogs from './components/LibraryDialogs.vue';
 import OutputPanel from './components/OutputPanel.vue';
 import StatusBar from './components/StatusBar.vue';
 import FeedbackDialog from './components/FeedbackDialog.vue';
+import FileDropOverlay from './components/FileDropOverlay.vue';
 import { errorMessage } from './api/client';
 import { newQuery } from './composables/actions';
+import { pickAndOpen } from './composables/openFiles';
 import { ownsShortcut, useAppMenu } from './composables/appMenu';
 import { VIM_SETTING, commandForEvent, recordingKeys, registerCommand, runCommand } from './composables/commands';
 import { useCrossWindow } from './composables/crossWindow';
@@ -175,6 +177,7 @@ const unregister = [
   registerCommand('file.newQuery', newQueryHere),
   registerCommand('app.settings', () => ui.openSettings()),
   registerCommand('view.ai', () => { ui.aiOpen = !ui.aiOpen; }),
+  registerCommand('file.open', () => { void pickAndOpen(); }),
   registerCommand('editor.toggleVim', () => { settingsStore.set(VIM_SETTING, !settingsStore.get(VIM_SETTING, false)); }),
 ];
 function onKey(e: KeyboardEvent) {
@@ -305,6 +308,7 @@ watch(
     <SettingsDialog />
     <McpApprovals />
     <FeedbackDialog v-model="feedbackOpen" />
+    <FileDropOverlay />
   </div>
   </el-config-provider>
 </template>

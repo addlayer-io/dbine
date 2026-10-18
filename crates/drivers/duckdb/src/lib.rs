@@ -253,22 +253,42 @@ impl Driver for DuckDbDriver {
 }
 
 /// A folder of data files: every file becomes a view (recreated on each
-/// connection, so new files show up).
+/// connection, so new files show up). With "Sólo este archivo", just that
+/// file (its own in-memory database, apart from its folder's).
 async fn connect_files(cfg: &ConnectionConfig) -> Result<Box<dyn Session>> {
     let dir = files::folder(&cfg.host);
     if cfg.host.trim().is_empty() || !dir.is_dir() {
         return Err(Error::Connect(format!("no existe la carpeta «{}»", dir.display())));
     }
     let recursive = cfg.option("recursive") == Some("true");
+    let file = (cfg.option(files::SINGLE) == Some("true")).then(|| std::path::PathBuf::from(cfg.host.trim()));
     let (db, conn, catalog) = blocking(move || {
-        let found = files::scan(&dir, recursive).map_err(|e| Error::Connect(format!("no se pudo leer la carpeta: {e}")))?;
-        let db = open_database(&format!("files:{}", dir.display()), false)?;
+        let (found, key) = match &file {
+            Some(f) => {
+                if !f.is_file() {
+                    return Err(Error::Connect(format!("no existe el archivo «{}»", f.display())));
+                }
+                let one = files::single(f).ok_or_else(|| Error::Connect(format!("no es un archivo de datos: «{}»", f.display())))?;
+                (vec![one], format!("files:{}", f.display()))
+            }
+            None => (
+                files::scan(&dir, recursive).map_err(|e| Error::Connect(format!("no se pudo leer la carpeta: {e}")))?,
+                format!("files:{}", dir.display()),
+            ),
+        };
+        let single = file.is_some();
+        let db = open_database(&key, false)?;
         let conn = db.root.lock().map_err(|_| Error::State("conexión DuckDB envenenada".into()))?.try_clone().map_err(Error::connect)?;
         conn.execute_batch(&files::session_sql(&dir)).map_err(Error::connect)?;
         for (name, path, format) in found {
             // A file DuckDB can't read (empty, corrupt…) is skipped; it can
-            // still be queried by path to see the error.
+            // still be queried by path to see the error. The one file of a
+            // single-file connection is the point of it: its error is the
+            // connection's.
             if let Err(e) = conn.execute_batch(&files::view_sql(&name, &path, format)) {
+                if single {
+                    return Err(Error::connect(e));
+                }
                 tracing::debug!("duckdb files: {}: {e}", path.display());
             }
         }
@@ -1169,6 +1189,34 @@ mod tests {
         assert_eq!(time_of_day(3_723_000_001), "01:02:03.000001");
         assert_eq!(interval(14, 3, 0), "1 years 2 months 3 days");
         assert_eq!(timestamp(0), "1970-01-01 00:00:00");
+    }
+
+    #[tokio::test]
+    async fn a_single_file_is_its_own_database() {
+        loader::ensure().await.unwrap();
+        let dir = std::env::temp_dir().join(format!("dbine-single-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).unwrap();
+        // Quotes in the name and the path: the view and read_csv_auto() quote them.
+        let file = dir.join("it's \"ventas\".csv");
+        std::fs::write(&file, "id,total\n1,10\n2,20\n").unwrap();
+        std::fs::write(dir.join("otro.csv"), "x\n1\n").unwrap();
+        let [_, files] = <[_; 2]>::try_from(drivers()).ok().unwrap();
+        let mut cfg = ConnectionConfig { driver: "duckdb_files".into(), host: file.to_string_lossy().into(), ..Default::default() };
+        cfg.options.insert(files::SINGLE.into(), "true".into());
+        let mut s = files.connect(&cfg, None).await.unwrap();
+        let views: Vec<String> = s.list_objects().await.unwrap().into_iter().map(|o| o.name).collect();
+        assert_eq!(views, ["it's \"ventas\""], "only the file, not its folder");
+        let mut out = QueryOutcome::default();
+        s.execute(r#"SELECT sum(total) AS t FROM "it's ""ventas""""#, 10, &mut out).await.unwrap();
+        assert_eq!(out.error, None);
+        assert_eq!(out.results[0].rows, [[serde_json::json!(30)]]);
+        // A file DuckDB can't read is the connection's error.
+        let bad = dir.join("roto.parquet");
+        std::fs::write(&bad, "no").unwrap();
+        cfg.host = bad.to_string_lossy().into();
+        assert!(files.connect(&cfg, None).await.is_err());
+        let _ = std::fs::remove_dir_all(&dir);
     }
 
     #[test]

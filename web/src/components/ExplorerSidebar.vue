@@ -43,6 +43,7 @@ import { dropIndexItem, toggleIndexItem, type DropIndexTarget } from '../composa
 import { databaseRenameItem, renameItem, type RenameDialogTarget } from '../composables/rename';
 import RenameDialog from './RenameDialog.vue';
 import ConnectionProblemDialog from './ConnectionProblemDialog.vue';
+import { closeOpenedFile, pickAndOpen, saveOpenedFile } from '../composables/openFiles';
 
 // The explorer: user folders (clients, environments… nested at will) →
 // connections → databases → Queries + the kinds of objects the driver
@@ -782,6 +783,12 @@ async function onContext(e: MouseEvent, n: TNode) {
       if (d && !d.databases_label && connected) dbItems(cid!, conns.live[cid!]?.databases[0] ?? '', items);
       items.push({ label: t('explorer:menu.copyServer'), divided: true, action: () => copy(serverText(c)) });
       items.push({ label: t('explorer:menu.copyConnectionName'), action: () => copy(c.name) });
+      // A file opened from the OS: kept only if saved.
+      if (c.temporary) {
+        items.push({ label: t('explorer:menu.saveConnection'), divided: true, action: () => saveOpenedFile(c) });
+        items.push({ label: t('explorer:menu.closeFile'), action: () => closeOpenedFile(c) });
+        break;
+      }
       items.push({ label: t('explorer:menu.editConnection'), action: () => ui.editConnection(cid!), divided: true });
       items.push({ label: t('explorer:menu.duplicateConnection'), action: () => ui.duplicateConnection(cid!) });
       items.push({ label: t('explorer:menu.moveTo'), action: () => ui.moveItem({ kind: 'connection', id: cid! }) });
@@ -1286,6 +1293,9 @@ const importSource = ref<'dbeaver' | 'dbgate' | 'datagrip' | 'azure_data_studio'
       <button class="ide-icon-btn" :title="$t('explorer:header.newConnection')" @click="ui.newConnection()">
         <el-icon><ei-plus /></el-icon>
       </button>
+      <button class="ide-icon-btn" :title="$t('explorer:header.openFile')" @click="pickAndOpen()">
+        <el-icon><ei-folder-opened /></el-icon>
+      </button>
       <button class="ide-icon-btn" :title="$t('explorer:header.newFolder')" @click="ui.newFolder(null)">
         <el-icon><ei-folder-add /></el-icon>
       </button>
@@ -1329,6 +1339,7 @@ const importSource = ref<'dbeaver' | 'dbgate' | 'datagrip' | 'azure_data_studio'
       <div v-if="conns.loaded && !conns.list.length && !conns.folders.length" class="ex-empty">
         <p class="nm-muted">{{ $t('explorer:empty.noConnections') }}</p>
         <el-button type="primary" @click="ui.newConnection()">{{ $t('explorer:header.newConnection') }}</el-button>
+        <el-button text @click="pickAndOpen()">{{ $t('explorer:empty.openFile') }}</el-button>
       </div>
       <el-tree-v2
         v-else
@@ -1406,6 +1417,10 @@ const importSource = ref<'dbeaver' | 'dbgate' | 'datagrip' | 'azure_data_studio'
             <span v-else-if="n.type === 'object' && n.key?.key_type" class="ex-ktype" :class="n.key.key_type">{{ typeTag(n.key.key_type) }}</span>
             <el-icon v-else-if="n.type === 'object'" class="ex-ic o"><component :is="`ei-${n.icon}`" /></el-icon>
             <span v-if="n.type !== 'keysearch'" class="ex-label" :title="n.status === 'error' ? n.label : n.type === 'connerr' ? conns.live[n.connectionId]?.error ?? n.label : undefined"><span v-if="n.qualifier" class="ex-qual">{{ n.qualifier }}.</span>{{ n.label }}</span>
+            <span
+              v-if="n.type === 'connection' && conns.byId(n.connectionId!)?.temporary"
+              class="ex-tag ex-file" :title="$t('explorer:tree.fileTitle', { path: conns.byId(n.connectionId!)?.config.host })"
+            >{{ $t('explorer:tree.file') }}</span>
             <span v-if="n.type === 'connection' && tagsOf(n.connectionId).length" class="ex-tags">
               <span
                 v-for="tag in tagsOf(n.connectionId).slice(0, 2)"
@@ -1502,6 +1517,8 @@ const importSource = ref<'dbeaver' | 'dbgate' | 'datagrip' | 'azure_data_studio'
 }
 .ex-tag:hover { background: color-mix(in srgb, var(--t) 28%, transparent); }
 .ex-tag.more { --t: var(--nm-text-dim); cursor: default; }
+.ex-tag.ex-file { --t: var(--ide-focus); cursor: default; flex-shrink: 0; margin-left: 6px; }
+.ex-tag.ex-file:hover { background: color-mix(in srgb, var(--t) 14%, transparent); }
 .ex-tip {
   position: fixed; z-index: 3000; max-width: min(520px, calc(100vw - 24px)); padding: 5px 9px; border-radius: 4px;
   font-size: 12px; line-height: 1.4; overflow-wrap: anywhere; pointer-events: none;

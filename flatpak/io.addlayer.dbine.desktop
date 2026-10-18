@@ -11,13 +11,14 @@ Comment[es]=Gestioná bases de datos SQL, NoSQL y analíticas en una sola app
 Comment[pt]=Gerencie bancos de dados SQL, NoSQL e analíticos em um só app
 Comment[fr]=Gérez vos bases de données SQL, NoSQL et analytiques dans une seule app
 Comment[it]=Gestisci database SQL, NoSQL e analitici in un'unica app
-Exec=dbine
+Exec=dbine %F
 Icon=io.addlayer.dbine
 Terminal=false
 Categories=Development;Database;
 Keywords=database;sql;nosql;query;postgresql;mysql;sqlite;mongodb;redis;
 StartupNotify=true
 StartupWMClass=dbine
+MimeType=application/vnd.sqlite3;application/x-sqlite3;application/x-duckdb;application/vnd.apache.parquet;text/csv;text/tab-separated-values;application/json;application/x-ndjson;application/vnd.openxmlformats-officedocument.spreadsheetml.sheet;
 Actions=new-window;
 
 [Desktop Action new-window]

@@ -4,7 +4,8 @@
     "newConnection": "Nuova connessione",
     "newFolder": "Nuova cartella",
     "importConnections": "Importa connessioni da DBeaver o DbGate",
-    "reload": "Ricarica connessioni"
+    "reload": "Ricarica connessioni",
+    "openFile": "Apri un file (SQLite, DuckDB, CSV, Parquet, JSON, Excel)"
   },
   "filter": {
     "placeholder": "Filtra (o tag:prod)",
@@ -14,7 +15,8 @@
     "tagTitle": "Mostra solo le connessioni con il tag «{{tag}}»"
   },
   "empty": {
-    "noConnections": "Non ci sono ancora connessioni."
+    "noConnections": "Non ci sono ancora connessioni.",
+    "openFile": "Apri un file…"
   },
   "tree": {
     "queries": "Query",
@@ -48,7 +50,9 @@
     "noProjects": "Nessun progetto: clic destro › Collega progetto…",
     "projectChanges_one": "{{count}} modifica non committata",
     "projectChanges_other": "{{count}} modifiche non committate",
-    "projectChanges_many": "{{count}} modifiche non committate"
+    "projectChanges_many": "{{count}} modifiche non committate",
+    "file": "File",
+    "fileTitle": "Aperto da {{path}}. Non viene conservato alla chiusura di DBine: clic destro › Salva connessione per tenerlo."
   },
   "confirm": {
     "deleteConnection": "Eliminare la connessione \"{{name}}\"?\n\nVengono eliminate anche le sue query salvate e la sua password nel portachiavi.",
@@ -101,7 +105,9 @@
     "linkProject": "Collega progetto…",
     "cloneProject": "Clona repository…",
     "openInProjects": "Apri in Progetti",
-    "useThisDatabase": "Usa questo database"
+    "useThisDatabase": "Usa questo database",
+    "saveConnection": "Salva connessione",
+    "closeFile": "Chiudi file"
   },
   "keySearch": {
     "placeholderPrefix": "Prefisso, ad esempio /config/",

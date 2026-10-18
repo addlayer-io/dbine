@@ -35,6 +35,7 @@ import {
 import { SNIPPETS_SETTING, snippetsFor, type UserSnippet } from '../composables/snippets';
 import QueryParamsDialog from '../components/QueryParamsDialog.vue';
 import { queryControls, type QueryControls } from '../composables/queryControls';
+import { runWhenOpened } from '../composables/openFiles';
 import { useToolbarOverflow } from '../composables/toolbarOverflow';
 import { bindingLabel } from '../composables/commands';
 
@@ -512,6 +513,16 @@ onBeforeUnmount(() => {
   unmounted = true;
   unlisteners.forEach((u) => u());
 });
+// A data file just opened (composables/openFiles.ts): its first query runs
+// once its text is in the editor.
+if (props.tab.kind === 'query' && runWhenOpened.has(props.tab.queryId)) {
+  const queryId = props.tab.queryId;
+  const stopAutoRun = watch(text, (v) => {
+    if (!v.trim() || !runWhenOpened.delete(queryId)) return;
+    queueMicrotask(() => stopAutoRun());
+    void run(v);
+  }, { immediate: true });
+}
 
 // -- elapsed time while running ----------------------------------------------------------------
 const startedAt = ref(0);

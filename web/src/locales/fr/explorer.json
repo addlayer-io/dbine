@@ -4,7 +4,8 @@
     "newConnection": "Nouvelle connexion",
     "newFolder": "Nouveau dossier",
     "importConnections": "Importer des connexions depuis DBeaver ou DbGate",
-    "reload": "Recharger les connexions"
+    "reload": "Recharger les connexions",
+    "openFile": "Ouvrir un fichier (SQLite, DuckDB, CSV, Parquet, JSON, Excel)"
   },
   "filter": {
     "placeholder": "Filtrer (ou tag:prod)",
@@ -14,7 +15,8 @@
     "tagTitle": "Afficher uniquement les connexions avec l'étiquette «{{tag}}»"
   },
   "empty": {
-    "noConnections": "Aucune connexion pour l'instant."
+    "noConnections": "Aucune connexion pour l'instant.",
+    "openFile": "Ouvrir un fichier…"
   },
   "tree": {
     "queries": "Requêtes",
@@ -48,7 +50,9 @@
     "noProjects": "Aucun projet : clic droit › Lier un projet…",
     "projectChanges_one": "{{count}} modification non validée",
     "projectChanges_other": "{{count}} modifications non validées",
-    "projectChanges_many": "{{count}} modifications non validées"
+    "projectChanges_many": "{{count}} modifications non validées",
+    "file": "Fichier",
+    "fileTitle": "Ouvert depuis {{path}}. Il n’est pas conservé à la fermeture de DBine : clic droit › Enregistrer la connexion pour le garder."
   },
   "confirm": {
     "deleteConnection": "Supprimer la connexion \"{{name}}\" ?\n\nSes requêtes enregistrées et son mot de passe dans le trousseau sont aussi supprimés.",
@@ -101,7 +105,9 @@
     "linkProject": "Lier un projet…",
     "cloneProject": "Cloner un dépôt…",
     "openInProjects": "Ouvrir dans Projets",
-    "useThisDatabase": "Utiliser cette base"
+    "useThisDatabase": "Utiliser cette base",
+    "saveConnection": "Enregistrer la connexion",
+    "closeFile": "Fermer le fichier"
   },
   "keySearch": {
     "placeholderPrefix": "Préfixe, par exemple /config/",
