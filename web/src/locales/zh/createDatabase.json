@@ -1,10 +1,10 @@
 {
-  "name": "Name",
-  "advanced": "Advanced options",
-  "default": "Server default",
-  "serverDefault": "Default: {{value}}",
-  "showScript": "Show script",
-  "script": "Script",
-  "openInQuery": "Open in a query",
-  "scriptName": "Create {{name}}"
+  "name": "名称",
+  "advanced": "高级选项",
+  "default": "服务器默认值",
+  "serverDefault": "默认值：{{value}}",
+  "showScript": "显示脚本",
+  "script": "脚本",
+  "openInQuery": "在查询中打开",
+  "scriptName": "创建 {{name}}"
 }

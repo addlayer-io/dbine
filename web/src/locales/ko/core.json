@@ -1,138 +1,138 @@
 {
   "actions": {
-    "createQueryFailed": "Couldn't create the query: {{error}}",
-    "nameRequired": "Enter a name",
-    "create": "Create",
+    "createQueryFailed": "쿼리를 만들지 못했습니다: {{error}}",
+    "nameRequired": "이름을 입력하세요",
+    "create": "만들기",
     "renameQuery": {
-      "prompt": "Query name:",
-      "title": "Rename"
+      "prompt": "쿼리 이름:",
+      "title": "이름 바꾸기"
     },
-    "copyName": "{{name}} (copy)",
-    "copyNameN": "{{name}} (copy {{n}})",
+    "copyName": "{{name}}(복사본)",
+    "copyNameN": "{{name}}(복사본 {{n}})",
     "deleteQuery": {
-      "confirm": "Delete the query \"{{name}}\"? This can't be undone.",
-      "title": "Delete query"
+      "confirm": "\"{{name}}\" 쿼리를 삭제할까요? 되돌릴 수 없습니다.",
+      "title": "쿼리 삭제"
     },
     "newObjectPrefix": "new_",
     "createDatabase": {
-      "prompt": "Name of the new database:",
-      "title": "New database",
-      "done": "Database “{{name}}” created"
+      "prompt": "새 데이터베이스 이름:",
+      "title": "새 데이터베이스",
+      "done": "데이터베이스 「{{name}}」을(를) 만들었습니다"
     },
     "dropObjects": {
-      "more": "{{list}} and {{count}} more",
-      "confirmOne": "Delete “{{name}}” from {{where}}? It's dropped with all its data and this can't be undone.",
-      "confirmMany": "{{count}} objects will be deleted from {{where}}, with all their data: {{list}}.\n\nThis can't be undone. Type “{{word}}” to confirm:",
-      "titleMany": "Delete {{count}} objects",
-      "word": "delete",
-      "typeWord": "Type “{{word}}”",
-      "failed": "Couldn't delete {{failed}} of {{total}}",
-      "droppedOne": "“{{name}}” deleted",
-      "droppedMany": "{{count}} objects deleted"
+      "more": "{{list}} 외 {{count}}개",
+      "confirmOne": "{{where}}에서 「{{name}}」을(를) 삭제할까요? 모든 데이터와 함께 삭제되며 되돌릴 수 없습니다.",
+      "confirmMany": "{{where}}에서 개체 {{count}}개가 모든 데이터와 함께 삭제됩니다: {{list}}.\n\n되돌릴 수 없습니다. 확인하려면 「{{word}}」을(를) 입력하세요:",
+      "titleMany": "개체 {{count}}개 삭제",
+      "word": "삭제",
+      "typeWord": "「{{word}}」을(를) 입력하세요",
+      "failed": "{{total}}개 중 {{failed}}개를 삭제하지 못했습니다",
+      "droppedOne": "「{{name}}」을(를) 삭제했습니다",
+      "droppedMany": "개체 {{count}}개를 삭제했습니다"
     },
     "dropDatabase": {
-      "confirm": "This drops the database “{{name}}” from {{server}} with all its contents. This can't be undone.\n\nType the database name to confirm:",
-      "title": "Delete database",
-      "mismatch": "The name doesn't match",
-      "done": "Database “{{name}}” deleted"
+      "confirm": "{{server}}에서 데이터베이스 「{{name}}」이(가) 모든 내용과 함께 삭제됩니다. 되돌릴 수 없습니다.\n\n확인하려면 데이터베이스 이름을 입력하세요:",
+      "title": "데이터베이스 삭제",
+      "mismatch": "이름이 일치하지 않습니다",
+      "done": "데이터베이스 「{{name}}」을(를) 삭제했습니다"
     }
   },
   "files": {
-    "saved": "Saved",
-    "saveFailed": "Couldn't save: {{error}}"
+    "saved": "저장됨",
+    "saveFailed": "저장하지 못했습니다: {{error}}"
   },
   "format": {
-    "redis": "Redis commands go one per line: there's nothing to format.",
-    "unavailable": "There's no formatter for this language yet."
+    "redis": "Redis 명령은 한 줄에 하나씩 입력하므로 서식을 지정할 내용이 없습니다.",
+    "unavailable": "이 언어용 포맷터는 아직 없습니다."
   },
   "copy": {
-    "withHeadersLabel": "Copy with headers",
-    "withHeaders": "With headers",
-    "withoutHeadersLabel": "Copy without headers",
-    "withoutHeaders": "Without headers",
-    "headersOnlyLabel": "Copy headers only",
-    "headersOnly": "Headers only",
-    "as": "Copy as {{format}}"
+    "withHeadersLabel": "헤더 포함 복사",
+    "withHeaders": "헤더 포함",
+    "withoutHeadersLabel": "헤더 없이 복사",
+    "withoutHeaders": "헤더 제외",
+    "headersOnlyLabel": "헤더만 복사",
+    "headersOnly": "헤더만",
+    "as": "{{format}}(으)로 복사"
   },
   "export": {
-    "csvSemicolon": "CSV (semicolon-separated)",
-    "csvExcel": "CSV for MS Excel",
-    "tsv": "TSV (tab-separated)",
+    "csvSemicolon": "CSV(세미콜론으로 구분)",
+    "csvExcel": "MS Excel용 CSV",
+    "tsv": "TSV(탭으로 구분)",
     "defaultTable": "table",
-    "defaultSheet": "Result",
+    "defaultSheet": "결과",
     "defaultFile": "result"
   },
   "filter": {
-    "clear": "Clear filter",
-    "values": "Filter multiple values…",
-    "isNull": "Is NULL",
-    "notNull": "Is not NULL",
-    "isTrue": "Is true",
-    "isFalse": "Is false",
-    "trueOrNull": "Is true or NULL",
-    "falseOrNull": "Is false or NULL",
-    "isEmpty": "Is empty",
-    "notEmpty": "Is not empty",
-    "eq": "Equals…",
-    "ne": "Does not equal…",
-    "contains": "Contains…",
-    "notContains": "Does not contain…",
-    "startsWith": "Starts with…",
-    "endsWith": "Ends with…",
-    "gt": "Greater than…",
-    "ge": "Greater than or equal to…",
-    "lt": "Less than…",
-    "le": "Less than or equal to…",
-    "sql": "SQL condition…",
-    "sqlRight": "SQL condition, right-hand side…",
-    "describeTrueOrNull": "TRUE or NULL",
-    "describeFalseOrNull": "FALSE or NULL"
+    "clear": "필터 제거",
+    "values": "여러 값으로 필터…",
+    "isNull": "NULL임",
+    "notNull": "NULL이 아님",
+    "isTrue": "참임",
+    "isFalse": "거짓임",
+    "trueOrNull": "참 또는 NULL임",
+    "falseOrNull": "거짓 또는 NULL임",
+    "isEmpty": "비어 있음",
+    "notEmpty": "비어 있지 않음",
+    "eq": "같음…",
+    "ne": "같지 않음…",
+    "contains": "포함…",
+    "notContains": "포함하지 않음…",
+    "startsWith": "다음으로 시작…",
+    "endsWith": "다음으로 끝남…",
+    "gt": "보다 큼…",
+    "ge": "이상…",
+    "lt": "보다 작음…",
+    "le": "이하…",
+    "sql": "SQL 조건…",
+    "sqlRight": "SQL 조건, 오른쪽…",
+    "describeTrueOrNull": "TRUE 또는 NULL",
+    "describeFalseOrNull": "FALSE 또는 NULL"
   },
   "gridEdit": {
-    "notFind": "the query isn't a find on a collection",
-    "engineCantEdit": "this engine doesn't allow editing query results: open the object from the explorer",
-    "queryNotFound": "the query that produced this result wasn't found",
-    "usesWith": "the query uses WITH: edit from the table",
-    "combinesRows": "the result combines or groups rows: only queries on a single table can be edited",
-    "noTable": "the query doesn't read from a table",
-    "tableUnknown": "the query's table isn't recognized",
-    "combinesTables": "the result combines tables: only queries on a single table can be edited",
-    "missingKey": "the result doesn't include the primary key ({{columns}}): add it to the SELECT to edit",
-    "noPrimaryKey": "The table has no primary key: the WHERE uses every column (it may affect more than one row if there are duplicates).",
-    "keyNotComparable": "the row key includes «{{column}}», with a binary or long value that can't be compared in the WHERE",
-    "noComparableColumns": "no column of the row can be compared in the WHERE: they are all binary or long",
-    "skippedColumns": "Binary or long columns ({{columns}}) are left out of the WHERE."
+    "notFind": "쿼리가 컬렉션에 대한 find가 아닙니다",
+    "engineCantEdit": "이 엔진은 쿼리 결과를 편집할 수 없습니다. 탐색기에서 개체를 여세요",
+    "queryNotFound": "이 결과를 만든 쿼리를 찾을 수 없습니다",
+    "usesWith": "쿼리가 WITH를 사용합니다. 테이블에서 편집하세요",
+    "combinesRows": "결과가 행을 결합하거나 그룹화합니다. 테이블에 대한 쿼리만 편집할 수 있습니다",
+    "noTable": "쿼리가 테이블에서 읽지 않습니다",
+    "tableUnknown": "쿼리의 테이블을 인식할 수 없습니다",
+    "combinesTables": "결과가 테이블을 결합합니다. 테이블에 대한 쿼리만 편집할 수 있습니다",
+    "missingKey": "결과에 기본 키({{columns}})가 포함되어 있지 않습니다. 편집하려면 SELECT에 추가하세요",
+    "noPrimaryKey": "테이블에 기본 키가 없어 WHERE가 모든 열을 사용합니다(중복이 있으면 둘 이상의 행에 영향을 줄 수 있음).",
+    "keyNotComparable": "행의 키에 「{{column}}」이(가) 포함되어 있으며, 이진 또는 긴 값이라 WHERE에서 비교할 수 없습니다",
+    "noComparableColumns": "행의 어떤 열도 WHERE에서 비교할 수 없습니다. 모두 이진 또는 긴 값입니다",
+    "skippedColumns": "이진 또는 긴 열({{columns}})은 WHERE에서 제외됩니다."
   },
   "connections": {
-    "downloading": "Downloading {{component}}, just this once… {{pct}} % ({{done}} of {{total}} MB)",
-    "connected": "Connected: {{version}}",
-    "connectFailed": "Couldn't connect: {{error}}",
-    "password": "Password for {{user}} on {{connection}}:",
-    "queryName": "Query {{n}}"
+    "downloading": "{{component}} 다운로드 중, 처음 한 번만 필요합니다… {{pct}} % ({{total}} MB 중 {{done}} MB)",
+    "connected": "연결됨: {{version}}",
+    "connectFailed": "연결할 수 없습니다: {{error}}",
+    "password": "{{connection}}의 {{user}} 비밀번호:",
+    "queryName": "쿼리 {{n}}"
   },
   "ai": {
-    "stopped": "Stopped.",
-    "downloading": "downloading",
-    "starting": "starting"
+    "stopped": "중지되었습니다.",
+    "downloading": "다운로드 중",
+    "starting": "시작하는 중"
   },
   "families": {
-    "relational": "Relational",
-    "analytical": "Analytical",
-    "document": "Document",
-    "keyValue": "Key-value",
-    "wideColumn": "Wide-column",
-    "search": "Search",
-    "timeSeries": "Time series",
-    "streaming": "Streaming",
-    "graph": "Graph"
+    "relational": "관계형",
+    "analytical": "분석형",
+    "document": "문서형",
+    "keyValue": "키-값",
+    "wideColumn": "와이드 컬럼",
+    "search": "검색",
+    "timeSeries": "시계열",
+    "streaming": "스트리밍",
+    "graph": "그래프"
   },
   "openFiles": {
-    "failed": "Couldn't open \"{{name}}\": {{error}}",
-    "opened": "File opened: {{name}}",
-    "dialogTitle": "Open file",
-    "filterName": "Databases and data files",
-    "saved": "\"{{name}}\" is now saved in your connections",
-    "dropTitle": "Drop to open",
-    "dropHint": "SQLite, DuckDB, CSV, TSV, Parquet, JSON or Excel. Each file opens as a temporary connection."
+    "failed": "「{{name}}」을(를) 열지 못했습니다: {{error}}",
+    "opened": "파일 열림: {{name}}",
+    "dialogTitle": "파일 열기",
+    "filterName": "데이터베이스 및 데이터 파일",
+    "saved": "「{{name}}」이(가) 연결에 저장되었습니다",
+    "dropTitle": "놓아서 열기",
+    "dropHint": "SQLite, DuckDB, CSV, TSV, Parquet, JSON 또는 Excel. 각 파일은 임시 연결로 열립니다."
   }
 }

@@ -1,20 +1,20 @@
 {
-  "menu": "Health check",
-  "tab": "Health",
-  "title": "Health check · {{name}}",
-  "checkedAt": "Checked on {{at}}",
-  "run": "Check again",
-  "running": "Checking the database…",
-  "showOk": "Show what's OK",
+  "menu": "Проверка состояния",
+  "tab": "Состояние",
+  "title": "Проверка состояния · {{name}}",
+  "checkedAt": "Проверено {{at}}",
+  "run": "Проверить снова",
+  "running": "Проверка базы данных…",
+  "showOk": "Показать, что в порядке",
   "severity": {
-    "critical": "Critical",
-    "warning": "Warnings",
-    "info": "Information",
+    "critical": "Критично",
+    "warning": "Предупреждения",
+    "info": "Информация",
     "ok": "OK"
   },
-  "openFix": "Open in a query",
-  "fixName": "Fix: {{title}}",
-  "more": "and {{count}} more",
-  "allOk": "No problems found.",
-  "skipped": "Could not be checked:"
+  "openFix": "Открыть в запросе",
+  "fixName": "Исправление: {{title}}",
+  "more": "и ещё {{count}}",
+  "allOk": "Проблем не найдено.",
+  "skipped": "Не удалось проверить:"
 }

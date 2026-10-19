@@ -295,3 +295,7 @@ backend:servidor
 backend:tiempo activo
 backend:tiempo activo (s)
 backend:Área
+mobile:conn.monitor
+mobile:conn.f.host
+mobile:conn.f.database
+mobile:conn.f.client

@@ -1,55 +1,55 @@
 {
-  "source": "Data",
-  "latLon": "Latitude / longitude",
-  "lat": "Latitude",
-  "lon": "Longitude",
-  "pick": "Pick a column",
-  "count_other": "{{shown}} features",
-  "fit": "Fit",
-  "openSettings": "Map settings",
-  "privacy": "The map provider sees which area you're looking at (not the data)",
+  "source": "数据",
+  "latLon": "纬度 / 经度",
+  "lat": "纬度",
+  "lon": "经度",
+  "pick": "选择一列",
+  "count_other": "{{shown}} 个要素",
+  "fit": "适应",
+  "openSettings": "地图设置",
+  "privacy": "地图提供商会看到你正在查看的区域（不包含数据）",
   "notice": {
-    "cap": "The first {{cap}} features are drawn; {{rest}} more rows aren't.",
-    "srid_other": "{{rows}} rows with SRID {{srid}} aren't drawn: the map shows WGS 84 (4326) and Web Mercator (3857).",
-    "range_other": "{{rows}} rows without an SRID have coordinates that aren't degrees: they aren't drawn.",
-    "unreadable_other": "{{rows}} values couldn't be read as geometries.",
-    "basemap": "The bundled base map couldn't be loaded."
+    "cap": "已绘制前 {{cap}} 个要素；另有 {{rest}} 行未绘制。",
+    "srid_other": "{{rows}} 行的 SRID 为 {{srid}}，未绘制：地图仅显示 WGS 84 (4326) 和 Web Mercator (3857)。",
+    "range_other": "{{rows}} 行没有 SRID，其坐标不是度数，未绘制。",
+    "unreadable_other": "{{rows}} 个值无法解析为几何图形。",
+    "basemap": "无法加载内置底图。"
   },
   "attribution": {
-    "offline": "Base map: Natural Earth (public domain), offline",
-    "custom": "Tiles: custom provider"
+    "offline": "底图：Natural Earth（公有领域），离线",
+    "custom": "瓦片：自定义提供商"
   },
   "popup": {
-    "row": "Row {{row}}",
-    "rows_other": "Row {{row}} and {{more}} more at this spot",
-    "geometry": "(geometry)"
+    "row": "第 {{row}} 行",
+    "rows_other": "第 {{row}} 行及此处另外 {{more}} 行",
+    "geometry": "（几何图形）"
   },
   "settings": {
-    "nav": "Maps",
-    "title": "Maps",
-    "help": "The results' map draws the geometries on this machine: the rows' data never leaves it.",
-    "offline": "Offline base map",
-    "offlineHelp": "Countries, provinces and states, coastlines, lakes and cities from Natural Earth (public domain), bundled with DBine.",
-    "online": "Online tiles",
-    "onlineHelp": "Uses a tile provider with streets and terrain. Off, the map makes no requests to the internet.",
-    "noticeTitle": "Online tiles",
-    "noticeOk": "Turn on",
-    "provider": "Provider",
+    "nav": "地图",
+    "title": "地图",
+    "help": "结果的地图在这台电脑上绘制几何图形：行数据绝不会离开这台电脑。",
+    "offline": "离线底图",
+    "offlineHelp": "来自 Natural Earth（公有领域）的国家、省州、海岸线、湖泊和城市，已内置于 DBine。",
+    "online": "在线瓦片",
+    "onlineHelp": "使用提供街道和地形的瓦片提供商。关闭时，地图不会向互联网发出任何请求。",
+    "noticeTitle": "在线瓦片",
+    "noticeOk": "开启",
+    "provider": "提供商",
     "providers": {
-      "osm": "OpenStreetMap (standard)",
-      "maptiler": "MapTiler (with a key)",
-      "stadia": "Stadia Maps (with a key)",
-      "custom": "Custom (XYZ template)"
+      "osm": "OpenStreetMap（标准）",
+      "maptiler": "MapTiler（需要密钥）",
+      "stadia": "Stadia Maps（需要密钥）",
+      "custom": "自定义（XYZ 模板）"
     },
-    "osmPolicy": "The OpenStreetMap Foundation's tiles are a community service with a usage policy (operations.osmfoundation.org/policies/tiles): they're for light use. For heavy use, pick another provider or your own server.",
-    "url": "URL template",
-    "urlHelp": "https with {z}, {x} and {y}; {key} is replaced by the key. http only for a server on this machine (localhost).",
-    "urlInvalid": "The template must be https (or http to localhost) and include {z}, {x} and {y}.",
-    "attribution": "Attribution",
-    "attributionHelp": "The text the provider asks for; it's shown in the map's corner.",
-    "key": "API key",
-    "keyHelp": "Kept on this machine only: it doesn't travel with the sync.",
-    "needUrl": "A valid URL template is missing: until then the map uses the offline base map.",
-    "needKey": "The API key is missing: until then the map uses the offline base map."
+    "osmPolicy": "OpenStreetMap 基金会的瓦片是带有使用政策的社区服务（operations.osmfoundation.org/policies/tiles）：仅限轻度使用。如需大量使用，请选择其他提供商或自己的服务器。",
+    "url": "URL 模板",
+    "urlHelp": "包含 {z}、{x} 和 {y} 的 https；{key} 会被替换为密钥。仅对本机服务器（localhost）允许 http。",
+    "urlInvalid": "模板必须是 https（或指向 localhost 的 http），并包含 {z}、{x} 和 {y}。",
+    "attribution": "署名",
+    "attributionHelp": "提供商要求的文本；显示在地图的角落。",
+    "key": "API 密钥",
+    "keyHelp": "仅保存在这台电脑上：不会随同步一起传输。",
+    "needUrl": "缺少有效的 URL 模板：在此之前地图使用离线底图。",
+    "needKey": "缺少 API 密钥：在此之前地图使用离线底图。"
   }
 }

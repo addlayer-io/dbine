@@ -1,41 +1,41 @@
 {
-  "menu": "View dependencies…",
-  "tab": "Dependencies",
-  "refresh": "Refresh",
-  "copy": "Copy",
-  "copied": "Dependencies copied",
-  "summary": "{{confirmed}} confirmed, {{probable}} probable and {{review}} to review ({{scanned}} definitions read).",
-  "outside": "Only what is in the database is visible: applications, reports and external scripts that use it do not appear here.",
-  "unreadable": "The definition of {{names}} could not be read. Whatever depends on the object there is not in the list.",
-  "none": "Nothing in the database depends on this object.",
-  "on": "on {{parent}}",
-  "dynamic": "Dynamic SQL",
+  "menu": "查看依赖项…",
+  "tab": "依赖项",
+  "refresh": "刷新",
+  "copy": "复制",
+  "copied": "依赖项已复制",
+  "summary": "已确认 {{confirmed}} 项，可能 {{probable}} 项，待检查 {{review}} 项（已读取 {{scanned}} 个定义）。",
+  "outside": "只能看到数据库内部的内容：使用它的应用程序、报表和外部脚本不会显示在此处。",
+  "unreadable": "无法读取 {{names}} 的定义。依赖于其中对象的内容不在列表中。",
+  "none": "数据库中没有任何内容依赖于此对象。",
+  "on": "位于 {{parent}}",
+  "dynamic": "动态 SQL",
   "relation": {
-    "foreign_key": "Foreign keys",
-    "index": "Indexes and primary keys",
-    "check": "CHECK constraints",
-    "code": "Views, routines and triggers"
+    "foreign_key": "外键",
+    "index": "索引和主键",
+    "check": "CHECK 约束",
+    "code": "视图、例程和触发器"
   },
   "confidence": {
-    "confirmed": "Confirmed",
-    "probable": "Probable",
-    "review": "Review"
+    "confirmed": "已确认",
+    "probable": "可能",
+    "review": "待检查"
   },
   "confidenceTip": {
-    "confirmed": "The engine's catalog records the dependency.",
-    "probable": "The object's code names the object (and the column, with its table).",
-    "review": "The name appears inside a text, probably dynamic SQL: you have to read it to know whether it uses it."
+    "confirmed": "引擎的目录中记录了该依赖关系。",
+    "probable": "对象的代码中引用了该对象（以及列，连同其表）。",
+    "review": "名称出现在文本中，很可能是动态 SQL：需要阅读才能确定是否使用了它。"
   },
   "kind": {
-    "table": "Table",
-    "collection": "Collection",
-    "view": "View",
-    "materialized_view": "Materialized view",
-    "procedure": "Procedure",
-    "function": "Function",
-    "trigger": "Trigger",
-    "synonym": "Synonym",
-    "type": "Type",
-    "sequence": "Sequence"
+    "table": "表",
+    "collection": "集合",
+    "view": "视图",
+    "materialized_view": "物化视图",
+    "procedure": "存储过程",
+    "function": "函数",
+    "trigger": "触发器",
+    "synonym": "同义词",
+    "type": "类型",
+    "sequence": "序列"
   }
 }

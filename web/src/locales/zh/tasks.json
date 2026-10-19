@@ -1,203 +1,203 @@
 {
   "status": {
-    "running_other": "{{count}} tasks running",
-    "title": "View running tasks",
-    "many": "{{count}} tasks",
-    "line": "{{title}}: {{elapsed}}",
-    "lineEta": "{{title}}: {{elapsed}} · {{eta}}"
+    "running_other": "{{count}} 个任务正在运行",
+    "title": "查看正在运行的任务",
+    "many": "{{count}} 个任务",
+    "line": "{{title}}：{{elapsed}}",
+    "lineEta": "{{title}}：{{elapsed}} · {{eta}}"
   },
   "panel": {
-    "title": "Tasks",
-    "empty": "There are no tasks.",
-    "clearFinished": "Remove finished",
-    "cancel": "Cancel",
-    "cancelling": "Cancelling…",
-    "detail": "View details",
-    "remove": "Remove",
-    "background": "Keep running in the background"
+    "title": "任务",
+    "empty": "没有任务。",
+    "clearFinished": "移除已完成的",
+    "cancel": "取消",
+    "cancelling": "正在取消…",
+    "detail": "查看详情",
+    "remove": "移除",
+    "background": "在后台继续运行"
   },
   "state": {
-    "running": "Running",
-    "done": "Finished",
-    "error": "With errors",
-    "cancelled": "Cancelled"
+    "running": "运行中",
+    "done": "已完成",
+    "error": "有错误",
+    "cancelled": "已取消"
   },
   "progress": {
-    "of": "{{done}} of {{total}} {{unit}}",
+    "of": "{{total}} {{unit}}中的 {{done}}",
     "count": "{{done}} {{unit}}"
   },
   "unit": {
-    "statements": "statements",
-    "rows": "rows",
-    "bytes": "bytes",
-    "tables": "tables",
-    "objects": "objects"
+    "statements": "条语句",
+    "rows": "行",
+    "bytes": "字节",
+    "tables": "张表",
+    "objects": "个对象"
   },
   "elapsed": {
-    "seconds": "{{n}} s",
-    "minutes": "{{n}} min {{s}} s",
-    "hours": "{{n}} h {{m}} min",
-    "days": "{{n}} d {{h}} h"
+    "seconds": "{{n}} 秒",
+    "minutes": "{{n}} 分 {{s}} 秒",
+    "hours": "{{n}} 小时 {{m}} 分",
+    "days": "{{n}} 天 {{h}} 小时"
   },
   "eta": {
-    "calculating": "calculating…",
-    "lessThanMinute": "less than 1 min",
-    "minutes": "≈ {{n}} min",
-    "hours": "≈ {{h}} h {{m}} min",
-    "hoursExact": "≈ {{h}} h",
-    "days": "≈ {{d}} d {{h}} h",
-    "remaining": "{{eta}} remaining",
-    "phase": "{{eta}} for this stage",
-    "none": "no estimate",
-    "low": "initial estimate, may change"
+    "calculating": "计算中…",
+    "lessThanMinute": "不到 1 分钟",
+    "minutes": "≈ {{n}} 分钟",
+    "hours": "≈ {{h}} 小时 {{m}} 分",
+    "hoursExact": "≈ {{h}} 小时",
+    "days": "≈ {{d}} 天 {{h}} 小时",
+    "remaining": "剩余 {{eta}}",
+    "phase": "此阶段还需 {{eta}}",
+    "none": "无法估计",
+    "low": "初步估计，可能会变化"
   },
   "detail": {
-    "title": "Task details",
-    "messages": "Messages",
-    "noMessages": "No messages.",
-    "result": "Result",
-    "error": "Error",
-    "started": "Start",
-    "elapsed": "Elapsed",
-    "remaining": "Estimated remaining",
-    "ended": "End",
-    "duration": "Total duration"
+    "title": "任务详情",
+    "messages": "消息",
+    "noMessages": "没有消息。",
+    "result": "结果",
+    "error": "错误",
+    "started": "开始",
+    "elapsed": "已用时间",
+    "remaining": "预计剩余",
+    "ended": "结束",
+    "duration": "总时长"
   },
   "notify": {
     "title": {
-      "done": "Task finished",
-      "error": "Task with errors",
-      "cancelled": "Task cancelled"
+      "done": "任务已完成",
+      "error": "任务有错误",
+      "cancelled": "任务已取消"
     },
-    "done": "{{title}}: finished in {{elapsed}}.",
-    "error": "{{title}}: finished with errors in {{elapsed}}.",
-    "cancelled": "{{title}}: cancelled after {{elapsed}}.",
-    "withSummary": "{{title}}: {{summary}}, {{elapsed}}.",
-    "failed": "{{title}}: failed after {{elapsed}}. {{error}}"
+    "done": "{{title}}：已完成，用时 {{elapsed}}。",
+    "error": "{{title}}：已完成但有错误，用时 {{elapsed}}。",
+    "cancelled": "{{title}}：已在 {{elapsed}} 后取消。",
+    "withSummary": "{{title}}：{{summary}}，{{elapsed}}。",
+    "failed": "{{title}}：在 {{elapsed}} 后失败。{{error}}"
   },
   "quit": {
-    "title": "Background runs",
-    "message_other": "There are {{count}} background runs: {{list}}. If you close the application they will be cancelled. Close it anyway?",
-    "confirm": "Cancel and close",
-    "stay": "Keep working",
-    "window": "{{title}} (window {{n}})"
+    "title": "后台运行",
+    "message_other": "有 {{count}} 个后台运行：{{list}}。如果关闭应用，它们将被取消。仍要关闭吗？",
+    "confirm": "取消并关闭",
+    "stay": "继续工作",
+    "window": "{{title}}（窗口 {{n}}）"
   },
   "update": {
-    "title": "Background runs",
-    "message_other": "There are {{count}} background runs: {{list}}. To finish the update DBine restarts, and they will be cancelled. Restart anyway?",
-    "confirm": "Cancel and restart",
-    "stay": "Keep working"
+    "title": "后台运行",
+    "message_other": "有 {{count}} 个后台运行：{{list}}。要完成更新，DBine 会重启，它们将被取消。仍要重启吗？",
+    "confirm": "取消并重启",
+    "stay": "继续工作"
   },
   "closeWindow": {
-    "title": "Runs in this window",
-    "message_other": "There are {{count}} background runs in this window: {{list}}. If you close the window they will be cancelled. Close it anyway?",
-    "confirm": "Cancel and close the window",
-    "stay": "Keep working"
+    "title": "此窗口中的运行",
+    "message_other": "此窗口中有 {{count}} 个后台运行：{{list}}。如果关闭窗口，它们将被取消。仍要关闭吗？",
+    "confirm": "取消并关闭窗口",
+    "stay": "继续工作"
   },
   "dataSync": {
-    "title": "Data sync of {{table}} ({{where}})",
-    "unit": "statements",
-    "phase": "Applying on {{side}}: {{parts}}",
-    "applied": "Already applied on {{sides}}",
-    "nothingApplied": "No complete script was applied",
-    "stoppedOn": "{{side}} stopped halfway: it may have partially applied changes",
-    "lateCancel": "The cancellation arrived when the scripts had already finished: the changes were applied.",
-    "stale": "The run stopped halfway and the data may have changed: these scripts can no longer be run. The comparison was reloaded.",
-    "regenerate": "Regenerate the scripts"
+    "title": "{{table}} 的数据同步（{{where}}）",
+    "unit": "条语句",
+    "phase": "正在 {{side}}应用：{{parts}}",
+    "applied": "已在{{sides}}应用",
+    "nothingApplied": "没有应用完整的脚本",
+    "stoppedOn": "{{side}}中途停止：可能已部分应用更改",
+    "lateCancel": "取消请求到达时脚本已经完成：更改已应用。",
+    "stale": "运行中途停止，数据可能已更改：这些脚本无法再运行。比较结果已重新加载。",
+    "regenerate": "重新生成脚本"
   },
   "compareSync": {
-    "title": "Sync of {{target}}",
-    "sideStart_other": "{{side}}: {{count}} statements",
-    "summary": "{{count}} of {{total}} statements",
-    "summaryAll_other": "{{count}} statements"
+    "title": "{{target}} 的同步",
+    "sideStart_other": "{{side}}：{{count}} 条语句",
+    "summary": "{{total}} 条语句中的 {{count}} 条",
+    "summaryAll_other": "{{count}} 条语句"
   },
   "backups": {
-    "copy": "Copy of {{where}}",
-    "copyDone": "{{size}} at {{path}}",
-    "restoreCopy": "Restore copy to {{where}}",
-    "statements": "{{n}} statements",
-    "statementsWithErrors": "{{n}} statements, {{errors}} with errors",
+    "copy": "{{where}} 的副本",
+    "copyDone": "{{path}} 处的 {{size}}",
+    "restoreCopy": "将副本还原到 {{where}}",
+    "statements": "{{n}} 条语句",
+    "statementsWithErrors": "{{n}} 条语句，其中 {{errors}} 条出错",
     "native": {
-      "backup": "Backup of {{where}}",
-      "restore": "Restore to {{where}}",
-      "delete": "Delete backup at {{where}}"
+      "backup": "{{where}} 的备份",
+      "restore": "还原到 {{where}}",
+      "delete": "删除 {{where}} 处的备份"
     }
   },
   "dialogs": {
-    "schemaCreate": "Create schema {{name}} in {{db}}",
-    "schemaDrop": "Drop schema {{name}} in {{db}}",
-    "dropIndex": "Drop index {{name}} from {{table}}",
-    "cloneTable": "Clone {{table}} as {{name}}",
-    "runScriptFile": "Run {{file}} in {{db}}",
-    "applyEdits": "Save changes in {{table}}",
-    "saving": "Saving…",
-    "rows_other": "{{n}} rows",
-    "statements_other": "{{n}} statements",
-    "statementsWithErrors_other": "{{n}} statements, {{errors}} with errors"
+    "schemaCreate": "在 {{db}} 中创建架构 {{name}}",
+    "schemaDrop": "在 {{db}} 中删除架构 {{name}}",
+    "dropIndex": "从 {{table}} 删除索引 {{name}}",
+    "cloneTable": "将 {{table}} 克隆为 {{name}}",
+    "runScriptFile": "在 {{db}} 中运行 {{file}}",
+    "applyEdits": "保存 {{table}} 中的更改",
+    "saving": "正在保存…",
+    "rows_other": "{{n}} 行",
+    "statements_other": "{{n}} 条语句",
+    "statementsWithErrors_other": "{{n}} 条语句，其中 {{errors}} 条出错"
   },
   "backupsSecurity": {
-    "run": "Change of users and permissions in {{where}}"
+    "run": "{{where}} 中用户和权限的更改"
   },
   "actions": {
-    "createDatabase": "Create database {{name}} on {{server}}",
-    "dropDatabase": "Drop database {{name}} from {{server}}",
-    "dropOne": "Drop {{name}} in {{db}}",
-    "dropMany": "Drop {{count}} objects in {{db}}",
-    "dropped_other": "{{count}} objects dropped",
-    "dropFailed": "{{failed}} of {{total}} could not be dropped (the detail says why)"
+    "createDatabase": "在 {{server}} 上创建数据库 {{name}}",
+    "dropDatabase": "从 {{server}} 删除数据库 {{name}}",
+    "dropOne": "在 {{db}} 中删除 {{name}}",
+    "dropMany": "在 {{db}} 中删除 {{count}} 个对象",
+    "dropped_other": "已删除 {{count}} 个对象",
+    "dropFailed": "{{total}} 个中有 {{failed}} 个无法删除（详情中说明了原因）"
   },
   "dataCompare": {
-    "buildTitle": "Data sync scripts of {{table}}",
-    "buildPhase": "Generating the scripts",
-    "applied": "These scripts were already run and the comparison was reloaded: they cannot be run again. For another sync, generate them again."
+    "buildTitle": "{{table}} 的数据同步脚本",
+    "buildPhase": "正在生成脚本",
+    "applied": "这些脚本已经运行过，比较结果已重新加载：无法再次运行。如需再次同步，请重新生成。"
   },
   "settingsGit": {
     "git": {
-      "link": "Link the library to the repo",
-      "commit": "Library commit",
-      "pull": "Library pull",
-      "push": "Library push",
-      "sync": "Sync the library with the repo",
-      "resolve": "Resolve the library conflicts",
-      "unlink": "Unlink the library from the repo",
-      "conflicts_other": "{{count}} scripts with conflicts: open «Library in git» to resolve them"
+      "link": "将库关联到仓库",
+      "commit": "库提交",
+      "pull": "库拉取",
+      "push": "库推送",
+      "sync": "将库与仓库同步",
+      "resolve": "解决库冲突",
+      "unlink": "取消库与仓库的关联",
+      "conflicts_other": "{{count}} 个脚本有冲突：打开“Git 中的库”来解决"
     },
     "sync": {
-      "setupUpload": "Enable sync and upload the backup",
-      "setupRestore": "Restore the backup on this machine",
-      "now": "Sync with the cloud",
-      "upload": "Upload the backup to the cloud",
-      "restore": "Restore from the cloud",
-      "change": "Change the passphrase and re-encrypt the backup",
-      "disconnect": "Stop syncing and delete the backup in the cloud",
-      "local": "Restore local copy"
+      "setupUpload": "启用同步并上传备份",
+      "setupRestore": "在这台电脑上还原备份",
+      "now": "与云端同步",
+      "upload": "将备份上传到云端",
+      "restore": "从云端还原",
+      "change": "更改密码短语并重新加密备份",
+      "disconnect": "停止同步并删除云端备份",
+      "local": "还原本地副本"
     },
     "drivers": {
-      "install": "Download the {{label}} driver"
+      "install": "下载 {{label}} 驱动"
     }
   },
   "genImportExport": {
-    "script": "Script of {{db}}",
-    "scriptToFile": "Script of {{db}} in {{file}}",
-    "withRows": "{{objects}}, {{rows}}",
-    "import": "Import {{file}} into {{table}}",
-    "export": "Export {{file}}"
+    "script": "{{db}} 的脚本",
+    "scriptToFile": "{{db}} 的脚本，保存在 {{file}}",
+    "withRows": "{{objects}}，{{rows}}",
+    "import": "将 {{file}} 导入 {{table}}",
+    "export": "导出 {{file}}"
   },
   "nativeBackup": {
     "phase": {
-      "backup": "Copying the data",
-      "restore": "Restoring the data",
-      "verify": "Verifying the backup",
-      "export": "Exporting with Data Pump",
-      "import": "Importing with Data Pump"
+      "backup": "正在复制数据",
+      "restore": "正在还原数据",
+      "verify": "正在验证备份",
+      "export": "正在使用 Data Pump 导出",
+      "import": "正在使用 Data Pump 导入"
     }
   },
   "importExport": {
     "phase": {
-      "reading": "Reading the file",
-      "inserting": "Inserting rows"
+      "reading": "正在读取文件",
+      "inserting": "正在插入行"
     },
-    "ofTotal": "of {{total}}",
-    "estimated": "of ~{{total}} estimated"
+    "ofTotal": "共 {{total}}",
+    "estimated": "共约 {{total}}（估算）"
   }
 }

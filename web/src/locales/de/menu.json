@@ -1,52 +1,52 @@
 {
   "app": {
-    "about": "About DBine",
-    "settings": "Settings…",
-    "services": "Services",
-    "hide": "Hide DBine",
-    "hideOthers": "Hide others",
-    "showAll": "Show all",
-    "quit": "Quit DBine"
+    "about": "Über DBine",
+    "settings": "Einstellungen…",
+    "services": "Dienste",
+    "hide": "DBine ausblenden",
+    "hideOthers": "Andere ausblenden",
+    "showAll": "Alle einblenden",
+    "quit": "DBine beenden"
   },
   "file": {
-    "title": "File",
-    "newConnection": "New connection",
-    "newQuery": "New query",
-    "newNotebook": "New notebook",
-    "newWindow": "New window",
-    "closeTab": "Close tab",
-    "open": "Open File…"
+    "title": "Datei",
+    "newConnection": "Neue Verbindung",
+    "newQuery": "Neue Abfrage",
+    "newNotebook": "Neues Notebook",
+    "newWindow": "Neues Fenster",
+    "closeTab": "Tab schließen",
+    "open": "Datei öffnen…"
   },
   "edit": {
-    "title": "Edit",
-    "undo": "Undo",
-    "redo": "Redo",
-    "cut": "Cut",
-    "copy": "Copy",
-    "paste": "Paste",
-    "selectAll": "Select all"
+    "title": "Bearbeiten",
+    "undo": "Widerrufen",
+    "redo": "Wiederholen",
+    "cut": "Ausschneiden",
+    "copy": "Kopieren",
+    "paste": "Einfügen",
+    "selectAll": "Alles auswählen"
   },
   "view": {
-    "title": "View",
+    "title": "Ansicht",
     "explorer": "Explorer",
-    "output": "Output",
-    "ai": "AI assistant",
-    "fullscreen": "Full screen"
+    "output": "Ausgabe",
+    "ai": "KI-Assistent",
+    "fullscreen": "Vollbild"
   },
   "window": {
-    "title": "Window",
-    "minimize": "Minimize",
-    "zoom": "Zoom"
+    "title": "Fenster",
+    "minimize": "Im Dock ablegen",
+    "zoom": "Zoomen"
   },
   "help": {
-    "title": "Help",
-    "checkUpdates": "Check for updates…",
-    "support": "Support the project"
+    "title": "Hilfe",
+    "checkUpdates": "Nach Updates suchen…",
+    "support": "Projekt unterstützen"
   },
   "palette": {
-    "open": "Command palette…"
+    "open": "Befehlspalette…"
   },
   "goto": {
-    "open": "Go to…"
+    "open": "Gehe zu…"
   }
 }

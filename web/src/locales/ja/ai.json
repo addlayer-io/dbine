@@ -1,111 +1,111 @@
 {
-  "title": "Assistant",
-  "defaultModel": "default",
-  "reasoning": "Reasoning",
+  "title": "アシスタント",
+  "defaultModel": "既定",
+  "reasoning": "推論",
   "head": {
-    "setup": "Models and providers",
-    "newChat": "New conversation",
-    "close": "Close (⌘I)",
-    "history": "History"
+    "setup": "モデルとプロバイダー",
+    "newChat": "新しい会話",
+    "close": "閉じる(⌘I)",
+    "history": "履歴"
   },
   "context": {
-    "noDatabase": "No database selected",
-    "openQuery": "open query",
-    "sent": "context: {{context}}",
-    "objects_other": "{{count}} objects",
-    "tables_other": "{{count}} tables",
-    "tablesOf_other": "{{shown}} of {{count}} tables",
-    "editor": "editor",
-    "selection": "selection",
-    "lastError": "last error"
+    "noDatabase": "データベースが未選択",
+    "openQuery": "開いているクエリ",
+    "sent": "コンテキスト: {{context}}",
+    "objects_other": "{{count}} 個のオブジェクト",
+    "tables_other": "{{count}} 個のテーブル",
+    "tablesOf_other": "{{count}} 個中 {{shown}} 個のテーブル",
+    "editor": "エディター",
+    "selection": "選択範囲",
+    "lastError": "直近のエラー"
   },
   "suggest": {
-    "whyFails": "Why does the last run fail? Fix it.",
-    "explain": "Explain the query in the editor",
-    "optimize": "Review and optimize the query in the editor",
-    "largestTables": "Write a query that lists the largest tables",
-    "relatedTables": "Which tables are related to customers?",
-    "joinAggregate": "How do I write a JOIN with aggregation?"
+    "whyFails": "直近の実行はなぜ失敗するのですか？修正してください。",
+    "explain": "エディターのクエリを説明してください",
+    "optimize": "エディターのクエリを確認して最適化してください",
+    "largestTables": "最も大きいテーブルを一覧するクエリを書いてください",
+    "relatedTables": "customers に関連するテーブルはどれですか？",
+    "joinAggregate": "集計を含む JOIN はどう書きますか？"
   },
   "code": {
-    "appended": "Appended to the end of the query. Review it and run it whenever you want.",
-    "newQueryTitle": "From the assistant",
-    "replaced": "Query replaced (⌘Z to undo).",
-    "code": "code",
-    "appendHint": "Append to the end of the open query",
-    "newQueryHint": "Open in a new query",
-    "append": "Add to query",
-    "newQuery": "New query",
-    "replaceHint": "Replace the whole editor content (⌘Z undoes)",
-    "replace": "Replace",
-    "destructive": "Changes data or structure. Nothing was run: review it before you run it yourself.",
-    "asText": "Insert as text",
-    "asTextHint": "Add the answer as a text cell of the notebook (runs nothing)",
-    "textAdded": "Added as a text cell.",
-    "cellAdded": "Added as a new cell, not run. Check it and run it when you want."
+    "appended": "クエリの末尾に追加しました。確認して、好きなタイミングで実行してください。",
+    "newQueryTitle": "アシスタントから",
+    "replaced": "クエリを置き換えました(⌘Z で元に戻せます)。",
+    "code": "コード",
+    "appendHint": "開いているクエリの末尾に追加",
+    "newQueryHint": "新しいクエリで開く",
+    "append": "クエリに追加",
+    "newQuery": "新しいクエリ",
+    "replaceHint": "エディターの内容をすべて置き換え(⌘Z で元に戻せます)",
+    "replace": "置き換え",
+    "destructive": "データや構造を変更します。何も実行していません。実行する前に内容を確認してください。",
+    "asText": "テキストとして挿入",
+    "asTextHint": "回答をノートブックのテキストセルとして追加します(何も実行しません)",
+    "textAdded": "テキストセルとして追加しました。",
+    "cellAdded": "新しいセルとして追加しました(未実行)。確認して、好きなタイミングで実行してください。"
   },
   "phase": {
-    "schema": "Reading the database structure…",
-    "engine": "Downloading the AI engine, just this once…",
-    "thinking": "Thinking…",
-    "retry": "Asking again…",
-    "tool": "Querying the connection:"
+    "schema": "データベースの構造を読み込んでいます…",
+    "engine": "AI エンジンをダウンロードしています(初回のみ)…",
+    "thinking": "考え中…",
+    "retry": "もう一度問い合わせています…",
+    "tool": "接続に問い合わせ中:"
   },
   "setup": {
-    "detecting": "Looking for AI tools on this machine…",
-    "lead": "The assistant needs a model. The simplest option: download the {model}. It runs on this machine, with nothing to install and nothing leaving it.",
-    "leadModel": "built-in model",
-    "embedded": "Built into DBine",
-    "embeddedUnavailable": "The built-in model isn't available on this platform.",
-    "recommended": "recommended for this machine",
-    "use": "Use",
-    "pause": "Pause",
-    "pauseHint": "Resumes where it left off",
-    "download": "Download ({{size}})",
-    "detected": "Detected on this machine",
-    "pull": "Download {{model}}",
-    "cliNote": "Claude Code and Codex use your own account (subscription or API). They run without tools: they can't read files, run commands or connect to your databases.",
-    "redetect": "Detect again"
+    "detecting": "このマシンの AI ツールを検索しています…",
+    "lead": "アシスタントを使うにはモデルが必要です。最も簡単なのは {model} のダウンロードです。このマシン上で動作し、何もインストールする必要はなく、データがマシンの外に出ることもありません。",
+    "leadModel": "内蔵モデル",
+    "embedded": "DBine に内蔵",
+    "embeddedUnavailable": "内蔵モデルはこのプラットフォームでは利用できません。",
+    "recommended": "このマシンにおすすめ",
+    "use": "使用",
+    "pause": "一時停止",
+    "pauseHint": "中断した位置から再開します",
+    "download": "ダウンロード({{size}})",
+    "detected": "このマシンで検出されたもの",
+    "pull": "{{model}} を取得",
+    "cliNote": "Claude Code と Codex はご自身のアカウント(サブスクリプションまたは API)を使います。ツールなしで動作するため、ファイルの読み取り、コマンドの実行、データベースへの接続はできません。",
+    "redetect": "再検出"
   },
   "privacy": {
-    "local": "Local: nothing leaves this machine.",
-    "remote": "Goes to {{vendor}} with your account: the question, the structure and the editor, never the data."
+    "local": "ローカル: このマシンの外には何も送信されません。",
+    "remote": "ご自身のアカウントで {{vendor}} に送信されます。送るのは質問、構造、エディターの内容で、データは送りません。"
   },
   "empty": {
-    "lead": "Ask it for queries, to explain or fix the one in the editor, or ask about the database structure.",
-    "neverRuns": "The assistant never runs anything: what it writes goes into your query and you decide whether to run it."
+    "lead": "クエリの作成を依頼したり、エディターのクエリの説明や修正を頼んだり、データベースの構造について質問したりできます。",
+    "neverRuns": "アシスタントは何も実行しません。書いた内容はクエリに入り、実行するかどうかはあなたが決めます。"
   },
   "compose": {
-    "placeholder": "Ask or request a query… (Enter sends, Shift+Enter new line)",
-    "send": "Send"
+    "placeholder": "質問やクエリの依頼を入力…(Enter で送信、Shift+Enter で改行)",
+    "send": "送信"
   },
   "better": {
-    "text": "Your machine can use a bigger model: {{model}}. It understands hard requests better and makes fewer SQL mistakes.",
-    "dismiss": "Not now"
+    "text": "お使いのマシンでは、より大きなモデル {{model}} を使えます。難しい依頼の理解度が上がり、SQL の間違いも減ります。",
+    "dismiss": "今はしない"
   },
   "history": {
-    "title": "Previous conversations",
-    "empty": "No previous conversations yet: “New conversation” saves the current one here.",
-    "untitled": "(untitled)",
-    "messages_other": "{{count}} messages",
-    "delete": "Delete this conversation",
-    "clear": "Clear history",
-    "clearConfirm": "All previous conversations will be deleted. The current one is not touched."
+    "title": "過去の会話",
+    "empty": "過去の会話はまだありません。「新しい会話」を押すと、現在の会話がここに保存されます。",
+    "untitled": "(無題)",
+    "messages_other": "{{count}} 件のメッセージ",
+    "delete": "この会話を削除",
+    "clear": "履歴を削除",
+    "clearConfirm": "過去の会話をすべて削除します。現在の会話はそのままです。"
   },
   "tools": {
-    "read_other": "Queried the connection {{count}} times"
+    "read_other": "接続に {{count}} 回問い合わせました"
   },
   "approval": {
-    "title": "The model ({{model}}) wants to read data from {{connection}} › {{database}} with this query:",
-    "local": "local",
-    "approve": "Approve",
-    "reject": "Reject",
-    "approveAll": "Approve reads in this conversation",
-    "note": "Read-only: DBine runs it in a session that rejects any change. If you reject it, the model carries on without that data."
+    "title": "モデル({{model}})が次のクエリで {{connection}} › {{database}} のデータを読み取ろうとしています:",
+    "local": "ローカル",
+    "approve": "承認",
+    "reject": "拒否",
+    "approveAll": "この会話での読み取りをすべて承認",
+    "note": "読み取り専用: DBine は変更をすべて拒否するセッションで実行します。拒否した場合、モデルはそのデータを得られないまま続けます。"
   },
   "link": {
-    "title": "Open link",
-    "body": "The assistant's answer leads to this address. Open it only if you trust it: a link can send data from the conversation to another site.",
-    "open": "Open in browser"
+    "title": "リンクを開く",
+    "body": "アシスタントの回答がこのアドレスに誘導しています。信頼できる場合のみ開いてください。リンクを通じて会話のデータが別のサイトに送られることがあります。",
+    "open": "ブラウザーで開く"
   }
 }

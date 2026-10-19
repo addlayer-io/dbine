@@ -1,88 +1,88 @@
 {
-  "couldNotConnect": "Couldn't connect.",
-  "connection": "Connection",
-  "thisEngine": "This engine",
-  "unsupported": "{{engine}} doesn't allow seeing other clients' queries.",
+  "couldNotConnect": "Verbindung nicht möglich.",
+  "connection": "Verbindung",
+  "thisEngine": "Diese Engine",
+  "unsupported": "{{engine}} erlaubt nicht, die Abfragen anderer Clients zu sehen.",
   "hint": {
     "duration": "> 500 · < 1s · >= 2.5s",
-    "text": "contains… · !doesn't contain · =equals",
-    "database": "contains… · !doesn't contain"
+    "text": "enthält… · !enthält nicht · =gleich",
+    "database": "enthält… · !enthält nicht"
   },
   "menu": {
     "filter": {
-      "user": "Filter by user “{{value}}”",
-      "client": "Filter by client “{{value}}”",
-      "application": "Filter by application “{{value}}”",
-      "database": "Filter by database “{{value}}”"
+      "user": "Nach Benutzer „{{value}}“ filtern",
+      "client": "Nach Client „{{value}}“ filtern",
+      "application": "Nach Anwendung „{{value}}“ filtern",
+      "database": "Nach Datenbank „{{value}}“ filtern"
     },
-    "filterSame": "Filter the ones like this query",
-    "copy": "Copy the query"
+    "filterSame": "Nach ähnlichen wie diese Abfrage filtern",
+    "copy": "Abfrage kopieren"
   },
-  "openInQuery": "Open in a query",
+  "openInQuery": "In einer Abfrage öffnen",
   "column": {
-    "time": "Time",
-    "duration": "Duration",
-    "query": "Query",
-    "database": "Database",
-    "user": "User",
+    "time": "Zeit",
+    "duration": "Dauer",
+    "query": "Abfrage",
+    "database": "Datenbank",
+    "user": "Benutzer",
     "client": "Client",
-    "application": "Application",
-    "rows": "Rows",
+    "application": "Anwendung",
+    "rows": "Zeilen",
     "cpu": "CPU",
-    "reads": "Reads",
-    "writes": "Writes"
+    "reads": "Lesezugriffe",
+    "writes": "Schreibzugriffe"
   },
-  "columns": "Columns",
-  "columnsHint": "Show or hide columns",
-  "showAll": "Show all",
+  "columns": "Spalten",
+  "columnsHint": "Spalten ein- oder ausblenden",
+  "showAll": "Alle anzeigen",
   "status": {
-    "starting": "Starting…",
-    "capturing": "Capturing",
-    "stopped": "Stopped",
-    "notStarted": "Not started"
+    "starting": "Wird gestartet…",
+    "capturing": "Erfassung läuft",
+    "stopped": "Gestoppt",
+    "notStarted": "Nicht gestartet"
   },
-  "source": "Source: {{source}}",
+  "source": "Quelle: {{source}}",
   "mode": {
-    "complete": "Full capture",
-    "sampled": "Sampling"
+    "complete": "Vollständige Erfassung",
+    "sampled": "Stichproben"
   },
-  "clearFilters": "Clear filters",
-  "resume": "Resume",
-  "sampledNote": "This engine only shows what's running: queries shorter than ~100 ms may not appear.",
-  "enabled": "{{source}} was enabled on the server.",
-  "disabled": "{{source}} was disabled.",
+  "clearFilters": "Filter zurücksetzen",
+  "resume": "Fortsetzen",
+  "sampledNote": "Diese Engine zeigt nur, was gerade läuft: Abfragen unter ~100 ms erscheinen möglicherweise nicht.",
+  "enabled": "{{source}} wurde auf dem Server aktiviert.",
+  "disabled": "{{source}} wurde deaktiviert.",
   "stats": {
-    "title": "This query",
-    "runs_one": "{n} run",
-    "runs_other": "{n} runs",
-    "avg": "average",
-    "min": "min",
-    "max": "max"
+    "title": "Diese Abfrage",
+    "runs_one": "{n} Ausführung",
+    "runs_other": "{n} Ausführungen",
+    "avg": "Durchschnitt",
+    "min": "Min.",
+    "max": "Max."
   },
-  "filtersHint": "Only queries that pass the filters are kept",
-  "sameAs": "Like: {{label}}",
-  "removeFilter": "Remove this filter",
-  "noneYet": "None has appeared yet",
-  "noValues": "No values",
+  "filtersHint": "Es werden nur Abfragen behalten, die die Filter passieren",
+  "sameAs": "Ähnlich: {{label}}",
+  "removeFilter": "Diesen Filter entfernen",
+  "noneYet": "Noch keiner aufgetreten",
+  "noValues": "Keine Werte",
   "empty": {
-    "noMatch": "No queries match.",
-    "waitingFiltered": "Waiting for queries that pass the filters…",
-    "waiting": "Waiting for queries…",
-    "none": "No queries captured."
+    "noMatch": "Keine Abfragen entsprechen.",
+    "waitingFiltered": "Warten auf Abfragen, die die Filter passieren…",
+    "waiting": "Warten auf Abfragen…",
+    "none": "Keine Abfragen erfasst."
   },
-  "dragHint": "Drag to change the height",
+  "dragHint": "Ziehen, um die Höhe zu ändern",
   "detail": {
-    "rows_one": "{{n}} row",
-    "rows_other": "{{n}} rows"
+    "rows_one": "{{n}} Zeile",
+    "rows_other": "{{n}} Zeilen"
   },
   "foot": {
-    "queries_one": "{{n}} query",
-    "queries_other": "{{n}} queries",
-    "passing": "{{n}} pass the filters",
-    "skipped": "{{n}} discarded by the filters",
-    "dropped": "the {{n}} oldest were discarded (the last {{max}} are kept)",
-    "arrivalOrder": "Back to arrival order",
-    "toEnd": "Go to the end"
+    "queries_one": "{{n}} Abfrage",
+    "queries_other": "{{n}} Abfragen",
+    "passing": "{{n}} passieren die Filter",
+    "skipped": "{{n}} durch die Filter verworfen",
+    "dropped": "die {{n}} ältesten wurden verworfen (die letzten {{max}} bleiben erhalten)",
+    "arrivalOrder": "Zurück zur Eingangsreihenfolge",
+    "toEnd": "Zum Ende springen"
   },
   "unitHint": "In {{unit}}"
 }

@@ -1,243 +1,243 @@
 {
-  "nav": "Code quality",
+  "nav": "コード品質",
   "settings": {
-    "help": "While you type, the editor flags what usually causes problems: slow queries, unexpected results, or changes that affect more rows than you think. The analysis is done on the text, without querying the database. Turn off the rules that don't help you.",
-    "enabled": "Check the code as I write",
-    "enabledHelp": "Marks the problems in the margin and underlines them; hover to see why and how to fix them.",
-    "rules": "Rules",
-    "engines": "Applies to",
-    "allOn": "Turn all on",
-    "loadError": "Could not load the list of rules."
+    "help": "入力中、エディターは問題になりやすい箇所(遅いクエリ、期待と異なる結果、思った以上の行に影響する変更)を指摘します。解析はテキストに対して行われ、データベースには問い合わせません。不要なルールはオフにしてください。",
+    "enabled": "入力中にコードをチェック",
+    "enabledHelp": "問題をマージンに表示して下線を引きます。マウスを重ねると、理由と修正方法が表示されます。",
+    "rules": "ルール",
+    "engines": "対象",
+    "allOn": "すべてオン",
+    "loadError": "ルールの一覧を読み込めませんでした。"
   },
   "severity": {
-    "error": "Error",
-    "warning": "Warning",
-    "info": "Suggestion"
+    "error": "エラー",
+    "warning": "警告",
+    "info": "提案"
   },
   "groups": {
-    "sql": "All SQL engines",
-    "tsql": "SQL Server, Azure SQL, Fabric and Sybase",
-    "postgres": "PostgreSQL family",
-    "mysql": "MySQL family",
+    "sql": "すべての SQL エンジン",
+    "tsql": "SQL Server、Azure SQL、Fabric、Sybase",
+    "postgres": "PostgreSQL ファミリー",
+    "mysql": "MySQL ファミリー",
     "oracle": "Oracle",
-    "influxql": "InfluxDB (InfluxQL and SQL)",
-    "cql": "Cassandra, ScyllaDB and Amazon Keyspaces",
-    "mongodb": "MongoDB, FerretDB and DocumentDB",
+    "influxql": "InfluxDB(InfluxQL と SQL)",
+    "cql": "Cassandra、ScyllaDB、Amazon Keyspaces",
+    "mongodb": "MongoDB、FerretDB、DocumentDB",
     "couchdb": "CouchDB",
-    "search": "Elasticsearch, OpenSearch and Solr",
-    "redis": "Redis, Valkey and Dragonfly",
+    "search": "Elasticsearch、OpenSearch、Solr",
+    "redis": "Redis、Valkey、Dragonfly",
     "etcd": "etcd",
-    "cypher": "Neo4j, Memgraph and Neptune"
+    "cypher": "Neo4j、Memgraph、Neptune"
   },
   "problems": {
-    "button": "View problems",
-    "count_other": "{{count}} problems",
-    "none": "No problems",
-    "title": "Script problems",
-    "line": "Line {{line}}",
-    "settings": "Configure rules…"
+    "button": "問題を表示",
+    "count_other": "{{count}} 件の問題",
+    "none": "問題なし",
+    "title": "スクリプトの問題",
+    "line": "{{line}} 行目",
+    "settings": "ルールを設定…"
   },
-  "ruleId": "Rule: {{id}}",
+  "ruleId": "ルール: {{id}}",
   "rules": {
     "select-star": {
       "title": "SELECT *",
-      "message": "SELECT * fetches all columns",
-      "why": "It fetches columns you don't use, prevents an index from covering the query, and changes shape when someone adds a column. List only the columns you need."
+      "message": "SELECT * はすべての列を取得します",
+      "why": "使わない列まで取得し、インデックスでクエリをカバーできなくなり、列が追加されると形が変わってしまいます。必要な列だけを列挙してください。"
     },
     "dml-without-where": {
-      "title": "UPDATE or DELETE without WHERE",
-      "message": "{{keyword}} without WHERE: affects all rows of the table",
-      "why": "Without a condition, the statement changes or deletes the whole table. If that is what you want, use TRUNCATE to empty it; otherwise, add the WHERE that limits the rows."
+      "title": "WHERE のない UPDATE または DELETE",
+      "message": "WHERE のない {{keyword}}: テーブルのすべての行に影響します",
+      "why": "条件がないと、文はテーブル全体を変更または削除します。意図したものなら、空にするには TRUNCATE を使ってください。そうでなければ、行を絞る WHERE を追加してください。"
     },
     "not-in-subquery": {
-      "title": "NOT IN with a subquery",
-      "message": "NOT IN (subquery): if it returns a NULL, no rows come out",
-      "why": "A single NULL in the subquery is enough for the condition to never be true and the query to return nothing. Use NOT EXISTS, or filter out the NULLs inside the subquery."
+      "title": "サブクエリ付きの NOT IN",
+      "message": "NOT IN (サブクエリ): NULL が返されると、行が 1 件も出力されません",
+      "why": "サブクエリに NULL が 1 つあるだけで条件が常に真にならなくなり、クエリは何も返しません。NOT EXISTS を使うか、サブクエリ内で NULL を除外してください。"
     },
     "leading-wildcard": {
-      "title": "Leading wildcard",
-      "message": "The pattern {{pattern}} starts with a wildcard: it can't use an index",
-      "why": "A pattern that starts with % (or * / ?) forces a check of every value. If you can, anchor the start of the text ('abc%') or use a full-text search."
+      "title": "先頭のワイルドカード",
+      "message": "パターン {{pattern}} がワイルドカードで始まっています。インデックスを使用できません",
+      "why": "% (または * / ?) で始まるパターンは、すべての値を調べる必要があります。可能なら文字列の先頭を固定する('abc%')か、全文検索を使ってください。"
     },
     "function-on-column": {
-      "title": "Function on a column in the WHERE",
-      "message": "{{fn}}(…) on the column prevents using its index",
-      "why": "By wrapping the column in a function, the engine has to compute it row by row. Move the transformation to the other side of the comparison (for example, a date range instead of YEAR(col) = 2024) or create an index on the expression."
+      "title": "WHERE の列に対する関数",
+      "message": "列に対する {{fn}}(…) があるため、インデックスを使用できません",
+      "why": "列を関数で包むと、エンジンは行ごとに計算する必要があります。変換を比較の反対側に移してください(例: YEAR(col) = 2024 の代わりに日付の範囲を使う)。または式に対するインデックスを作成してください。"
     },
     "equals-null": {
-      "title": "= NULL or <> NULL",
-      "message": "Comparing with NULL using = or <> is never true",
-      "why": "NULL is neither equal nor different to anything, not even another NULL: the condition evaluates to unknown and lets no rows through. Use IS NULL or IS NOT NULL."
+      "title": "= NULL または <> NULL",
+      "message": "= または <> で NULL と比較しても真になりません",
+      "why": "NULL は何とも等しくなく、何とも異なりません(別の NULL とも)。条件は不明となり、行は通りません。IS NULL または IS NOT NULL を使ってください。"
     },
     "order-by-ordinal": {
-      "title": "ORDER BY by position",
-      "message": "ORDER BY {{n}} sorts by the column's position",
-      "why": "If someone changes the order of the SELECT columns, the result is sorted by another one without warning. Write the column name or its alias."
+      "title": "位置指定の ORDER BY",
+      "message": "ORDER BY {{n}} は列の位置で並べ替えます",
+      "why": "SELECT の列の順序が変わると、気づかないうちに別の列で並べ替えられます。列名またはそのエイリアスを書いてください。"
     },
     "order-by-random": {
-      "title": "Random order",
-      "message": "{{call}} sorts the whole table to pick random rows",
-      "why": "It computes a random value for each row and sorts them all, even if you then ask for just one. On large tables use the engine's sampling (TABLESAMPLE, SAMPLE) or pick from a random key range."
+      "title": "ランダムな並び順",
+      "message": "{{call}} はランダムに行を選ぶためにテーブル全体を並べ替えます",
+      "why": "各行にランダムな値を計算してすべてを並べ替えます。1 行しか要求しなくても同じです。大きなテーブルではエンジンのサンプリング(TABLESAMPLE、SAMPLE)を使うか、ランダムなキーの範囲で選んでください。"
     },
     "implicit-cross-join": {
-      "title": "Implicit join without a condition",
-      "message": "\"{{table}}\" is joined with a comma and no condition: Cartesian product",
-      "why": "A table in the FROM separated by a comma, with no WHERE condition relating it to the others, combines each row with all the others. Use JOIN … ON with the condition; if the product is intentional, write CROSS JOIN."
+      "title": "条件のない暗黙の結合",
+      "message": "「{{table}}」がカンマで条件なしに結合されています: 直積になります",
+      "why": "FROM でカンマ区切りされたテーブルに、WHERE で他のテーブルと関連付ける条件がないと、すべての行が他のすべての行と組み合わされます。条件付きの JOIN … ON を使ってください。直積が意図したものなら CROSS JOIN と書いてください。"
     },
     "insert-without-columns": {
-      "title": "INSERT without a column list",
-      "message": "INSERT without a column list",
-      "why": "Values are assigned by the position of the table's columns: if someone adds or reorders columns, the INSERT fails or stores data in the wrong column. Name the columns."
+      "title": "列リストのない INSERT",
+      "message": "列リストのない INSERT",
+      "why": "値はテーブルの列の位置で割り当てられます。列が追加または並べ替えられると、INSERT が失敗するか、誤った列にデータが保存されます。列を明示してください。"
     },
     "distinct-group-by": {
-      "title": "DISTINCT together with GROUP BY",
-      "message": "DISTINCT is redundant: GROUP BY already returns unique rows",
-      "why": "Grouping already leaves one row per group; DISTINCT adds work without changing the result (unless the SELECT doesn't include all the grouped columns). Remove one of the two."
+      "title": "GROUP BY と DISTINCT の併用",
+      "message": "DISTINCT は不要です。GROUP BY は既に一意の行を返します",
+      "why": "グループ化で既にグループごとに 1 行になるため、DISTINCT は結果を変えずに処理を増やすだけです(SELECT にグループ化した列がすべて含まれていない場合を除く)。どちらかを外してください。"
     },
     "union-distinct": {
-      "title": "UNION instead of UNION ALL",
-      "message": "UNION removes duplicates; if there can't be any, UNION ALL is faster",
-      "why": "UNION sorts or builds a hash of the whole result to eliminate repeated rows. If the parts don't overlap or duplicates don't matter, use UNION ALL."
+      "title": "UNION ALL ではなく UNION",
+      "message": "UNION は重複を除きます。重複がありえないなら UNION ALL の方が高速です",
+      "why": "UNION は重複行を除くために結果全体を並べ替えるかハッシュを作ります。各部分が重ならない、または重複が問題にならないなら UNION ALL を使ってください。"
     },
     "nolock": {
       "title": "NOLOCK / READ UNCOMMITTED",
-      "message": "{{hint}} reads uncommitted data",
-      "why": "It can return rows that are later rolled back, duplicated rows, or missing rows if the table is reorganized during the read. If what you want is for reads not to wait, use snapshot isolation (READ_COMMITTED_SNAPSHOT)."
+      "message": "{{hint}} はコミットされていないデータを読み取ります",
+      "why": "後で取り消される行、重複した行、読み取り中にテーブルが再編成された場合の欠落した行が返される可能性があります。読み取りを待たせたくないのであれば、スナップショット分離(READ_COMMITTED_SNAPSHOT)を使ってください。"
     },
     "cursor": {
-      "title": "Cursors",
-      "message": "Cursor: processes rows one at a time",
-      "why": "A cursor walks row by row through what a set-based statement (UPDATE … FROM, MERGE, a subquery) resolves at once. If you need one, declare it LOCAL FAST_FORWARD."
+      "title": "カーソル",
+      "message": "カーソル: 行を 1 つずつ処理します",
+      "why": "カーソルは、集合ベースの文(UPDATE … FROM、MERGE、サブクエリ)なら一度に解決できる処理を、行ごとに繰り返します。必要な場合は LOCAL FAST_FORWARD で宣言してください。"
     },
     "set-rowcount": {
       "title": "SET ROWCOUNT",
-      "message": "SET ROWCOUNT stays active in the session and is deprecated for INSERT, UPDATE and DELETE",
-      "why": "It affects all following statements in the session, including triggers, until someone sets it back to 0. Use TOP (n) in the statement."
+      "message": "SET ROWCOUNT はセッションで有効なままになり、INSERT、UPDATE、DELETE では非推奨です",
+      "why": "誰かが 0 に戻すまで、トリガーを含むセッション内の後続のすべての文に影響します。文に TOP (n) を使ってください。"
     },
     "global-identity": {
       "title": "@@IDENTITY",
-      "message": "@@IDENTITY may return the identity generated by a trigger",
-      "why": "It returns the last identity value of the session in any table, even one inserted by a trigger. Use SCOPE_IDENTITY() or the OUTPUT clause."
+      "message": "@@IDENTITY はトリガーが生成した ID を返すことがあります",
+      "why": "トリガーが挿入したものも含め、セッション内のどのテーブルでも最後に生成された ID 値を返します。SCOPE_IDENTITY() または OUTPUT 句を使ってください。"
     },
     "sp-prefix": {
-      "title": "Procedures with the sp_ prefix",
-      "message": "\"{{name}}\": the sp_ prefix is for system procedures",
-      "why": "SQL Server looks for sp_ procedures in master first, which costs an extra lookup on every call and may run a system one with the same name. Use another prefix (usp_) or none."
+      "title": "sp_ プレフィックスのプロシージャ",
+      "message": "「{{name}}」: sp_ プレフィックスはシステムプロシージャ用です",
+      "why": "SQL Server はまず master で sp_ を探すため、呼び出しごとに余計な検索が発生し、同名のシステムプロシージャが実行されることもあります。別のプレフィックス(usp_)を使うか、付けないでください。"
     },
     "set-nocount": {
-      "title": "Procedure without SET NOCOUNT ON",
-      "message": "\"{{name}}\" has no SET NOCOUNT ON",
-      "why": "Without it, each statement sends the client an \"N rows affected\" message: extra traffic and, for some clients, unexpected results. Add SET NOCOUNT ON at the start of the body."
+      "title": "SET NOCOUNT ON のないプロシージャ",
+      "message": "「{{name}}」に SET NOCOUNT ON がありません",
+      "why": "これがないと、各文がクライアントに「N 行が影響を受けました」というメッセージを送り、トラフィックが増え、クライアントによっては想定外の結果になります。本体の先頭に SET NOCOUNT ON を追加してください。"
     },
     "for-update-wait": {
-      "title": "FOR UPDATE that waits for the lock",
-      "message": "{{clause}} waits for the lock to be released",
-      "why": "If another transaction holds the row, the query waits. For work queues use SKIP LOCKED; to fail right away, NOWAIT (in Oracle also WAIT n)."
+      "title": "ロックを待つ FOR UPDATE",
+      "message": "{{clause}} はロックが解放されるのを待ちます",
+      "why": "別のトランザクションが行を保持していると、クエリは待機します。ワークキューには SKIP LOCKED を、すぐに失敗させたい場合は NOWAIT を使ってください(Oracle では WAIT n も可)。"
     },
     "serial-identity": {
-      "title": "serial instead of IDENTITY",
-      "message": "{{type}}: prefer GENERATED … AS IDENTITY",
-      "why": "serial creates a separate sequence that doesn't travel with the permissions or with copies of the table and lets you insert values by hand without control. IDENTITY columns are the SQL standard and the sequence stays bound to the column."
+      "title": "IDENTITY ではなく serial",
+      "message": "{{type}}: GENERATED … AS IDENTITY を推奨します",
+      "why": "serial は別のシーケンスを作成し、権限やテーブルのコピーに引き継がれず、値を手動で挿入しても検査されません。IDENTITY 列は SQL 標準で、シーケンスが列に紐づきます。"
     },
     "group-by-nonaggregated": {
-      "title": "Columns outside the GROUP BY",
-      "message": "\"{{column}}\" is neither grouped nor inside an aggregate function",
-      "why": "MySQL without ONLY_FULL_GROUP_BY returns the value of an arbitrary row of the group, and with that mode the query fails. Add the column to the GROUP BY or use an aggregate function (MAX, ANY_VALUE…)."
+      "title": "GROUP BY にない列",
+      "message": "「{{column}}」はグループ化されておらず、集計関数にも含まれていません",
+      "why": "ONLY_FULL_GROUP_BY のない MySQL ではグループ内の任意の行の値が返され、このモードではクエリが失敗します。列を GROUP BY に追加するか、集計関数(MAX、ANY_VALUE…)を使ってください。"
     },
     "rownum-order-by": {
-      "title": "ROWNUM with ORDER BY",
-      "message": "ROWNUM is applied before ORDER BY",
-      "why": "In the same block, Oracle numbers and cuts the rows before sorting them: it doesn't return \"the first N\" according to the order. Sort in a subquery and filter ROWNUM outside, or use FETCH FIRST n ROWS ONLY."
+      "title": "ORDER BY と ROWNUM",
+      "message": "ROWNUM は ORDER BY より先に適用されます",
+      "why": "同じブロックでは、Oracle は並べ替えの前に行に番号を付けて絞り込みます。並び順での「先頭の N 件」にはなりません。サブクエリで並べ替え、外側で ROWNUM を絞り込むか、FETCH FIRST n ROWS ONLY を使ってください。"
     },
     "outer-join-plus": {
-      "title": "(+) outer join syntax",
-      "message": "(+) is the old outer join syntax",
-      "why": "It has restrictions that LEFT/RIGHT JOIN doesn't (it doesn't allow OR or FULL OUTER) and it is easy to forget in one of the conditions. Use LEFT JOIN … ON."
+      "title": "外部結合の (+) 構文",
+      "message": "(+) は外部結合の古い構文です",
+      "why": "LEFT/RIGHT JOIN にはない制約があり(OR や FULL OUTER が使えない)、条件の 1 つに付け忘れやすい構文です。LEFT JOIN … ON を使ってください。"
     },
     "delete-without-time": {
-      "title": "DELETE without a time range",
-      "message": "DELETE without a condition on time: deletes the whole history of the series",
-      "why": "Without a time range, it deletes all the points that meet the condition from the beginning. Add time >= … AND time < … to limit it."
+      "title": "時間範囲のない DELETE",
+      "message": "time に対する条件のない DELETE: シリーズの履歴がすべて削除されます",
+      "why": "time の範囲がないと、条件に合致するすべてのポイントを最初から削除します。time >= … AND time < … を追加して範囲を絞ってください。"
     },
     "drop-series": {
       "title": "DROP SERIES / MEASUREMENT",
-      "message": "DROP {{what}} deletes the whole history, with no time range",
-      "why": "It doesn't accept a time range: it removes all the points and the series index. If you want to delete a period, use DELETE with a condition on time."
+      "message": "DROP {{what}} は時間範囲なしで履歴をすべて削除します",
+      "why": "time の範囲は指定できません。すべてのポイントとシリーズのインデックスが削除されます。特定の期間を削除したい場合は、time の条件付きの DELETE を使ってください。"
     },
     "allow-filtering": {
       "title": "ALLOW FILTERING",
-      "message": "ALLOW FILTERING scans partitions to filter",
-      "why": "The coordinator reads data from many partitions and discards what doesn't meet the condition: the cost grows with the table. Model a table for that query or filter by the partition key."
+      "message": "ALLOW FILTERING は絞り込みのためにパーティションを走査します",
+      "why": "コーディネーターが多数のパーティションからデータを読み、条件に合わないものを破棄します。コストはテーブルとともに増えます。そのクエリ用のテーブルをモデリングするか、パーティションキーで絞り込んでください。"
     },
     "no-partition-key": {
-      "title": "SELECT without a partition key",
-      "message": "SELECT on {{table}} without WHERE: reads all partitions",
-      "why": "Without restricting the partition key, the query scans the whole cluster. Filter by the partition key or paginate with token()."
+      "title": "パーティションキーのない SELECT",
+      "message": "WHERE のない {{table}} の SELECT: すべてのパーティションを読み取ります",
+      "why": "パーティションキーを絞らないと、クエリはクラスター全体を走査します。パーティションキーで絞り込むか、token() でページングしてください。"
     },
     "batch-partitions": {
-      "title": "BATCH across partitions",
-      "message": "The BATCH writes to several tables or partitions",
-      "why": "A batch spanning several partitions is not faster: it loads the coordinator and, if LOGGED, also writes the batch log. Use it for atomicity within a partition; to load data, send the statements separately."
+      "title": "パーティションをまたぐ BATCH",
+      "message": "BATCH が複数のテーブルまたはパーティションに書き込みます",
+      "why": "複数のパーティションにまたがるバッチは高速になりません。コーディネーターに負荷がかかり、LOGGED の場合はバッチログも書き込まれます。単一パーティション内のアトミック性に使い、データのロードでは文を個別に送信してください。"
     },
     "write-all": {
-      "title": "Write without a filter",
-      "message": "{{call}} has no filter: it affects everything",
-      "why": "Without a filter, the operation changes or deletes all documents or keys. If that is what you want, write the explicit filter or use the engine's truncate operation; otherwise, add the condition."
+      "title": "フィルターのない書き込み",
+      "message": "{{call}} にフィルターがありません: すべてが対象になります",
+      "why": "フィルターがないと、操作はすべてのドキュメントまたはキーを変更または削除します。意図したものなら、フィルターを明示するか、エンジンの全消去操作を使ってください。そうでなければ条件を追加してください。"
     },
     "where-operator": {
       "title": "$where",
-      "message": "$where runs JavaScript for each document",
-      "why": "It doesn't use indexes, is slow and is disabled on many servers. Replace it with query operators or with $expr."
+      "message": "$where はドキュメントごとに JavaScript を実行します",
+      "why": "インデックスを使わず、低速で、多くのサーバーで無効化されています。クエリ演算子または $expr に置き換えてください。"
     },
     "unanchored-regex": {
-      "title": "Unanchored regular expression",
-      "message": "The expression {{pattern}} doesn't start with ^: it scans the whole index",
-      "why": "Only an expression anchored at the start (^abc) and case-sensitive makes good use of an index. If you are searching for loose text, use a text index."
+      "title": "アンカーのない正規表現",
+      "message": "正規表現 {{pattern}} が ^ で始まっていません: インデックス全体を走査します",
+      "why": "先頭が固定され(^abc)、大文字小文字を区別する正規表現だけがインデックスを有効に使えます。部分一致の検索にはテキストインデックスを使ってください。"
     },
     "read-all": {
-      "title": "Read without a filter",
-      "message": "{{call}} without a filter reads everything",
-      "why": "It fetches all documents or keys. Add a filter, a projection and a limit to fetch only what you need."
+      "title": "フィルターのない読み取り",
+      "message": "フィルターのない {{call}} はすべてを読み取ります",
+      "why": "すべてのドキュメントまたはキーを取得します。必要なものだけを取得するために、フィルター、プロジェクション、制限を追加してください。"
     },
     "keys-command": {
       "title": "KEYS",
-      "message": "KEYS {{pattern}} scans all keys and blocks the server",
-      "why": "Redis serves one command at a time: while KEYS scans the database, it answers no one. Use SCAN with MATCH and COUNT, which advances in parts."
+      "message": "KEYS {{pattern}} はすべてのキーを走査し、サーバーをブロックします",
+      "why": "Redis は一度に 1 つのコマンドしか処理しないため、KEYS がデータベースを走査している間は誰にも応答しません。MATCH と COUNT を指定した SCAN を使うと、少しずつ進められます。"
     },
     "flush": {
       "title": "FLUSHALL / FLUSHDB",
-      "message": "{{command}} deletes all keys",
-      "why": "FLUSHDB empties the current database and FLUSHALL all the databases on the server, with no way back. Make sure you are connected to the right server."
+      "message": "{{command}} はすべてのキーを削除します",
+      "why": "FLUSHDB は現在のデータベースを、FLUSHALL はサーバーのすべてのデータベースを空にし、元に戻せません。正しいサーバーに接続していることを確認してください。"
     },
     "big-read": {
-      "title": "Full read of a key",
-      "message": "{{command}} reads the entire key",
-      "why": "With large keys, the response takes long and blocks the server while it is built. Use HSCAN / SSCAN, or ask for a bounded range."
+      "title": "キー全体の読み取り",
+      "message": "{{command}} はキー全体を読み取ります",
+      "why": "大きなキーでは、応答の組み立てに時間がかかり、その間サーバーがブロックされます。HSCAN / SSCAN を使うか、範囲を絞って取得してください。"
     },
     "match-without-label": {
-      "title": "MATCH without a label",
-      "message": "This pattern has no label or properties: it scans all nodes",
-      "why": "Without a label (:Person) or a property filter, the engine has to check every node in the database. Add the label so it can use its indexes."
+      "title": "ラベルのない MATCH",
+      "message": "このパターンにはラベルもプロパティもありません: すべてのノードを走査します",
+      "why": "ラベル(:Person)やプロパティによるフィルターがないと、エンジンはデータベースのすべてのノードを調べる必要があります。インデックスを使えるようにラベルを追加してください。"
     },
     "cartesian-product": {
-      "title": "Disconnected patterns",
-      "message": "This pattern shares no nodes with the rest: Cartesian product",
-      "why": "Two patterns separated by a comma with no variables in common combine each result of one with all those of the other. Relate them in the same pattern or with a WHERE."
+      "title": "つながっていないパターン",
+      "message": "このパターンは他のパターンとノードを共有していません: 直積になります",
+      "why": "共通の変数がないままカンマで区切られた 2 つのパターンは、一方のすべての結果をもう一方のすべての結果と組み合わせます。同じパターン内か WHERE で関連付けてください。"
     },
     "detach-delete-all": {
-      "title": "DETACH DELETE without WHERE",
-      "message": "DETACH DELETE without WHERE deletes all the nodes the MATCH finds",
-      "why": "It deletes the nodes and all their relationships. Without a WHERE or a property filter, it takes all the nodes of the pattern with it. Review the MATCH; to delete many, do it in batches (CALL { … } IN TRANSACTIONS)."
+      "title": "WHERE のない DETACH DELETE",
+      "message": "WHERE のない DETACH DELETE は、MATCH が見つけたすべてのノードを削除します",
+      "why": "ノードとそのすべてのリレーションシップを削除します。WHERE やプロパティのフィルターがないと、パターンのすべてのノードが対象になります。MATCH を確認してください。大量に削除する場合はバッチで行います(CALL { … } IN TRANSACTIONS)。"
     },
     "unknown-table": {
-      "title": "Unknown table",
-      "message": "“{{name}}” does not exist in this database",
-      "why": "The name is not among the objects of the tab's database (according to the explorer). It may be a typo, an object from another database, or one that doesn't exist yet. Temporary tables, CTEs, aliases and objects the same script creates are not flagged."
+      "title": "不明なテーブル",
+      "message": "「{{name}}」はこのデータベースに存在しません",
+      "why": "この名前は、タブのデータベースのオブジェクト(エクスプローラー基準)にありません。入力ミス、別のデータベースのオブジェクト、まだ存在しないオブジェクトの可能性があります。一時テーブル、CTE、エイリアス、同じスクリプトで作成されるオブジェクトは対象外です。"
     },
     "unknown-column": {
-      "title": "Unknown column",
-      "message": "“{{table}}” has no column “{{column}}”",
-      "why": "The column is not among the table's loaded columns. Only qualified columns (alias.column) or those in an INSERT list are checked, and only when the table exists and its columns have already loaded."
+      "title": "不明な列",
+      "message": "「{{table}}」に列「{{column}}」はありません",
+      "why": "その列は、読み込まれたテーブルの列にありません。確認されるのは修飾された列(エイリアス.列)または INSERT のリスト内の列のみで、テーブルが存在し列が読み込み済みの場合に限ります。"
     }
   }
 }

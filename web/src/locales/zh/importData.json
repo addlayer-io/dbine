@@ -1,77 +1,77 @@
 {
-  "title": "Import data",
+  "title": "导入数据",
   "steps": {
-    "file": "File",
-    "preview": "Preview",
-    "target": "Target",
-    "import": "Import"
+    "file": "文件",
+    "preview": "预览",
+    "target": "目标",
+    "import": "导入"
   },
   "formats": {
-    "auto": "Automatic (by extension)",
-    "csv": "CSV (comma)",
-    "csvSemicolon": "CSV (semicolon)",
-    "tsv": "TSV (tab)",
-    "json": "JSON (array of objects)",
-    "jsonLines": "JSON Lines (one object per line)"
+    "auto": "自动（按扩展名）",
+    "csv": "CSV（逗号）",
+    "csvSemicolon": "CSV（分号）",
+    "tsv": "TSV（制表符）",
+    "json": "JSON（对象数组）",
+    "jsonLines": "JSON Lines（每行一个对象）"
   },
   "types": {
-    "integer": "integer",
-    "number": "number",
-    "boolean": "boolean",
-    "date": "date",
-    "datetime": "date and time",
-    "text": "text"
+    "integer": "整数",
+    "number": "数字",
+    "boolean": "布尔值",
+    "date": "日期",
+    "datetime": "日期时间",
+    "text": "文本"
   },
   "file": {
-    "filterData": "Data (CSV, TSV, JSON, JSONL, XLSX, XML)",
-    "pickHint": "Choose a CSV, TSV, JSON, JSON Lines, Excel or XML file.",
-    "format": "Format",
-    "delimiter": "Delimiter",
-    "tab": "tab",
-    "commaDefault": ", (or the format's)",
-    "sheet": "Sheet",
-    "firstSheet": "First sheet",
-    "header": "The first row has the column names",
-    "detected_other": "{{count}} columns detected · format {{format}}"
+    "filterData": "数据（CSV、TSV、JSON、JSONL、XLSX、XML）",
+    "pickHint": "请选择 CSV、TSV、JSON、JSON Lines、Excel 或 XML 文件。",
+    "format": "格式",
+    "delimiter": "分隔符",
+    "tab": "制表符",
+    "commaDefault": ", （或该格式的分隔符）",
+    "sheet": "工作表",
+    "firstSheet": "第一个工作表",
+    "header": "第一行是列名",
+    "detected_other": "检测到 {{count}} 列 · 格式 {{format}}"
   },
   "preview": {
-    "caption_other": "First {{rows}} rows of {file} · {{count}} columns",
-    "empty": "The file has no data rows."
+    "caption_other": "{file} 的前 {{rows}} 行 · {{count}} 列",
+    "empty": "文件中没有数据行。"
   },
   "target": {
-    "existing": "Existing table",
-    "new": "New table",
-    "pickTable": "Choose the table",
-    "schema": "schema",
-    "tableName": "table name",
-    "batch": "Rows per batch",
-    "sourceColumn": "File column",
-    "detectedType": "Detected type",
-    "targetColumn": "Target column",
-    "ignore": "(ignore)",
-    "name": "Name",
-    "type": "Type",
-    "nulls": "Nulls",
-    "toImport_other": "{{count}} columns to import",
+    "existing": "现有表",
+    "new": "新表",
+    "pickTable": "选择表",
+    "schema": "架构",
+    "tableName": "表名",
+    "batch": "每批行数",
+    "sourceColumn": "文件列",
+    "detectedType": "检测到的类型",
+    "targetColumn": "目标列",
+    "ignore": "（忽略）",
+    "name": "名称",
+    "type": "类型",
+    "nulls": "空值",
+    "toImport_other": "要导入 {{count}} 列",
     "errors": {
-      "pickTable": "Choose the target table",
-      "mapOne": "Map at least one column",
-      "mappedTwice": "Some target columns are mapped twice",
-      "newName": "Enter the new table's name",
-      "exists": "A table with that name already exists",
-      "includeOne": "Include at least one column",
-      "nameAndType": "Each column needs a name and a type",
-      "duplicateNames": "There are duplicate column names"
+      "pickTable": "请选择目标表",
+      "mapOne": "请至少映射一列",
+      "mappedTwice": "部分目标列被映射了两次",
+      "newName": "请输入新表的名称",
+      "exists": "已存在同名的表",
+      "includeOne": "请至少包含一列",
+      "nameAndType": "每一列都需要名称和类型",
+      "duplicateNames": "存在重复的列名"
     }
   },
   "run": {
-    "importing": "Importing {{file}}…",
-    "rows_other": "rows",
-    "rowsPerSecond": "rows/s",
-    "done": "Import finished",
-    "doneDetail_other": "{{n}} rows into {table} · {{seconds}} s",
-    "partial_other": "{{n}} rows were imported before it stopped.",
-    "cancelledMessage": "Import cancelled.",
-    "cancelImport": "Cancel import"
+    "importing": "正在导入 {{file}}…",
+    "rows_other": "行",
+    "rowsPerSecond": "行/秒",
+    "done": "导入完成",
+    "doneDetail_other": "{{n}} 行已导入 {table} · {{seconds}} 秒",
+    "partial_other": "停止前已导入 {{n}} 行。",
+    "cancelledMessage": "导入已取消。",
+    "cancelImport": "取消导入"
   }
 }

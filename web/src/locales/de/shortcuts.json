@@ -1,57 +1,57 @@
 {
-  "nav": "Keyboard shortcuts",
-  "help": "The keys of each action. Click a combination and press the new one (Esc cancels). The change applies right away and travels with the rest of the settings.",
-  "search": "Search by action or key",
-  "none": "No action matches the search.",
-  "resetAll": "Reset all",
-  "reset": "Back to the original combination",
-  "remove": "Remove the combination",
-  "change": "Change the combination",
-  "recording": "Press the combination…",
-  "unbound": "No shortcut",
-  "conflict": "Also used by: {{names}}",
-  "reserved": "It's a system shortcut (copy, paste, undo…): it stops working where the action runs.",
+  "nav": "Tastenkürzel",
+  "help": "Die Tasten jeder Aktion. Klicken Sie eine Kombination an und drücken Sie die neue (Esc bricht ab). Die Änderung gilt sofort und wandert mit den übrigen Einstellungen.",
+  "search": "Nach Aktion oder Taste suchen",
+  "none": "Keine Aktion entspricht der Suche.",
+  "resetAll": "Alle zurücksetzen",
+  "reset": "Zurück zur ursprünglichen Kombination",
+  "remove": "Die Kombination entfernen",
+  "change": "Die Kombination ändern",
+  "recording": "Drücken Sie die Kombination…",
+  "unbound": "Kein Kürzel",
+  "conflict": "Auch verwendet von: {{names}}",
+  "reserved": "Es ist ein Systemkürzel (Kopieren, Einfügen, Widerrufen…): Dort, wo die Aktion läuft, funktioniert es nicht mehr.",
   "group": {
-    "general": "General",
-    "view": "View",
+    "general": "Allgemein",
+    "view": "Ansicht",
     "editor": "Editor",
-    "results": "Results",
-    "database": "Database",
-    "connection": "Connection",
-    "settings": "Preferences",
-    "help": "Help"
+    "results": "Ergebnisse",
+    "database": "Datenbank",
+    "connection": "Verbindung",
+    "settings": "Einstellungen",
+    "help": "Hilfe"
   },
   "cmd": {
     "file": {
-      "newQuery": "New query",
-      "newWindow": "New window",
-      "closeTab": "Close the tab",
-      "save": "Save",
-      "open": "Open file…"
+      "newQuery": "Neue Abfrage",
+      "newWindow": "Neues Fenster",
+      "closeTab": "Tab schließen",
+      "save": "Speichern",
+      "open": "Datei öffnen…"
     },
     "app": {
-      "settings": "Settings",
-      "quit": "Quit DBine"
+      "settings": "Einstellungen",
+      "quit": "DBine beenden"
     },
     "view": {
-      "explorer": "Show or hide the explorer",
-      "output": "Show or hide the bottom panel",
-      "ai": "Show or hide the AI assistant"
+      "explorer": "Explorer ein- oder ausblenden",
+      "output": "Unteres Panel ein- oder ausblenden",
+      "ai": "KI-Assistenten ein- oder ausblenden"
     },
     "editor": {
-      "run": "Run the selection or everything",
-      "runStatement": "Run the statement at the cursor",
-      "planEstimated": "Estimated plan",
-      "planActual": "Run with actual plan",
-      "format": "Format",
-      "comment": "Comment or uncomment",
-      "find": "Find and replace",
-      "gotoLine": "Go to line…",
-      "autocomplete": "Autocomplete suggestions",
-      "toggleVim": "Turn Vim mode on or off"
+      "run": "Auswahl oder alles ausführen",
+      "runStatement": "Anweisung am Cursor ausführen",
+      "planEstimated": "Geschätzter Plan",
+      "planActual": "Mit tatsächlichem Plan ausführen",
+      "format": "Formatieren",
+      "comment": "Kommentieren oder Kommentar entfernen",
+      "find": "Suchen und ersetzen",
+      "gotoLine": "Gehe zu Zeile…",
+      "autocomplete": "Autovervollständigungsvorschläge",
+      "toggleVim": "Vim-Modus ein- oder ausschalten"
     },
     "results": {
-      "export": "Export the results…"
+      "export": "Ergebnisse exportieren…"
     }
   }
 }

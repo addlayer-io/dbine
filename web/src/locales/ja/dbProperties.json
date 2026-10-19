@@ -1,12 +1,12 @@
 {
-  "menu": "Properties…",
-  "title": "Properties of “{{name}}”",
-  "apply": "Apply",
-  "confirmTitle": "Apply changes to “{{name}}”",
-  "warningsTitle": "Warning:",
-  "applied": "Properties of “{{name}}” updated",
-  "scriptName": "Properties of {{name}}",
-  "nothing": "This engine has nothing to show or change in this tab.",
-  "readOnly": "Read-only connection: properties can be seen but not changed.",
-  "noChanges": "(no changes)"
+  "menu": "プロパティ…",
+  "title": "「{{name}}」のプロパティ",
+  "apply": "適用",
+  "confirmTitle": "「{{name}}」に変更を適用",
+  "warningsTitle": "注意:",
+  "applied": "「{{name}}」のプロパティを更新しました",
+  "scriptName": "{{name}} のプロパティ",
+  "nothing": "このエンジンには、このタブで表示または変更できる項目がありません。",
+  "readOnly": "読み取り専用の接続です。プロパティは表示のみで、変更できません。",
+  "noChanges": "(変更なし)"
 }

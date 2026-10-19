@@ -1,2 +1,804 @@
 # Values of the ko translation that are legitimately the same as English (see scripts/i18n/check.py):
 # terms the translator kept on purpose, one per line.
+backend:  (no columns reported)
+backend: Blocks
+backend: Operator
+backend:(SELECT con.contype::text FROM pg_constraint con WHERE con.conindid = ix.indexrelid AND con.conrelid = ix.indrelid\n                AND con.contype IN ('u', 'x') LIMIT 1) AS ctype,\n             CASE WHEN k.ord = 1 THEN (SELECT pg_get_constraintdef(con.oid) FROM pg_constraint con WHERE con.conindid = ix.indexrelid\n                AND con.conrelid = ix.indrelid AND con.contype IN ('u', 'x') LIMIT 1) END AS cdef
+backend:(no connections are available to MCP: the user can enable them in DBine, Settings › MCP)
+backend:(no objects)
+backend:(no results)
+backend:(this engine has no databases: use database "")
+backend:Accept
+backend:Access
+backend:Access key
+backend:Alive
+backend:Altibase
+backend:Argument
+backend:Arguments
+backend:Array
+backend:Asserts
+backend:Athena
+backend:Authorization
+backend:Auto vacuum
+backend:Avro
+backend:Backends
+backend:Backup
+backend:Backup set
+backend:Backups
+backend:Backward
+backend:Basic {0}
+backend:Bearer
+backend:Bearer 
+backend:Bearer {0}
+backend:Binlog
+backend:Bitmap
+backend:Block cache
+backend:Blocked
+backend:Bool
+backend:Branch
+backend:Bucket
+backend:Buckets
+backend:Buffer cache hit ratio
+backend:Buffer cache hit ratio base
+backend:Build
+backend:Builtin
+backend:Cancelled
+backend:Cannot execute query on non idempotent
+backend:Checkpoints
+backend:Checksum
+backend:Children
+backend:Chunks
+backend:Claude
+backend:Client secret
+backend:Cluster
+backend:Clustering
+backend:Clusters
+backend:Codex
+backend:Collection
+backend:Column
+backend:Command
+backend:Comment
+backend:Commit
+backend:Commits
+backend:Compression
+backend:Condition
+backend:Conditions
+backend:Configset
+backend:Connection
+backend:Connection from
+backend:Constant row
+backend:Cookie
+backend:Couchbase
+backend:Could not load conf
+backend:Count
+backend:Crashdumps
+backend:Cypher
+backend:Daemon
+backend:Dameng
+backend:Dashboards
+backend:Data streams
+backend:Databank
+backend:Database
+backend:Databases
+backend:Databend
+backend:Databricks
+backend:Datacenter
+backend:Dataset
+backend:Datasets
+backend:Date
+backend:Deadlocks
+backend:Decimal
+backend:Default
+backend:Denodo
+backend:Description
+backend:Destination
+backend:Details
+backend:Device
+backend:Dictionary
+backend:Disk
+backend:Distinct
+backend:Dnodes
+backend:Doc values
+backend:Documents
+backend:Doris
+backend:Dragonfly
+backend:Dragonfly {0}
+backend:Dremio
+backend:Dremio {0}
+backend:Drill
+backend:Drillbits
+backend:Elasticsearch
+backend:Elasticsearch {0}
+backend:Email
+backend:Enabled
+backend:Encoding
+backend:Encrypted
+backend:Endpoint
+backend:Error
+backend:Error occurred during query planning
+backend:Errors
+backend:Estimates
+backend:Exasol
+backend:Exception
+backend:Exclusion join
+backend:Executes
+backend:Expression
+backend:Extra
+backend:False
+backend:Fetch
+backend:Field
+backend:File
+backend:Filter
+backend:Filters
+backend:Finalize
+backend:Finished
+backend:Firebird
+backend:Firebird {0}
+backend:First
+backend:Fragment 
+backend:Frontends
+backend:Full index scan
+backend:Full scan
+backend:Fulltext index
+backend:Functions
+backend:General
+backend:Google
+backend:Goroutines
+backend:Grants
+backend:Greenplum
+backend:Greenwich
+backend:Gremlin
+backend:Hash
+backend:Hash join
+backend:Hash join access
+backend:Hashed
+backend:Heap (bytes)
+backend:Hive
+backend:Host
+backend:Hosts
+backend:Hybrid join
+backend:Hypertable
+backend:Hypertables
+backend:Iceberg
+backend:Identifier
+backend:Idle
+backend:Ignite
+backend:Ignite 3
+backend:Impact
+backend:Impala
+backend:Incremental
+backend:Index
+backend:Index 
+backend:Index lookup
+backend:Index lookup or null
+backend:Index merge
+backend:Index range scan
+backend:Index scan
+backend:Indexes
+backend:Inf
+backend:Infinity
+backend:Info
+backend:Ingres
+backend:Integrated
+backend:InterSystems Caché
+backend:Interrupted
+backend:Java
+backend:Job
+backend:Jobs done
+backend:Join
+backend:Join condition
+backend:Join type
+backend:Kerberos
+backend:Key
+backend:Keys
+backend:Keyspace
+backend:Keyspaces
+backend:Kudu
+backend:Label
+backend:Last
+backend:Layout
+backend:Leases
+backend:Linux
+backend:List
+backend:Listening
+backend:Location
+backend:Lock
+backend:Locks
+backend:Log
+backend:Logger
+backend:Login
+backend:Lookup
+backend:Machbase
+backend:Macros
+backend:Mango query
+backend:Manticore
+backend:Map
+backend:Master
+backend:Materialize
+backend:Measurements
+backend:Media
+backend:Memgraph
+backend:Memgraph {0}
+backend:Memory
+backend:Memstore
+backend:Memstore (bytes)
+backend:Memtables
+backend:Memtables (heap)
+backend:Merges
+backend:Message
+backend:Missing field
+backend:Mixed
+backend:Mnodes
+backend:Multiple index access
+backend:Name
+backend:Nested join
+backend:Nested loop join
+backend:No query plan
+backend:None
+backend:Normal
+backend:Null
+backend:Nullable
+backend:Number
+backend:Object
+backend:Ocient
+backend:Offers
+backend:Ollama
+backend:Operation
+backend:Operations
+backend:Optimized
+backend:Oracle
+backend:Ordered
+backend:Output
+backend:Page cache
+backend:Page cache hits
+backend:Page cache misses
+backend:Page life expectancy
+backend:Parallel
+backend:Parallel steps
+backend:Parallel {0}
+backend:Parent
+backend:Parquet
+backend:Partial
+backend:Password
+backend:Path id
+backend:Permissions
+backend:Phoenix
+backend:Plan
+backend:Plans
+backend:Point
+backend:Polygon
+backend:Port
+backend:Potential
+backend:Predicate
+backend:Prefetch
+backend:Presto
+backend:Procedure 
+backend:Processes blocked
+backend:Product join
+backend:Programs
+backend:Progress
+backend:Projection
+backend:Projections
+backend:Properties
+backend:Proto
+backend:Protobuf
+backend:Queries
+backend:Query
+backend:Questions
+backend:Quota
+backend:Rack
+backend:Random
+backend:Range
+backend:Read
+backend:Read 
+backend:Redis
+backend:Redis {0}{1}
+backend:Refresh
+backend:Replica set
+backend:Replicated
+backend:Residual
+backend:Role
+backend:Roles
+backend:Rollbacks
+backend:Rows
+backend:Running
+backend:Scan
+backend:Schema
+backend:Script
+backend:Search
+backend:Secret access key
+backend:Secret key
+backend:Security
+backend:Sequence
+backend:Serial
+backend:Series
+backend:Server
+backend:Server status
+backend:Serverless
+backend:Service
+backend:Session not found
+backend:Session token
+backend:Shard
+backend:Shards
+backend:Signature
+backend:Sinks
+backend:Size
+backend:Sleep
+backend:Slices
+backend:Slot
+backend:Slot (ms)
+backend:Slots
+backend:Snapshot
+backend:Snitch
+backend:Snowflake
+backend:Snowflake {0}
+backend:Sort
+backend:Sorted
+backend:Sorted set
+backend:Spanner
+backend:Spark
+backend:Spool
+backend:Sql
+backend:Stage
+backend:Standalone (replication handler)
+backend:Starburst
+backend:State
+backend:Statement
+backend:Static
+backend:Statistics
+backend:Status
+backend:Step
+backend:Stmt
+backend:Stores
+backend:Strategy
+backend:Stream
+backend:Streaming
+backend:Streams
+backend:String
+backend:Subquery index lookup
+backend:Succeeded
+backend:Success
+backend:Sum step
+backend:Sys
+backend:Table
+backend:Table 
+backend:Table scan
+backend:Table space scan
+backend:Tablespace
+backend:Tablespaces
+backend:Tablets
+backend:Tag
+backend:Tags
+backend:Teradata
+backend:The type of query is 
+backend:Thread pools
+backend:Tid
+backend:Time
+backend:Time (ms)
+backend:Timeline
+backend:Timeseries
+backend:Timestamp
+backend:Token
+backend:Token {0}
+backend:Tokens
+backend:Top
+backend:Topic
+backend:Topics
+backend:Total (ms)
+backend:Triggers
+backend:Trino
+backend:True
+backend:Truststore
+backend:Type
+backend:Unauthenticated
+backend:Unavailable
+backend:Unimplemented
+backend:Unique index lookup
+backend:Universal
+backend:Unknown
+backend:Unsupported administration command
+backend:Uptime
+backend:Uri
+backend:Usage
+backend:User
+backend:Userid
+backend:Users
+backend:Utilized
+backend:Valkey
+backend:Valkey {0}
+backend:Value
+backend:Version
+backend:Vertica
+backend:View
+backend:Virtuoso
+backend:Visible
+backend:Vnodes
+backend:Warehouse
+backend:Warehouses
+backend:Warnings
+backend:Watchers
+backend:Windows
+backend:Workers
+backend:Workgroup
+backend:Workgroups
+backend:Workspace
+backend:Yellowbrick
+backend:Zulu
+backend:con.conparentid <> 0
+backend:dsql: {0} has no primary key; read in one statement
+backend:no confidence
+backend:no handler found
+backend:no such column: {0}
+backend:no such function
+backend:no token needed
+backend:the other call got no reply: {0}
+backend:user add {0} --no-password
+backend:{0} Join
+backend:{0}: no database list: {1}
+backend:{0}Int{1}
+backend:User is 
+backend:no permissions
+backend:Attributes
+backend:Msg
+backend:Security must be explicitly enabled
+backend:Shared
+backend:bytes
+backend:clickhouse: readonly profile, sending no output settings
+backend:Aborted
+backend:Changed database context
+backend:Changed database context to
+backend:Changed language setting to
+backend:Code
+backend:Level
+backend:Null value is eliminated
+backend:PRINT 'no';\nGO 0\n
+backend:Scan count
+backend:The statement has been terminated.
+backend:lock conflict on no wait transaction
+backend:no {0} in {1}
+backend:Clustered
+backend:Collation
+backend:Ignored
+backend:no latest.json in the latest release (or HTTP error), asking GitHub
+backend:lo siento, no puedo
+backend:lo siento, pero no puedo
+backend:no puedo asistir
+backend:no puedo ayudar
+backend:no puedo hacer eso
+backend:no puedo proporcionar
+backend:Authentication failed
+backend:Could not resolve host
+backend:Host key verification failed
+backend:Permission denied (publickey)
+backend:Please tell me who you are
+backend:Pull
+backend:Push
+backend:  (no indexes)
+backend:never read nor written (no evidence either way)
+backend:Redshift
+backend:Remote
+backend:Waiting for
+backend:Atomic
+backend:Basic
+backend:Couchstore
+backend:Elastic pool
+backend:Hyperscale
+backend:Magma
+backend:No (OFF)
+backend:Premium
+backend:Shards (q)
+backend:Simple
+backend:Standard
+backend:Acme
+backend:Ana
+backend:Andrés
+backend:April
+backend:Argentina
+backend:August
+backend:Barcelona
+backend:Belgrano
+backend:Bianchi
+backend:Bogotá
+backend:Brown
+backend:Bruno
+backend:Camila
+backend:Carla
+backend:Chile
+backend:Colombia
+backend:Cyberdyne
+backend:Cypher 25
+backend:Cypher 5
+backend:Córdoba
+backend:Dbspace
+backend:December
+backend:Diego
+backend:Díaz
+backend:Edition
+backend:Elena
+backend:Emma
+backend:February
+backend:Fernández
+backend:Fri
+backend:Friday
+backend:García
+backend:Globex
+backend:González
+backend:Gran Vía
+backend:Gómez
+backend:Hooli
+backend:Initech
+backend:James
+backend:January
+backend:Johnson
+backend:Juan
+backend:Julieta
+backend:July
+backend:June
+backend:Laura
+backend:Liam
+backend:Lima
+backend:Lucas
+backend:Lucía
+backend:López
+backend:Madrid
+backend:March
+backend:Martín
+backend:Martínez
+backend:María
+backend:Mateo
+backend:May
+backend:Mia
+backend:Mitre
+backend:Mon
+backend:Monday
+backend:Montevideo
+backend:Moreau
+backend:Müller
+backend:Navarro
+backend:Nicolás
+backend:No (NONE)
+backend:No (off)
+backend:Noah
+backend:November
+backend:October
+backend:Olivia
+backend:Owner
+backend:Pablo
+backend:Paula
+backend:Pedro
+backend:Portugal
+backend:Profiling
+backend:Pérez
+backend:Rivadavia
+backend:Rodríguez
+backend:Romero
+backend:Rosario
+backend:Rossi
+backend:Ruiz
+backend:San Martín
+backend:Santiago
+backend:Sarmiento
+backend:Sat
+backend:Saturday
+backend:September
+backend:Silva
+backend:Smith
+backend:Sofía
+backend:Sosa
+backend:Soylent
+backend:Stark
+backend:Sun
+backend:Sunday
+backend:Throughput
+backend:Thu
+backend:Thursday
+backend:Tomás
+backend:Torres
+backend:Tue
+backend:Tuesday
+backend:Tyrell
+backend:Umbrella
+backend:Uruguay
+backend:Valentina
+backend:Vandelay
+backend:Wayne
+backend:Wed
+backend:Wednesday
+backend:Wonka
+backend:compañia
+backend:móvil
+backend:no chkpt on recovery
+backend:no free space acctg
+backend:país
+backend:producción
+backend:scheduled task: no runtime: {0}
+backend:Álvarez
+backend:Flux
+backend:optimizer: no structure for the AI: {0}
+backend:Índice faltante
+backend:DBine: carga masiva en curso
+backend:DBine: hay eventos, secuencias u objetos sin leer; nada cambió
+backend:DBine: la base no quedó vacía y no se borra
+backend:DBine: un objeto usa un sql_mode no admitido; nada cambió
+backend:Dbspaces
+backend:Double
+backend:Extents
+backend:Forbidden
+backend:Long
+backend:Namespace
+backend:Pid
+backend:Standby
+backend:Total
+backend:Total (bytes)
+backend:Transactions
+backend:Version 
+backend:Worker
+backend:can no longer be used
+backend:dev harness not started: no token file
+backend:no credentials
+backend:no kerberos credentials
+backend:odbc: no definition for {0}: {1}
+backend:Address
+backend:Assertion
+backend:Fault
+backend:Metadata
+backend:Negotiate
+backend:Negotiate {0}
+backend:Policy
+backend:Reason
+backend:Text
+backend:Caches
+backend:Library
+backend:Logs
+backend:pairing refused (no open invite or too many attempts)
+backend:pairing: no confirmation
+backend:Always On
+backend:CPU (ms)
+backend:CPUs
+backend:Data Guard
+backend:Id
+backend:Query Server
+backend:TTL (ms)
+backend:WAL (bytes)
+backend:X-Opaque-Id
+backend:bucket
+backend:build
+backend:cancelable
+backend:client URLs
+backend:configset
+backend:core
+backend:datacenter
+backend:dbid
+backend:drillbit
+backend:driver
+backend:endpoint
+backend:flags
+backend:foreman
+backend:fsync
+backend:heap
+backend:heap (%)
+backend:host
+backend:id
+backend:keyspace
+backend:measurements
+backend:number of user connections
+backend:offset
+backend:opid
+backend:ops/s
+backend:page hits
+backend:peer URLs
+backend:pid
+backend:ping (ms)
+backend:plan
+backend:pool
+backend:rack
+backend:roles
+backend:router
+backend:series
+backend:shard
+backend:shards
+backend:slots
+backend:stream
+backend:tokens
+backend:total
+backend:vgroups
+backend:vnodes
+backend:Action
+backend:Arn
+backend:Expiration
+backend:mysql cancel: no new cloud token: {0}
+backend:Resolved
+backend:no accounts configured
+backend:Conjur
+backend:Content
+backend:Folder
+backend:Safe
+backend:Bitwarden
+backend:Parameter
+backend:Parameters
+backend:Notebook
+backend:Mozilla
+backend:Delinea
+backend:Vault
+connection.json:source.kind.vault
+connection.json:source.kind.aws
+connection.json:source.kind.azure
+connection.json:source.kind.gcp
+connection.json:source.kind.zoho
+connection.json:source.kind.conjur
+connection.json:source.kind.ccp
+connection.json:source.kind.delinea
+connection.json:source.kind.bitwarden
+connection.json:source.kind.bitwarden_sm
+connection.json:source.kind.ssm
+connection.json:source.input.role_id
+connection.json:source.input.approle_secret_id
+connection.json:source.placeholder.command
+core.json:actions.newObjectPrefix
+core.json:export.defaultTable
+core.json:export.defaultFile
+dbDocs.json:formats.markdown
+designer.json:defaultTableName
+diagram.json:tab.fileName
+diagram.json:tab.fileNameDefault
+explorer.json:menu.profiler
+library.json:dialogs.param.name
+library.json:dialogs.param.table
+library.json:dialogs.param.schema
+library.json:dialogs.param.days
+lint.json:groups.oracle
+lint.json:groups.etcd
+lint.json:rules.select-star.title
+lint.json:rules.global-identity.title
+lint.json:rules.where-operator.title
+mcp.json:forClaude
+mcp.json:forCodex
+migration.json:script.fileName
+migration.json:script.fileNameDatabase
+notebook.json:settings.awsProfilePlaceholder
+notebook.json:toolbar.exportMarkdown
+optimizer.json:rules.not_in_to_not_exists.title
+optimizer.json:rules.exists_to_in.title
+optimizer.json:rules.count_to_exists.title
+palette.json:cmd.database.profiler
+processes.json:own
+profiler.json:hint.duration
+projects.json:link.folderPlaceholder
+projects.json:operation.merge
+projects.json:operation.rebase
+projects.json:operation.cherry-pick
+projects.json:operation.revert
+projects.json:op.pull
+projects.json:op.push
+projects.json:op.fetch
+results.json:defaultFileName
+results.json:defaultTableName
+results.json:export.format.json_lines
+results.json:grid.copyFormat.json_lines.name
+results.json:chart.fileName
+scheduled.json:formats.json_lines
+scheduled.json:notebook.formats.markdown
+secretAccounts.json:kind.zoho
+secretAccounts.json:wizard.client_id
+secretAccounts.json:wizard.client_secret
+secretAccounts.json:acct.input.client_id
+secretAccounts.json:acct.input.client_secret
+secretAccounts.json:acct.input.role_id
+secretAccounts.json:acct.input.secret_id
+secretAccounts.json:acct.input.url_delinea
+secretAccounts.json:acct.input.url_conjur
+secretAccounts.json:acct.input.url_ccp
+secretAccounts.json:acct.input.platform_url
+secretAccounts.json:acct.placeholder.url_delinea
+secretAccounts.json:acct.placeholder.url_conjur
+secretAccounts.json:acct.placeholder.url_ccp
+snippets.json:families.oracle
+snippets.json:families.db2
+snippets.json:families.etcd
+tunnel.json:jumpPlaceholder
+backend:AlloyDB para PostgreSQL
+backend:CPU de SQL Server
+backend:CPU de taosd
+backend:Cloud SQL para MySQL
+backend:Cloud SQL para PostgreSQL
+backend:RegionServers de HBase

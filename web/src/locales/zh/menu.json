@@ -1,52 +1,52 @@
 {
   "app": {
-    "about": "About DBine",
-    "settings": "Settings…",
-    "services": "Services",
-    "hide": "Hide DBine",
-    "hideOthers": "Hide others",
-    "showAll": "Show all",
-    "quit": "Quit DBine"
+    "about": "关于 DBine",
+    "settings": "设置…",
+    "services": "服务",
+    "hide": "隐藏 DBine",
+    "hideOthers": "隐藏其他",
+    "showAll": "全部显示",
+    "quit": "退出 DBine"
   },
   "file": {
-    "title": "File",
-    "newConnection": "New connection",
-    "newQuery": "New query",
-    "newNotebook": "New notebook",
-    "newWindow": "New window",
-    "closeTab": "Close tab",
-    "open": "Open File…"
+    "title": "文件",
+    "newConnection": "新建连接",
+    "newQuery": "新建查询",
+    "newNotebook": "新建笔记本",
+    "newWindow": "新建窗口",
+    "closeTab": "关闭标签页",
+    "open": "打开文件…"
   },
   "edit": {
-    "title": "Edit",
-    "undo": "Undo",
-    "redo": "Redo",
-    "cut": "Cut",
-    "copy": "Copy",
-    "paste": "Paste",
-    "selectAll": "Select all"
+    "title": "编辑",
+    "undo": "撤销",
+    "redo": "重做",
+    "cut": "剪切",
+    "copy": "复制",
+    "paste": "粘贴",
+    "selectAll": "全选"
   },
   "view": {
-    "title": "View",
-    "explorer": "Explorer",
-    "output": "Output",
-    "ai": "AI assistant",
-    "fullscreen": "Full screen"
+    "title": "视图",
+    "explorer": "资源管理器",
+    "output": "输出",
+    "ai": "AI 助手",
+    "fullscreen": "全屏"
   },
   "window": {
-    "title": "Window",
-    "minimize": "Minimize",
-    "zoom": "Zoom"
+    "title": "窗口",
+    "minimize": "最小化",
+    "zoom": "缩放"
   },
   "help": {
-    "title": "Help",
-    "checkUpdates": "Check for updates…",
-    "support": "Support the project"
+    "title": "帮助",
+    "checkUpdates": "检查更新…",
+    "support": "支持本项目"
   },
   "palette": {
-    "open": "Command palette…"
+    "open": "命令面板…"
   },
   "goto": {
-    "open": "Go to…"
+    "open": "转到…"
   }
 }

@@ -1,31 +1,31 @@
 {
-  "couldNotConnect": "Couldn't connect.",
+  "couldNotConnect": "Не удалось подключиться.",
   "duration": {
-    "s": "{{s}} s",
-    "dh": "{{d}} d {{h}} h",
-    "hm": "{{h}} h {{m}} min",
-    "ms": "{{m}} min {{s}} s"
+    "s": "{{s}} с",
+    "dh": "{{d}} д {{h}} ч",
+    "hm": "{{h}} ч {{m}} мин",
+    "ms": "{{m}} мин {{s}} с"
   },
   "level": {
-    "warn": "high",
-    "crit": "critical"
+    "warn": "высокий",
+    "crit": "критический"
   },
-  "justNow": "just now",
-  "secondsAgo": "{{s}} s ago",
-  "connection": "Connection",
-  "paused": "Paused",
-  "every": "Every {{s}} s",
-  "resume": "Resume",
-  "pause": "Pause",
-  "refresh": "Refresh",
-  "unsupported": "{{engine}} doesn't offer monitoring.",
-  "thisEngine": "This engine",
-  "measuring": "measuring…",
-  "of": "of {{max}}",
-  "filter": "Filter…",
-  "noMatch": "No rows match.",
-  "noRows": "No rows.",
+  "justNow": "только что",
+  "secondsAgo": "{{s}} с назад",
+  "connection": "Подключение",
+  "paused": "Приостановлено",
+  "every": "Каждые {{s}} с",
+  "resume": "Возобновить",
+  "pause": "Приостановить",
+  "refresh": "Обновить",
+  "unsupported": "{{engine}} не поддерживает мониторинг.",
+  "thisEngine": "Этот движок",
+  "measuring": "измерение…",
+  "of": "из {{max}}",
+  "filter": "Фильтр…",
+  "noMatch": "Нет подходящих строк.",
+  "noRows": "Нет строк.",
   "sparkline": {
-    "noData": "no data"
+    "noData": "нет данных"
   }
 }

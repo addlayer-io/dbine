@@ -1,54 +1,54 @@
 {
   "folder": {
-    "new": "New folder",
-    "edit": "Edit folder · {{name}}",
-    "name": "Name",
-    "namePlaceholder": "Client, environment…",
-    "nameRequired": "Enter a name",
-    "color": "Color",
-    "noColor": "No color",
-    "colorHelp": "Connections without their own color take their folder's (handy to mark production).",
-    "inside": "Inside",
-    "create": "Create",
-    "topLevel": "(Top level)"
+    "new": "Новая папка",
+    "edit": "Изменение папки · {{name}}",
+    "name": "Имя",
+    "namePlaceholder": "Клиент, среда…",
+    "nameRequired": "Введите имя",
+    "color": "Цвет",
+    "noColor": "Без цвета",
+    "colorHelp": "Подключения без собственного цвета берут цвет своей папки (удобно, чтобы отметить рабочую среду).",
+    "inside": "Внутри",
+    "create": "Создать",
+    "topLevel": "(верхний уровень)"
   },
   "move": {
-    "title": "Move «{{name}}» to…",
-    "move": "Move"
+    "title": "Переместить «{{name}}» в…",
+    "move": "Переместить"
   },
   "database": {
-    "scriptTitle": "Generate script · {{db}}",
-    "scriptName": "Script of {{db}}",
-    "scriptNameConverted": "Script of {{db}} (converted)",
-    "theDatabase": "the database"
+    "scriptTitle": "Создание скрипта · {{db}}",
+    "scriptName": "Скрипт {{db}}",
+    "scriptNameConverted": "Скрипт {{db}} (преобразованный)",
+    "theDatabase": "база данных"
   },
   "drivers": {
-    "intro": "Each driver downloads by itself the first time you connect to that engine. Here you can download them ahead (for example, if you'll work offline) or delete the ones you don't use.",
-    "search": "Search engine",
-    "diskTitle": "Disk space used by the downloaded drivers",
-    "summary": "{{installed}} of {{total}} downloaded · {{size}} MB",
-    "downloadAll": "Download all ({{size}} MB)",
-    "downloading": "Downloading",
-    "download": "Download",
-    "remove": "Delete",
-    "checkUpdates": "Check for updates",
-    "checking": "Checking…",
-    "upToDateAll": "Drivers are up to date.",
-    "rollback": "Roll back",
-    "rollbackTitle": "Drop version {{version}} and go back to {{previous}}",
-    "rollbackConfirm": "Go back to version {{previous}} of the {{label}} driver? Version {{version}} won't be used again. Open connections keep the current version until you close them.",
-    "statusDownloading": "Downloading version {{available}}…",
-    "statusReady": "Version {{version}} is used from the next connection",
-    "statusNeedsApp": "A newer version needs DBine {{minApp}} or later",
-    "statusRolledBack": "Version {{from}} failed and it went back to {{version}}",
-    "statusRolledBackUser": "Went back to version {{version}}; {{from}} won't be used",
-    "statusRestart": "Restart DBine to see this driver's new options"
+    "intro": "Каждый драйвер скачивается сам при первом подключении к этому движку. Здесь можно скачать их заранее (например, если вы будете работать без сети) или удалить те, что вам не нужны.",
+    "search": "Поиск движка",
+    "diskTitle": "Место на диске, занятое скачанными драйверами",
+    "summary": "Скачано {{installed}} из {{total}} · {{size}} МБ",
+    "downloadAll": "Скачать все ({{size}} МБ)",
+    "downloading": "Загрузка",
+    "download": "Скачать",
+    "remove": "Удалить",
+    "checkUpdates": "Проверить обновления",
+    "checking": "Проверка…",
+    "upToDateAll": "Драйверы обновлены.",
+    "rollback": "Откатить",
+    "rollbackTitle": "Отказаться от версии {{version}} и вернуться к {{previous}}",
+    "rollbackConfirm": "Вернуться к версии {{previous}} драйвера {{label}}? Версия {{version}} больше использоваться не будет. Открытые подключения сохранят текущую версию, пока вы их не закроете.",
+    "statusDownloading": "Загрузка версии {{available}}…",
+    "statusReady": "Версия {{version}} будет использоваться со следующего подключения",
+    "statusNeedsApp": "Для более новой версии нужен DBine {{minApp}} или новее",
+    "statusRolledBack": "Версия {{from}} не заработала, выполнен возврат к {{version}}",
+    "statusRolledBackUser": "Выполнен возврат к версии {{version}}; {{from}} использоваться не будет",
+    "statusRestart": "Перезапустите DBine, чтобы увидеть новые параметры этого драйвера"
   },
   "support": {
-    "title": "Support DBine",
-    "text": "DBine is free and will stay free. Your support helps us maintain the app and keep adding features.",
-    "notPayment": "It's support, not a payment: the app works the same either way.",
-    "notNow": "Not now",
-    "support": "Support the project"
+    "title": "Поддержать DBine",
+    "text": "DBine бесплатен и останется бесплатным. Ваша поддержка помогает нам развивать приложение и добавлять новые возможности.",
+    "notPayment": "Это поддержка, а не платёж: приложение работает одинаково в любом случае.",
+    "notNow": "Не сейчас",
+    "support": "Поддержать проект"
   }
 }

@@ -1,53 +1,53 @@
 {
-  "button": "Send feedback",
-  "title": "Send feedback",
-  "lead": "Suggest improvements, report a problem, request a new engine or ask a question.",
-  "kindLabel": "Feedback type",
+  "button": "Feedback senden",
+  "title": "Feedback senden",
+  "lead": "Schlagen Sie Verbesserungen vor, melden Sie ein Problem, wünschen Sie eine neue Engine oder stellen Sie eine Frage.",
+  "kindLabel": "Art des Feedbacks",
   "kinds": {
     "bug": {
-      "name": "Report a bug",
-      "hint": "Something doesn't work as you expected",
-      "titlePlaceholder": "E.g.: The editor closes when exporting to Excel",
-      "placeholder": "What you did, what you expected to happen and what happened. If there was an error message, copy it."
+      "name": "Fehler melden",
+      "hint": "Etwas funktioniert nicht wie erwartet",
+      "titlePlaceholder": "Z. B.: Der Editor schließt sich beim Export nach Excel",
+      "placeholder": "Was Sie getan haben, was Sie erwartet haben und was passiert ist. Wenn es eine Fehlermeldung gab, kopieren Sie sie."
     },
     "enhancement": {
-      "name": "Suggest an improvement",
-      "hint": "An idea to make DBine better",
-      "titlePlaceholder": "E.g.: Being able to pin columns in the results grid",
-      "placeholder": "What you would like DBine to do and how it would help you."
+      "name": "Verbesserung vorschlagen",
+      "hint": "Eine Idee, um DBine besser zu machen",
+      "titlePlaceholder": "Z. B.: Spalten im Ergebnisraster fixieren können",
+      "placeholder": "Was DBine Ihrer Meinung nach tun sollte und wie es Ihnen helfen würde."
     },
     "driver-request": {
-      "name": "Request a new engine",
-      "hint": "A database DBine doesn't support yet",
-      "titlePlaceholder": "E.g.: Firebird 5",
-      "placeholder": "How you use this engine and what you would need first: explore, query, edit data, migrate…"
+      "name": "Neue Engine wünschen",
+      "hint": "Eine Datenbank, die DBine noch nicht unterstützt",
+      "titlePlaceholder": "Z. B.: Firebird 5",
+      "placeholder": "Wie Sie diese Engine nutzen und was Sie zuerst bräuchten: erkunden, abfragen, Daten bearbeiten, migrieren…"
     },
     "question": {
-      "name": "Ask a question",
-      "hint": "How to do something in DBine",
-      "titlePlaceholder": "E.g.: How do I compare two databases?",
-      "placeholder": "What you want to do and what you tried."
+      "name": "Frage stellen",
+      "hint": "Wie man etwas in DBine macht",
+      "titlePlaceholder": "Z. B.: Wie vergleiche ich zwei Datenbanken?",
+      "placeholder": "Was Sie tun möchten und was Sie versucht haben."
     }
   },
-  "titleField": "Title",
+  "titleField": "Titel",
   "engine": "Engine",
-  "description": "Description",
-  "steps": "Steps to reproduce",
-  "stepsPlaceholder": "1. Connect to…\n2. Open…\n3. …",
+  "description": "Beschreibung",
+  "steps": "Schritte zur Reproduktion",
+  "stepsPlaceholder": "1. Verbinden mit…\n2. Öffnen…\n3. …",
   "optional": "(optional)",
-  "diagnostics": "Include diagnostic data",
-  "diagnosticsNever": "This is everything that is included. Never servers, users, database or connection names, queries or passwords.",
-  "truncated": "The description is too long to send in full: it will be cut off. You can complete it on GitHub before creating the issue.",
-  "publicNote": "GitHub opens with everything filled in: you just have to click “Create”. You need a GitHub account. The issue is public: don't include private data.",
-  "continue": "Continue on GitHub",
-  "openAgain": "Open again",
+  "diagnostics": "Diagnosedaten einschließen",
+  "diagnosticsNever": "Das ist alles, was enthalten ist. Nie Server, Benutzer, Datenbank- oder Verbindungsnamen, Abfragen oder Passwörter.",
+  "truncated": "Die Beschreibung ist zu lang, um vollständig gesendet zu werden: Sie wird gekürzt. Sie können sie auf GitHub vervollständigen, bevor Sie das Issue erstellen.",
+  "publicNote": "GitHub öffnet sich mit allem ausgefüllt: Sie müssen nur auf „Create“ klicken. Sie brauchen ein GitHub-Konto. Das Issue ist öffentlich: Geben Sie keine privaten Daten an.",
+  "continue": "Auf GitHub fortfahren",
+  "openAgain": "Erneut öffnen",
   "done": {
-    "title": "GitHub opened in your browser.",
-    "text": "Review what was filled in and click “Create” to publish it. Thanks for helping us improve DBine!"
+    "title": "GitHub wurde in Ihrem Browser geöffnet.",
+    "text": "Prüfen Sie das Ausgefüllte und klicken Sie auf „Create“, um es zu veröffentlichen. Danke, dass Sie uns helfen, DBine zu verbessern!"
   },
   "needs": {
-    "title": "The title needs at least {{n}} characters.",
-    "engine": "Type the engine's name.",
-    "description": "The description needs at least {{n}} characters."
+    "title": "Der Titel braucht mindestens {{n}} Zeichen.",
+    "engine": "Geben Sie den Namen der Engine ein.",
+    "description": "Die Beschreibung braucht mindestens {{n}} Zeichen."
   }
 }

@@ -1,20 +1,20 @@
 {
-  "menu": "Health check",
-  "tab": "Health",
-  "title": "Health check · {{name}}",
-  "checkedAt": "Checked on {{at}}",
-  "run": "Check again",
-  "running": "Checking the database…",
-  "showOk": "Show what's OK",
+  "menu": "ヘルスチェック",
+  "tab": "ヘルス",
+  "title": "ヘルスチェック · {{name}}",
+  "checkedAt": "確認日時 {{at}}",
+  "run": "再チェック",
+  "running": "データベースを確認しています…",
+  "showOk": "問題のない項目も表示",
   "severity": {
-    "critical": "Critical",
-    "warning": "Warnings",
-    "info": "Information",
-    "ok": "OK"
+    "critical": "重大",
+    "warning": "警告",
+    "info": "情報",
+    "ok": "正常"
   },
-  "openFix": "Open in a query",
-  "fixName": "Fix: {{title}}",
-  "more": "and {{count}} more",
-  "allOk": "No problems found.",
-  "skipped": "Could not be checked:"
+  "openFix": "クエリで開く",
+  "fixName": "修正: {{title}}",
+  "more": "ほか {{count}} 件",
+  "allOk": "問題は見つかりませんでした。",
+  "skipped": "確認できなかった項目:"
 }

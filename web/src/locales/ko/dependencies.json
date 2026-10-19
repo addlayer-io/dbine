@@ -1,41 +1,41 @@
 {
-  "menu": "View dependencies…",
-  "tab": "Dependencies",
-  "refresh": "Refresh",
-  "copy": "Copy",
-  "copied": "Dependencies copied",
-  "summary": "{{confirmed}} confirmed, {{probable}} probable and {{review}} to review ({{scanned}} definitions read).",
-  "outside": "Only what is in the database is visible: applications, reports and external scripts that use it do not appear here.",
-  "unreadable": "The definition of {{names}} could not be read. Whatever depends on the object there is not in the list.",
-  "none": "Nothing in the database depends on this object.",
-  "on": "on {{parent}}",
-  "dynamic": "Dynamic SQL",
+  "menu": "종속성 보기…",
+  "tab": "종속성",
+  "refresh": "새로 고침",
+  "copy": "복사",
+  "copied": "종속성이 복사되었습니다",
+  "summary": "확인됨 {{confirmed}}개, 가능성 있음 {{probable}}개, 검토 필요 {{review}}개(정의 {{scanned}}개 읽음).",
+  "outside": "데이터베이스 안에 있는 항목만 표시됩니다. 이를 사용하는 애플리케이션, 보고서, 외부 스크립트는 여기에 표시되지 않습니다.",
+  "unreadable": "다음의 정의를 읽지 못했습니다: {{names}}. 해당 정의에서 이 개체에 의존하는 항목은 목록에 없습니다.",
+  "none": "데이터베이스에서 이 개체에 의존하는 항목이 없습니다.",
+  "on": "{{parent}}에서",
+  "dynamic": "동적 SQL",
   "relation": {
-    "foreign_key": "Foreign keys",
-    "index": "Indexes and primary keys",
-    "check": "CHECK constraints",
-    "code": "Views, routines and triggers"
+    "foreign_key": "외래 키",
+    "index": "인덱스 및 기본 키",
+    "check": "CHECK 제약 조건",
+    "code": "뷰, 루틴, 트리거"
   },
   "confidence": {
-    "confirmed": "Confirmed",
-    "probable": "Probable",
-    "review": "Review"
+    "confirmed": "확인됨",
+    "probable": "가능성 있음",
+    "review": "검토 필요"
   },
   "confidenceTip": {
-    "confirmed": "The engine's catalog records the dependency.",
-    "probable": "The object's code names the object (and the column, with its table).",
-    "review": "The name appears inside a text, probably dynamic SQL: you have to read it to know whether it uses it."
+    "confirmed": "엔진의 카탈로그에 종속성이 기록되어 있습니다.",
+    "probable": "개체의 코드에 해당 개체(열은 테이블과 함께)의 이름이 있습니다.",
+    "review": "텍스트 안에 이름이 있으며 동적 SQL일 가능성이 있습니다. 사용하는지 알려면 직접 읽어 봐야 합니다."
   },
   "kind": {
-    "table": "Table",
-    "collection": "Collection",
-    "view": "View",
-    "materialized_view": "Materialized view",
-    "procedure": "Procedure",
-    "function": "Function",
-    "trigger": "Trigger",
-    "synonym": "Synonym",
-    "type": "Type",
-    "sequence": "Sequence"
+    "table": "테이블",
+    "collection": "컬렉션",
+    "view": "뷰",
+    "materialized_view": "구체화된 뷰",
+    "procedure": "프로시저",
+    "function": "함수",
+    "trigger": "트리거",
+    "synonym": "시노님",
+    "type": "타입",
+    "sequence": "시퀀스"
   }
 }

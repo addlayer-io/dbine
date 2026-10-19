@@ -1,12 +1,12 @@
 {
-  "save": "Save",
-  "title": "Save changes",
-  "hint": "These statements will run on the server ({{cells}} in {{rows}}). Review them before saving.",
-  "run": "Save",
-  "done": "Changes saved",
-  "doneRows_other": "Changes saved: {{count}} rows updated",
-  "hintDeletes": "These statements will run on the server ({{deletes}}). Review them before saving.",
-  "hintBoth": "These statements will run on the server ({{deletes}}; {{cells}} in {{rows}}). Rows are deleted first and then the others are updated. Review them before saving.",
-  "doneAffected_other": "Changes saved: {{count}} rows affected",
-  "hintInserts": "These statements will run on the server ({{list}}). Rows are deleted first, then updated, and the new ones are inserted last. Review them before saving."
+  "save": "保存",
+  "title": "保存更改",
+  "hint": "这些语句将在服务器上运行（{{cells}}，涉及 {{rows}}）。保存前请检查。",
+  "run": "保存",
+  "done": "更改已保存",
+  "doneRows_other": "更改已保存：已更新 {{count}} 行",
+  "hintDeletes": "这些语句将在服务器上运行（{{deletes}}）。保存前请检查。",
+  "hintBoth": "这些语句将在服务器上运行（{{deletes}}；{{cells}}，涉及 {{rows}}）。先删除行，再更新其他行。保存前请检查。",
+  "doneAffected_other": "更改已保存：影响 {{count}} 行",
+  "hintInserts": "这些语句将在服务器上运行（{{list}}）。先删除行，再更新，最后插入新行。保存前请检查。"
 }

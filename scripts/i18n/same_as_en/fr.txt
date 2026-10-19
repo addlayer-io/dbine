@@ -378,3 +378,6 @@ backend:Índice {0}
 backend:índice
 prompts:optimizer.index
 prompts:transcript.assistant
+mobile:conn.monitor
+mobile:conn.session
+mobile:conn.f.client

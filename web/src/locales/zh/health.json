@@ -1,20 +1,20 @@
 {
-  "menu": "Health check",
-  "tab": "Health",
-  "title": "Health check · {{name}}",
-  "checkedAt": "Checked on {{at}}",
-  "run": "Check again",
-  "running": "Checking the database…",
-  "showOk": "Show what's OK",
+  "menu": "健康检查",
+  "tab": "健康",
+  "title": "健康检查 · {{name}}",
+  "checkedAt": "检查于 {{at}}",
+  "run": "重新检查",
+  "running": "正在检查数据库…",
+  "showOk": "显示正常项",
   "severity": {
-    "critical": "Critical",
-    "warning": "Warnings",
-    "info": "Information",
-    "ok": "OK"
+    "critical": "严重",
+    "warning": "警告",
+    "info": "信息",
+    "ok": "正常"
   },
-  "openFix": "Open in a query",
-  "fixName": "Fix: {{title}}",
-  "more": "and {{count}} more",
-  "allOk": "No problems found.",
-  "skipped": "Could not be checked:"
+  "openFix": "在查询中打开",
+  "fixName": "修复：{{title}}",
+  "more": "另外 {{count}} 项",
+  "allOk": "未发现问题。",
+  "skipped": "无法检查："
 }

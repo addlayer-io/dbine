@@ -1,105 +1,105 @@
 {
   "cmd": {
     "file": {
-      "newConnection": "New connection…",
-      "newFolder": "New connection folder…",
-      "newScheduledTask": "New scheduled task",
-      "newNotebook": "New notebook",
-      "closeOtherTabs": "Close other tabs",
-      "closeAllTabs": "Close all tabs"
+      "newConnection": "Neue Verbindung…",
+      "newFolder": "Neuer Verbindungsordner…",
+      "newScheduledTask": "Neue geplante Aufgabe",
+      "newNotebook": "Neues Notebook",
+      "closeOtherTabs": "Andere Tabs schließen",
+      "closeAllTabs": "Alle Tabs schließen"
     },
     "palette": {
-      "open": "Show all commands"
+      "open": "Alle Befehle anzeigen"
     },
     "goto": {
-      "open": "Go to…"
+      "open": "Gehe zu…"
     },
     "view": {
-      "showExplorer": "Show Explorer",
-      "showProjects": "Show Projects",
-      "showLibrary": "Show script library",
-      "showHistory": "Show history",
-      "showScheduled": "Show scheduled tasks",
-      "revealActive": "Reveal tab in Explorer"
+      "showExplorer": "Explorer anzeigen",
+      "showProjects": "Projekte anzeigen",
+      "showLibrary": "Skriptbibliothek anzeigen",
+      "showHistory": "Verlauf anzeigen",
+      "showScheduled": "Geplante Aufgaben anzeigen",
+      "revealActive": "Tab im Explorer anzeigen"
     },
     "editor": {
-      "runSelection": "Run selection",
-      "cancel": "Cancel run",
-      "optimize": "Optimize query",
-      "runMultiDb": "Run on several databases…",
-      "saveToLibrary": "Save to library",
-      "showProblems": "Show problems",
-      "commit": "Commit transaction",
-      "rollback": "Roll back transaction",
-      "toggleManualTx": "Toggle manual transactions",
-      "toggleContinueOnError": "Toggle \"Continue on error\""
+      "runSelection": "Auswahl ausführen",
+      "cancel": "Ausführung abbrechen",
+      "optimize": "Abfrage optimieren",
+      "runMultiDb": "Auf mehreren Datenbanken ausführen…",
+      "saveToLibrary": "In Bibliothek speichern",
+      "showProblems": "Probleme anzeigen",
+      "commit": "Transaktion committen",
+      "rollback": "Transaktion zurückrollen",
+      "toggleManualTx": "Manuelle Transaktionen umschalten",
+      "toggleContinueOnError": "„Bei Fehler fortfahren“ umschalten"
     },
     "database": {
-      "reveal": "Reveal in Explorer",
-      "search": "Search the database…",
-      "healthCheck": "Health check",
-      "designer": "Open table designer",
-      "newFromTemplate": "New object from a template…",
-      "diagram": "Database diagram",
-      "queryBuilder": "Design query…",
-      "document": "Document the database…",
+      "reveal": "Im Explorer anzeigen",
+      "search": "Datenbank durchsuchen…",
+      "healthCheck": "Zustandsprüfung",
+      "designer": "Tabellendesigner öffnen",
+      "newFromTemplate": "Neues Objekt aus Vorlage…",
+      "diagram": "Datenbankdiagramm",
+      "queryBuilder": "Abfrage entwerfen…",
+      "document": "Datenbank dokumentieren…",
       "profiler": "Profiler",
-      "scriptGenerator": "Generate script…",
-      "migrate": "Migrate…",
-      "compareSchemas": "Compare schemas…",
-      "compareData": "Compare data…",
-      "usersAndPermissions": "Users and permissions…",
-      "backups": "Backups…",
-      "importData": "Import data…",
-      "runScriptFile": "Run script file…",
-      "linkProject": "Link project…"
+      "scriptGenerator": "Skript generieren…",
+      "migrate": "Migrieren…",
+      "compareSchemas": "Schemas vergleichen…",
+      "compareData": "Daten vergleichen…",
+      "usersAndPermissions": "Benutzer und Berechtigungen…",
+      "backups": "Sicherungen…",
+      "importData": "Daten importieren…",
+      "runScriptFile": "Skriptdatei ausführen…",
+      "linkProject": "Projekt verknüpfen…"
     },
     "connection": {
-      "connect": "Connect",
-      "disconnect": "Disconnect",
-      "monitor": "Server monitor",
-      "serverBackups": "Server backups…",
-      "newDatabase": "New database…",
-      "edit": "Edit connection…",
-      "duplicate": "Duplicate connection"
+      "connect": "Verbinden",
+      "disconnect": "Trennen",
+      "monitor": "Server-Monitor",
+      "serverBackups": "Server-Sicherungen…",
+      "newDatabase": "Neue Datenbank…",
+      "edit": "Verbindung bearbeiten…",
+      "duplicate": "Verbindung duplizieren"
     },
     "settings": {
-      "sync": "Sync",
-      "drivers": "Drivers",
-      "mcp": "MCP clients (AI assistants)",
-      "devices": "Paired phones",
-      "mail": "Mail",
-      "lint": "Code analyzer rules",
+      "sync": "Synchronisierung",
+      "drivers": "Treiber",
+      "mcp": "MCP-Clients (KI-Assistenten)",
+      "devices": "Gekoppelte Smartphones",
+      "mail": "E-Mail",
+      "lint": "Regeln des Code-Analysators",
       "snippets": "Snippets",
-      "shortcuts": "Keyboard shortcuts"
+      "shortcuts": "Tastenkürzel"
     },
     "help": {
-      "checkUpdates": "Check for updates…",
-      "support": "Support the project",
-      "feedback": "Send feedback"
+      "checkUpdates": "Nach Updates suchen…",
+      "support": "Projekt unterstützen",
+      "feedback": "Feedback senden"
     }
   },
   "commands": {
-    "placeholder": "Type the name of a command",
-    "empty": "No matching commands",
-    "recent": "recently used",
-    "other": "other commands"
+    "placeholder": "Geben Sie den Namen eines Befehls ein",
+    "empty": "Keine passenden Befehle",
+    "recent": "zuletzt verwendet",
+    "other": "weitere Befehle"
   },
   "goto": {
-    "placeholder": "Search a connection, database, table, view, routine, query or tab (\">\" for commands)",
-    "empty": "Nothing by that name",
-    "tabs": "open tabs",
-    "connections": "connections",
+    "placeholder": "Verbindung, Datenbank, Tabelle, Sicht, Routine, Abfrage oder Tab suchen („>“ für Befehle)",
+    "empty": "Nichts mit diesem Namen",
+    "tabs": "geöffnete Tabs",
+    "connections": "Verbindungen",
     "tab": "Tab",
-    "connection": "Connection",
-    "database": "Database",
-    "query": "Query"
+    "connection": "Verbindung",
+    "database": "Datenbank",
+    "query": "Abfrage"
   },
   "pick": {
-    "connection": "Choose the connection",
-    "database": "Choose the database of {{connection}}",
-    "noConnection": "No connection offers this action",
-    "noDatabases": "No databases to choose from",
-    "template": "Choose the template"
+    "connection": "Verbindung wählen",
+    "database": "Datenbank von {{connection}} wählen",
+    "noConnection": "Keine Verbindung bietet diese Aktion",
+    "noDatabases": "Keine Datenbanken zur Auswahl",
+    "template": "Vorlage wählen"
   }
 }

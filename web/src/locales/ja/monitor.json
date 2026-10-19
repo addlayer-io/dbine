@@ -1,31 +1,31 @@
 {
-  "couldNotConnect": "Couldn't connect.",
+  "couldNotConnect": "接続できませんでした。",
   "duration": {
-    "s": "{{s}} s",
-    "dh": "{{d}} d {{h}} h",
-    "hm": "{{h}} h {{m}} min",
-    "ms": "{{m}} min {{s}} s"
+    "s": "{{s}} 秒",
+    "dh": "{{d}} 日 {{h}} 時間",
+    "hm": "{{h}} 時間 {{m}} 分",
+    "ms": "{{m}} 分 {{s}} 秒"
   },
   "level": {
-    "warn": "high",
-    "crit": "critical"
+    "warn": "高",
+    "crit": "重大"
   },
-  "justNow": "just now",
-  "secondsAgo": "{{s}} s ago",
-  "connection": "Connection",
-  "paused": "Paused",
-  "every": "Every {{s}} s",
-  "resume": "Resume",
-  "pause": "Pause",
-  "refresh": "Refresh",
-  "unsupported": "{{engine}} doesn't offer monitoring.",
-  "thisEngine": "This engine",
-  "measuring": "measuring…",
-  "of": "of {{max}}",
-  "filter": "Filter…",
-  "noMatch": "No rows match.",
-  "noRows": "No rows.",
+  "justNow": "たった今",
+  "secondsAgo": "{{s}} 秒前",
+  "connection": "接続",
+  "paused": "一時停止中",
+  "every": "{{s}} 秒ごと",
+  "resume": "再開",
+  "pause": "一時停止",
+  "refresh": "更新",
+  "unsupported": "{{engine}} はモニタリングに対応していません。",
+  "thisEngine": "このエンジン",
+  "measuring": "計測中…",
+  "of": "/ {{max}}",
+  "filter": "フィルター…",
+  "noMatch": "一致する行はありません。",
+  "noRows": "行がありません。",
   "sparkline": {
-    "noData": "no data"
+    "noData": "データなし"
   }
 }

@@ -1,54 +1,54 @@
 {
   "folder": {
-    "new": "New folder",
-    "edit": "Edit folder · {{name}}",
-    "name": "Name",
-    "namePlaceholder": "Client, environment…",
-    "nameRequired": "Enter a name",
-    "color": "Color",
-    "noColor": "No color",
-    "colorHelp": "Connections without their own color take their folder's (handy to mark production).",
-    "inside": "Inside",
-    "create": "Create",
-    "topLevel": "(Top level)"
+    "new": "새 폴더",
+    "edit": "폴더 편집 · {{name}}",
+    "name": "이름",
+    "namePlaceholder": "고객, 환경…",
+    "nameRequired": "이름을 입력하세요",
+    "color": "색상",
+    "noColor": "색상 없음",
+    "colorHelp": "자체 색상이 없는 연결은 폴더의 색상을 사용합니다(프로덕션을 표시할 때 유용합니다).",
+    "inside": "위치",
+    "create": "만들기",
+    "topLevel": "(최상위)"
   },
   "move": {
-    "title": "Move «{{name}}» to…",
-    "move": "Move"
+    "title": "「{{name}}」 이동…",
+    "move": "이동"
   },
   "database": {
-    "scriptTitle": "Generate script · {{db}}",
-    "scriptName": "Script of {{db}}",
-    "scriptNameConverted": "Script of {{db}} (converted)",
-    "theDatabase": "the database"
+    "scriptTitle": "스크립트 생성 · {{db}}",
+    "scriptName": "{{db}} 스크립트",
+    "scriptNameConverted": "{{db}} 스크립트(변환됨)",
+    "theDatabase": "데이터베이스"
   },
   "drivers": {
-    "intro": "Each driver downloads by itself the first time you connect to that engine. Here you can download them ahead (for example, if you'll work offline) or delete the ones you don't use.",
-    "search": "Search engine",
-    "diskTitle": "Disk space used by the downloaded drivers",
-    "summary": "{{installed}} of {{total}} downloaded · {{size}} MB",
-    "downloadAll": "Download all ({{size}} MB)",
-    "downloading": "Downloading",
-    "download": "Download",
-    "remove": "Delete",
-    "checkUpdates": "Check for updates",
-    "checking": "Checking…",
-    "upToDateAll": "Drivers are up to date.",
-    "rollback": "Roll back",
-    "rollbackTitle": "Drop version {{version}} and go back to {{previous}}",
-    "rollbackConfirm": "Go back to version {{previous}} of the {{label}} driver? Version {{version}} won't be used again. Open connections keep the current version until you close them.",
-    "statusDownloading": "Downloading version {{available}}…",
-    "statusReady": "Version {{version}} is used from the next connection",
-    "statusNeedsApp": "A newer version needs DBine {{minApp}} or later",
-    "statusRolledBack": "Version {{from}} failed and it went back to {{version}}",
-    "statusRolledBackUser": "Went back to version {{version}}; {{from}} won't be used",
-    "statusRestart": "Restart DBine to see this driver's new options"
+    "intro": "각 드라이버는 해당 엔진에 처음 연결할 때 자동으로 다운로드됩니다. 여기서 미리 받아 둘 수 있습니다(예: 인터넷 없이 작업할 때). 사용하지 않는 드라이버는 삭제할 수 있습니다.",
+    "search": "엔진 검색",
+    "diskTitle": "다운로드한 드라이버가 디스크에서 차지하는 공간",
+    "summary": "{{total}}개 중 {{installed}}개 다운로드됨 · {{size}} MB",
+    "downloadAll": "모두 다운로드({{size}} MB)",
+    "downloading": "다운로드 중",
+    "download": "다운로드",
+    "remove": "삭제",
+    "checkUpdates": "업데이트 확인",
+    "checking": "확인하는 중…",
+    "upToDateAll": "드라이버가 최신 상태입니다.",
+    "rollback": "이전 버전으로 되돌리기",
+    "rollbackTitle": "버전 {{version}}을(를) 사용하지 않고 {{previous}}(으)로 되돌리기",
+    "rollbackConfirm": "{{label}} 드라이버를 버전 {{previous}}(으)로 되돌릴까요? {{version}}은(는) 더 이상 사용되지 않습니다. 열려 있는 연결은 닫을 때까지 현재 버전을 유지합니다.",
+    "statusDownloading": "버전 {{available}}을(를) 다운로드하는 중…",
+    "statusReady": "버전 {{version}}은(는) 다음 연결부터 사용됩니다",
+    "statusNeedsApp": "DBine {{minApp}} 이상이 필요한 더 새로운 버전이 있습니다",
+    "statusRolledBack": "버전 {{from}}이(가) 실패하여 {{version}}(으)로 되돌렸습니다",
+    "statusRolledBackUser": "버전 {{version}}(으)로 되돌렸으며 {{from}}은(는) 사용되지 않습니다",
+    "statusRestart": "이 드라이버의 새 옵션을 보려면 DBine을 다시 시작하세요"
   },
   "support": {
-    "title": "Support DBine",
-    "text": "DBine is free and will stay free. Your support helps us maintain the app and keep adding features.",
-    "notPayment": "It's support, not a payment: the app works the same either way.",
-    "notNow": "Not now",
-    "support": "Support the project"
+    "title": "DBine 후원하기",
+    "text": "DBine은 무료이며 앞으로도 그렇습니다. 여러분의 후원은 앱을 유지하고 새로운 기능을 계속 추가하는 데 도움이 됩니다.",
+    "notPayment": "후원이지 결제가 아닙니다. 앱은 똑같이 작동합니다.",
+    "notNow": "나중에",
+    "support": "프로젝트 후원"
   }
 }

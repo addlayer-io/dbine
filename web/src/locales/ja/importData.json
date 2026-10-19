@@ -1,77 +1,77 @@
 {
-  "title": "Import data",
+  "title": "データをインポート",
   "steps": {
-    "file": "File",
-    "preview": "Preview",
-    "target": "Target",
-    "import": "Import"
+    "file": "ファイル",
+    "preview": "プレビュー",
+    "target": "インポート先",
+    "import": "インポート"
   },
   "formats": {
-    "auto": "Automatic (by extension)",
-    "csv": "CSV (comma)",
-    "csvSemicolon": "CSV (semicolon)",
-    "tsv": "TSV (tab)",
-    "json": "JSON (array of objects)",
-    "jsonLines": "JSON Lines (one object per line)"
+    "auto": "自動(拡張子で判定)",
+    "csv": "CSV(カンマ)",
+    "csvSemicolon": "CSV(セミコロン)",
+    "tsv": "TSV(タブ)",
+    "json": "JSON(オブジェクトの配列)",
+    "jsonLines": "JSON Lines(1 行 1 オブジェクト)"
   },
   "types": {
-    "integer": "integer",
-    "number": "number",
-    "boolean": "boolean",
-    "date": "date",
-    "datetime": "date and time",
-    "text": "text"
+    "integer": "整数",
+    "number": "数値",
+    "boolean": "真偽値",
+    "date": "日付",
+    "datetime": "日時",
+    "text": "テキスト"
   },
   "file": {
-    "filterData": "Data (CSV, TSV, JSON, JSONL, XLSX, XML)",
-    "pickHint": "Choose a CSV, TSV, JSON, JSON Lines, Excel or XML file.",
-    "format": "Format",
-    "delimiter": "Delimiter",
-    "tab": "tab",
-    "commaDefault": ", (or the format's)",
-    "sheet": "Sheet",
-    "firstSheet": "First sheet",
-    "header": "The first row has the column names",
-    "detected_other": "{{count}} columns detected · format {{format}}"
+    "filterData": "データ(CSV、TSV、JSON、JSONL、XLSX、XML)",
+    "pickHint": "CSV、TSV、JSON、JSON Lines、Excel、XML のいずれかのファイルを選択してください。",
+    "format": "形式",
+    "delimiter": "区切り文字",
+    "tab": "タブ",
+    "commaDefault": ",(または形式の既定値)",
+    "sheet": "シート",
+    "firstSheet": "最初のシート",
+    "header": "先頭行が列名",
+    "detected_other": "{{count}} 列を検出 · 形式 {{format}}"
   },
   "preview": {
-    "caption_other": "First {{rows}} rows of {file} · {{count}} columns",
-    "empty": "The file has no data rows."
+    "caption_other": "{file} の先頭 {{rows}} 行 · {{count}} 列",
+    "empty": "ファイルにデータ行がありません。"
   },
   "target": {
-    "existing": "Existing table",
-    "new": "New table",
-    "pickTable": "Choose the table",
-    "schema": "schema",
-    "tableName": "table name",
-    "batch": "Rows per batch",
-    "sourceColumn": "File column",
-    "detectedType": "Detected type",
-    "targetColumn": "Target column",
-    "ignore": "(ignore)",
-    "name": "Name",
-    "type": "Type",
-    "nulls": "Nulls",
-    "toImport_other": "{{count}} columns to import",
+    "existing": "既存のテーブル",
+    "new": "新しいテーブル",
+    "pickTable": "テーブルを選択",
+    "schema": "スキーマ",
+    "tableName": "テーブル名",
+    "batch": "バッチあたりの行数",
+    "sourceColumn": "ファイルの列",
+    "detectedType": "検出された型",
+    "targetColumn": "インポート先の列",
+    "ignore": "(無視)",
+    "name": "名前",
+    "type": "型",
+    "nulls": "NULL",
+    "toImport_other": "インポートする列: {{count}} 個",
     "errors": {
-      "pickTable": "Choose the target table",
-      "mapOne": "Map at least one column",
-      "mappedTwice": "Some target columns are mapped twice",
-      "newName": "Enter the new table's name",
-      "exists": "A table with that name already exists",
-      "includeOne": "Include at least one column",
-      "nameAndType": "Each column needs a name and a type",
-      "duplicateNames": "There are duplicate column names"
+      "pickTable": "インポート先のテーブルを選択してください",
+      "mapOne": "少なくとも 1 つの列を割り当ててください",
+      "mappedTwice": "インポート先の列が重複して割り当てられています",
+      "newName": "新しいテーブルの名前を入力してください",
+      "exists": "その名前のテーブルは既に存在します",
+      "includeOne": "少なくとも 1 つの列を含めてください",
+      "nameAndType": "各列に名前と型が必要です",
+      "duplicateNames": "列名が重複しています"
     }
   },
   "run": {
-    "importing": "Importing {{file}}…",
-    "rows_other": "rows",
-    "rowsPerSecond": "rows/s",
-    "done": "Import finished",
-    "doneDetail_other": "{{n}} rows into {table} · {{seconds}} s",
-    "partial_other": "{{n}} rows were imported before it stopped.",
-    "cancelledMessage": "Import cancelled.",
-    "cancelImport": "Cancel import"
+    "importing": "{{file}} をインポートしています…",
+    "rows_other": "行",
+    "rowsPerSecond": "行/秒",
+    "done": "インポートが完了しました",
+    "doneDetail_other": "{table} に {{n}} 行 · {{seconds}} 秒",
+    "partial_other": "停止するまでに {{n}} 行がインポートされました。",
+    "cancelledMessage": "インポートをキャンセルしました。",
+    "cancelImport": "インポートをキャンセル"
   }
 }

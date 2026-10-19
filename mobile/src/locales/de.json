@@ -1,0 +1,119 @@
+{
+  "pair": {
+    "intro": "Sehen Sie sich Sperren und laufende Abfragen Ihrer Datenbanken auf dem Smartphone an. Verbindungen und Passwörter bleiben auf Ihrem Computer.",
+    "name": "Name dieses Smartphones",
+    "defaultName": "Mein Smartphone",
+    "scan": "Mit DBine koppeln",
+    "connecting": "Verbindung wird hergestellt…",
+    "step1": "Öffnen Sie auf dem Computer DBine › Einstellungen › Geräte.",
+    "step2": "Aktivieren Sie „Smartphones zulassen“ und tippen Sie auf „Smartphone koppeln“.",
+    "step3": "Scannen Sie den angezeigten Code. Befindet sich das Smartphone nicht im selben Netzwerk, verbindet es sich über das Internet (wenn DBine es unter „Außerhalb des lokalen Netzwerks“ erlaubt).",
+    "confirmOn": "Bestätigen Sie auf „{{desktop}}“.",
+    "compare": "Prüfen Sie, ob der Computer denselben Code anzeigt:",
+    "noCamera": "Ohne Berechtigung für die Kamera kann der Code nicht gelesen werden.",
+    "fromLink": "Sie koppeln dieses Smartphone mit „{{desktop}}“. Anschließend bestätigen Sie auf diesem Computer, dass der Code derselbe ist.",
+    "pairLink": "Koppeln",
+    "scanInstead": "Anderen Code scannen",
+    "alreadyPaired": "Dieses Smartphone ist bereits mit „{{desktop}}“ gekoppelt. Um es mit einem anderen Computer zu koppeln, trennen Sie es zuerst."
+  },
+  "connections": {
+    "filter": "Verbindung suchen",
+    "none": "DBine hat keine gespeicherten Verbindungen.",
+    "loading": "Wird geladen…",
+    "thisPhone": "Dieses Smartphone: {{code}}",
+    "unpair": "Trennen",
+    "unpairConfirm": "Dieses Smartphone trennen? Um es wieder zu verwenden, muss ein neuer Code gescannt werden.",
+    "via": {
+      "local": "Lokales Netzwerk",
+      "internet": "Über das Internet"
+    }
+  },
+  "conn": {
+    "monitor": "Monitor",
+    "locks": "Sperren",
+    "processes": "Laufend",
+    "health": "Zustand",
+    "unsupported": "{{engine}} meldet weder Zustand noch Sperren oder Prozesse.",
+    "noLocks": "Es gibt keine blockierten Sitzungen.",
+    "noProcesses": "Es werden keine Abfragen ausgeführt.",
+    "session": "Sitzung {{id}}",
+    "blocks_one": "blockiert {{count}} Sitzung",
+    "blocks_other": "blockiert {{count}} Sitzungen",
+    "waitsFor": "wartet auf {{id}}",
+    "kill": "Beenden",
+    "killConfirm": "Sitzung {{id}} beenden? Ihre laufende Transaktion wird zurückgerollt.\n\n{{sql}}",
+    "killReason": "Sitzung {{id}} beenden",
+    "notConfirmed": "Nicht bestätigt: Die Sitzung läuft weiter.",
+    "killed": "Sitzung {{id}} wurde beendet.",
+    "notAllowed": "Um Sitzungen von diesem Smartphone aus zu beenden, aktivieren Sie das in DBine › Einstellungen › Geräte.",
+    "engineCantKill": "Diese Verbindung erlaubt kein Beenden von Sitzungen (sie ist schreibgeschützt oder die Engine unterstützt es nicht).",
+    "f": {
+      "status": "Status",
+      "user": "Benutzer",
+      "host": "Host",
+      "database": "Datenbank",
+      "client": "Client",
+      "object": "Objekt",
+      "waitsFor": "Wartet auf"
+    },
+    "loading": "{{engine}} wird abgefragt…"
+  },
+  "nav": {
+    "connections": "Verbindungen",
+    "activity": "Aktivität"
+  },
+  "tasks": {
+    "title": "Geplante Aufgaben",
+    "none": "DBine hat keine geplanten Aufgaben.",
+    "neverRan": "Noch nicht ausgeführt.",
+    "next": "Nächste: {{at}}",
+    "disabled": "Deaktiviert",
+    "runNow": "Jetzt ausführen",
+    "runConfirm": "„{{name}}“ jetzt auf dem Computer ausführen?",
+    "runReason": "„{{name}}“ ausführen",
+    "notConfirmed": "Nicht bestätigt: Die Aufgabe wurde nicht ausgeführt.",
+    "started": "Die Aufgabe wurde auf dem Computer gestartet. Wenn sie fertig ist, erscheint sie hier.",
+    "needsApproval": "Diese Aufgabe ändert Daten und hat nicht freigegebene Schritte: Die Freigabe erfolgt in DBine auf dem Computer.",
+    "notAllowed": "Um Aufgaben von diesem Smartphone aus auszuführen, aktivieren Sie das in DBine › Einstellungen › Geräte.",
+    "status": {
+      "running": "Laufend",
+      "ok": "Erfolgreich",
+      "partial": "Mit Fehlern",
+      "failed": "Fehlgeschlagen"
+    },
+    "at": "Schritt {{n}} von {{total}}: {{name}}",
+    "cancel": "Aufgabe abbrechen",
+    "cancelConfirm": "„{{name}}“ abbrechen? Der laufende Schritt wird beendet und die folgenden werden nicht ausgeführt.",
+    "cancelReason": "„{{name}}“ abbrechen",
+    "cancelling": "Abbruch der Aufgabe angefordert: Sie wird in wenigen Sekunden beendet."
+  },
+  "health": {
+    "run": "Datenbank prüfen",
+    "running": "Wird geprüft…",
+    "allGood": "Es wurden keine Probleme gefunden.",
+    "fine_one": "{{count}} Prüfung ohne Probleme",
+    "fine_other": "{{count}} Prüfungen ohne Probleme"
+  },
+  "activity": {
+    "title": "Aktivität",
+    "queries": "Abfragen",
+    "tasks": "Geplante Aufgaben",
+    "running": "Laufend",
+    "recent": "Beendet",
+    "none": "Es gibt weder laufende noch kürzlich beendete Abfragen.",
+    "cancel": "Abbrechen",
+    "cancelConfirm": "Diese Abfrage auf dem Computer abbrechen?\n\n{{sql}}",
+    "cancelReason": "Eine Abfrage abbrechen",
+    "notConfirmed": "Nicht bestätigt: Die Abfrage läuft weiter.",
+    "cancelled": "Abbruch der Abfrage angefordert.",
+    "done": "Erfolgreich beendet",
+    "startedAt": "Gestartet am {{at}}",
+    "hint": "Hier erscheinen die Abfragen, die Sie im Editor von DBine ausführen, solange sie laufen, sowie die, die beim Beenden länger als 10 Sekunden gedauert haben. Wenn Sie es erlauben, meldet das Smartphone, wenn sie fertig sind: bei geöffneter App sofort, bei geschlossener App bei der nächsten Android-Prüfung (alle 15 Minuten). Solange eine Abfrage länger als 30 Sekunden läuft, verhindert DBine, dass der Computer in den Ruhezustand geht.",
+    "tapForDetail": "Tippen für Details",
+    "cancelNotAllowed": "Um Abfragen von diesem Smartphone aus abzubrechen, aktivieren Sie das in DBine › Einstellungen › Geräte."
+  },
+  "update": {
+    "available": "Es gibt eine neue Version von DBine ({{version}}).",
+    "download": "Herunterladen"
+  }
+}

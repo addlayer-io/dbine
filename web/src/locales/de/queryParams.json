@@ -1,22 +1,22 @@
 {
-  "title": "Query parameters",
-  "intro": "The query has parameters. Each value is written into the text as an engine literal, with the right quotes; on the right you can see how it ends up.",
-  "type": "Type",
+  "title": "Abfrageparameter",
+  "intro": "Die Abfrage hat Parameter. Jeder Wert wird als Literal der Engine mit den richtigen Anführungszeichen in den Text geschrieben; rechts sehen Sie, wie er am Ende aussieht.",
+  "type": "Typ",
   "types": {
     "text": "Text",
-    "number": "Number",
-    "date": "Date",
+    "number": "Zahl",
+    "date": "Datum",
     "null": "NULL"
   },
   "placeholder": {
-    "text": "Value",
-    "number": "For example 42 or 3.5",
-    "date": "YYYY-MM-DD or YYYY-MM-DD hh:mm:ss"
+    "text": "Wert",
+    "number": "Zum Beispiel 42 oder 3.5",
+    "date": "JJJJ-MM-TT oder JJJJ-MM-TT hh:mm:ss"
   },
   "invalid": {
-    "number": "Not a number.",
-    "date": "Write the date as YYYY-MM-DD, with optional time (hh:mm or hh:mm:ss)."
+    "number": "Keine Zahl.",
+    "date": "Schreiben Sie das Datum als JJJJ-MM-TT, optional mit Uhrzeit (hh:mm oder hh:mm:ss)."
   },
-  "disable": "Don't ask for parameters in this tab",
-  "disableTip": "Runs the text as is and stops looking for parameters in this tab. It can be turned back on from the editor menu."
+  "disable": "In diesem Tab nicht nach Parametern fragen",
+  "disableTip": "Führt den Text unverändert aus und sucht in diesem Tab nicht mehr nach Parametern. Lässt sich im Editormenü wieder einschalten."
 }

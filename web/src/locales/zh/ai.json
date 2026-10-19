@@ -1,111 +1,111 @@
 {
-  "title": "Assistant",
-  "defaultModel": "default",
-  "reasoning": "Reasoning",
+  "title": "助手",
+  "defaultModel": "默认",
+  "reasoning": "推理",
   "head": {
-    "setup": "Models and providers",
-    "newChat": "New conversation",
-    "close": "Close (⌘I)",
-    "history": "History"
+    "setup": "模型与服务商",
+    "newChat": "新对话",
+    "close": "关闭（⌘I）",
+    "history": "历史记录"
   },
   "context": {
-    "noDatabase": "No database selected",
-    "openQuery": "open query",
-    "sent": "context: {{context}}",
-    "objects_other": "{{count}} objects",
-    "tables_other": "{{count}} tables",
-    "tablesOf_other": "{{shown}} of {{count}} tables",
-    "editor": "editor",
-    "selection": "selection",
-    "lastError": "last error"
+    "noDatabase": "未选择数据库",
+    "openQuery": "打开的查询",
+    "sent": "上下文：{{context}}",
+    "objects_other": "{{count}} 个对象",
+    "tables_other": "{{count}} 张表",
+    "tablesOf_other": "{{count}} 张表中的 {{shown}} 张",
+    "editor": "编辑器",
+    "selection": "选中内容",
+    "lastError": "最近的错误"
   },
   "suggest": {
-    "whyFails": "Why does the last run fail? Fix it.",
-    "explain": "Explain the query in the editor",
-    "optimize": "Review and optimize the query in the editor",
-    "largestTables": "Write a query that lists the largest tables",
-    "relatedTables": "Which tables are related to customers?",
-    "joinAggregate": "How do I write a JOIN with aggregation?"
+    "whyFails": "上次运行为什么失败？请修复。",
+    "explain": "解释编辑器中的查询",
+    "optimize": "检查并优化编辑器中的查询",
+    "largestTables": "写一个列出最大的表的查询",
+    "relatedTables": "哪些表与客户相关？",
+    "joinAggregate": "如何编写带聚合的 JOIN？"
   },
   "code": {
-    "appended": "Appended to the end of the query. Review it and run it whenever you want.",
-    "newQueryTitle": "From the assistant",
-    "replaced": "Query replaced (⌘Z to undo).",
-    "code": "code",
-    "appendHint": "Append to the end of the open query",
-    "newQueryHint": "Open in a new query",
-    "append": "Add to query",
-    "newQuery": "New query",
-    "replaceHint": "Replace the whole editor content (⌘Z undoes)",
-    "replace": "Replace",
-    "destructive": "Changes data or structure. Nothing was run: review it before you run it yourself.",
-    "asText": "Insert as text",
-    "asTextHint": "Add the answer as a text cell of the notebook (runs nothing)",
-    "textAdded": "Added as a text cell.",
-    "cellAdded": "Added as a new cell, not run. Check it and run it when you want."
+    "appended": "已追加到查询末尾。请检查后随时运行。",
+    "newQueryTitle": "来自助手",
+    "replaced": "查询已替换（⌘Z 撤销）。",
+    "code": "代码",
+    "appendHint": "追加到当前查询末尾",
+    "newQueryHint": "在新查询中打开",
+    "append": "添加到查询",
+    "newQuery": "新建查询",
+    "replaceHint": "替换整个编辑器内容（⌘Z 可撤销）",
+    "replace": "替换",
+    "destructive": "会更改数据或结构。尚未运行任何内容：请检查后自行运行。",
+    "asText": "作为文本插入",
+    "asTextHint": "将回答作为文本单元格添加到笔记本（不会运行任何内容）",
+    "textAdded": "已添加为文本单元格。",
+    "cellAdded": "已添加为新单元格，尚未运行。请检查后在需要时运行。"
   },
   "phase": {
-    "schema": "Reading the database structure…",
-    "engine": "Downloading the AI engine, just this once…",
-    "thinking": "Thinking…",
-    "retry": "Asking again…",
-    "tool": "Querying the connection:"
+    "schema": "正在读取数据库结构…",
+    "engine": "正在下载 AI 引擎，仅此一次…",
+    "thinking": "思考中…",
+    "retry": "正在重新提问…",
+    "tool": "正在查询连接："
   },
   "setup": {
-    "detecting": "Looking for AI tools on this machine…",
-    "lead": "The assistant needs a model. The simplest option: download the {model}. It runs on this machine, with nothing to install and nothing leaving it.",
-    "leadModel": "built-in model",
-    "embedded": "Built into DBine",
-    "embeddedUnavailable": "The built-in model isn't available on this platform.",
-    "recommended": "recommended for this machine",
-    "use": "Use",
-    "pause": "Pause",
-    "pauseHint": "Resumes where it left off",
-    "download": "Download ({{size}})",
-    "detected": "Detected on this machine",
-    "pull": "Download {{model}}",
-    "cliNote": "Claude Code and Codex use your own account (subscription or API). They run without tools: they can't read files, run commands or connect to your databases.",
-    "redetect": "Detect again"
+    "detecting": "正在这台电脑上查找 AI 工具…",
+    "lead": "助手需要一个模型。最简单的方式：下载 {model}。它在本机运行，无需安装任何东西，数据也不会离开本机。",
+    "leadModel": "内置模型",
+    "embedded": "已内置于 DBine",
+    "embeddedUnavailable": "此平台不支持内置模型。",
+    "recommended": "推荐用于这台电脑",
+    "use": "使用",
+    "pause": "暂停",
+    "pauseHint": "从上次中断处继续",
+    "download": "下载（{{size}}）",
+    "detected": "在这台电脑上检测到",
+    "pull": "下载 {{model}}",
+    "cliNote": "Claude Code 和 Codex 使用你自己的账号（订阅或 API）。它们不带工具运行：不能读取文件、运行命令或连接你的数据库。",
+    "redetect": "重新检测"
   },
   "privacy": {
-    "local": "Local: nothing leaves this machine.",
-    "remote": "Goes to {{vendor}} with your account: the question, the structure and the editor, never the data."
+    "local": "本地：没有任何内容离开这台电脑。",
+    "remote": "将通过你的账号发送给 {{vendor}}：问题、结构和编辑器内容，绝不包含数据。"
   },
   "empty": {
-    "lead": "Ask it for queries, to explain or fix the one in the editor, or ask about the database structure.",
-    "neverRuns": "The assistant never runs anything: what it writes goes into your query and you decide whether to run it."
+    "lead": "可以让它写查询、解释或修复编辑器中的查询，也可以询问数据库结构。",
+    "neverRuns": "助手不会运行任何内容：它写的内容会进入你的查询，是否运行由你决定。"
   },
   "compose": {
-    "placeholder": "Ask or request a query… (Enter sends, Shift+Enter new line)",
-    "send": "Send"
+    "placeholder": "提问或请求查询…（Enter 发送，Shift+Enter 换行）",
+    "send": "发送"
   },
   "better": {
-    "text": "Your machine can use a bigger model: {{model}}. It understands hard requests better and makes fewer SQL mistakes.",
-    "dismiss": "Not now"
+    "text": "你的电脑可以使用更大的模型：{{model}}。它能更好地理解复杂请求，SQL 错误也更少。",
+    "dismiss": "暂不"
   },
   "history": {
-    "title": "Previous conversations",
-    "empty": "No previous conversations yet: “New conversation” saves the current one here.",
-    "untitled": "(untitled)",
-    "messages_other": "{{count}} messages",
-    "delete": "Delete this conversation",
-    "clear": "Clear history",
-    "clearConfirm": "All previous conversations will be deleted. The current one is not touched."
+    "title": "以往的对话",
+    "empty": "还没有以往的对话：“新对话”会把当前对话保存在这里。",
+    "untitled": "（无标题）",
+    "messages_other": "{{count}} 条消息",
+    "delete": "删除此对话",
+    "clear": "清空历史记录",
+    "clearConfirm": "所有以往的对话都将被删除。当前对话不受影响。"
   },
   "tools": {
-    "read_other": "Queried the connection {{count}} times"
+    "read_other": "已查询连接 {{count}} 次"
   },
   "approval": {
-    "title": "The model ({{model}}) wants to read data from {{connection}} › {{database}} with this query:",
-    "local": "local",
-    "approve": "Approve",
-    "reject": "Reject",
-    "approveAll": "Approve reads in this conversation",
-    "note": "Read-only: DBine runs it in a session that rejects any change. If you reject it, the model carries on without that data."
+    "title": "模型（{{model}}）想用以下查询读取 {{connection}} › {{database}} 中的数据：",
+    "local": "本地",
+    "approve": "批准",
+    "reject": "拒绝",
+    "approveAll": "批准此对话中的读取",
+    "note": "只读：DBine 在会拒绝任何更改的会话中运行它。如果你拒绝，模型将在没有这些数据的情况下继续。"
   },
   "link": {
-    "title": "Open link",
-    "body": "The assistant's answer leads to this address. Open it only if you trust it: a link can send data from the conversation to another site.",
-    "open": "Open in browser"
+    "title": "打开链接",
+    "body": "助手的回答指向此地址。仅在信任它时才打开：链接可能把对话中的数据发送到其他网站。",
+    "open": "在浏览器中打开"
   }
 }

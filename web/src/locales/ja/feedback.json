@@ -1,53 +1,53 @@
 {
-  "button": "Send feedback",
-  "title": "Send feedback",
-  "lead": "Suggest improvements, report a problem, request a new engine or ask a question.",
-  "kindLabel": "Feedback type",
+  "button": "フィードバックを送信",
+  "title": "フィードバックを送信",
+  "lead": "改善の提案、問題の報告、新しいエンジンのリクエスト、質問などをお寄せください。",
+  "kindLabel": "フィードバックの種類",
   "kinds": {
     "bug": {
-      "name": "Report a bug",
-      "hint": "Something doesn't work as you expected",
-      "titlePlaceholder": "E.g.: The editor closes when exporting to Excel",
-      "placeholder": "What you did, what you expected to happen and what happened. If there was an error message, copy it."
+      "name": "バグを報告",
+      "hint": "期待どおりに動作しないことがある",
+      "titlePlaceholder": "例: Excel にエクスポートするとエディターが閉じる",
+      "placeholder": "何をしたか、何が起こると期待したか、実際に何が起こったかを書いてください。エラーメッセージが出た場合はコピーしてください。"
     },
     "enhancement": {
-      "name": "Suggest an improvement",
-      "hint": "An idea to make DBine better",
-      "titlePlaceholder": "E.g.: Being able to pin columns in the results grid",
-      "placeholder": "What you would like DBine to do and how it would help you."
+      "name": "改善を提案",
+      "hint": "DBine をもっと良くするアイデア",
+      "titlePlaceholder": "例: 結果グリッドで列を固定できるようにしたい",
+      "placeholder": "DBine にどんなことができるとよいか、どう役立つかを書いてください。"
     },
     "driver-request": {
-      "name": "Request a new engine",
-      "hint": "A database DBine doesn't support yet",
-      "titlePlaceholder": "E.g.: Firebird 5",
-      "placeholder": "How you use this engine and what you would need first: explore, query, edit data, migrate…"
+      "name": "新しいエンジンをリクエスト",
+      "hint": "DBine がまだ対応していないデータベース",
+      "titlePlaceholder": "例: Firebird 5",
+      "placeholder": "このエンジンの使い方と、最初に必要なこと(探索、クエリ、データ編集、移行など)を書いてください。"
     },
     "question": {
-      "name": "Ask a question",
-      "hint": "How to do something in DBine",
-      "titlePlaceholder": "E.g.: How do I compare two databases?",
-      "placeholder": "What you want to do and what you tried."
+      "name": "質問する",
+      "hint": "DBine での操作方法",
+      "titlePlaceholder": "例: 2 つのデータベースを比較するには？",
+      "placeholder": "やりたいことと、試したことを書いてください。"
     }
   },
-  "titleField": "Title",
-  "engine": "Engine",
-  "description": "Description",
-  "steps": "Steps to reproduce",
-  "stepsPlaceholder": "1. Connect to…\n2. Open…\n3. …",
-  "optional": "(optional)",
-  "diagnostics": "Include diagnostic data",
-  "diagnosticsNever": "This is everything that is included. Never servers, users, database or connection names, queries or passwords.",
-  "truncated": "The description is too long to send in full: it will be cut off. You can complete it on GitHub before creating the issue.",
-  "publicNote": "GitHub opens with everything filled in: you just have to click “Create”. You need a GitHub account. The issue is public: don't include private data.",
-  "continue": "Continue on GitHub",
-  "openAgain": "Open again",
+  "titleField": "タイトル",
+  "engine": "エンジン",
+  "description": "説明",
+  "steps": "再現手順",
+  "stepsPlaceholder": "1. …に接続\n2. …を開く\n3. …",
+  "optional": "(任意)",
+  "diagnostics": "診断データを含める",
+  "diagnosticsNever": "含まれるのは上記のみです。サーバー、ユーザー、データベース名や接続名、クエリ、パスワードは一切含まれません。",
+  "truncated": "説明が長すぎて全文を送信できないため、途中で切り捨てられます。issue を作成する前に GitHub で補足できます。",
+  "publicNote": "内容が入力済みの状態で GitHub が開くので、「Create」を押すだけです。GitHub アカウントが必要です。issue は公開されるため、個人情報は含めないでください。",
+  "continue": "GitHub で続ける",
+  "openAgain": "もう一度開く",
   "done": {
-    "title": "GitHub opened in your browser.",
-    "text": "Review what was filled in and click “Create” to publish it. Thanks for helping us improve DBine!"
+    "title": "ブラウザーで GitHub を開きました。",
+    "text": "入力された内容を確認し、「Create」を押して公開してください。DBine の改善にご協力いただきありがとうございます。"
   },
   "needs": {
-    "title": "The title needs at least {{n}} characters.",
-    "engine": "Type the engine's name.",
-    "description": "The description needs at least {{n}} characters."
+    "title": "タイトルは {{n}} 文字以上にしてください。",
+    "engine": "エンジン名を入力してください。",
+    "description": "説明は {{n}} 文字以上にしてください。"
   }
 }

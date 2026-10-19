@@ -1,105 +1,105 @@
 {
   "cmd": {
     "file": {
-      "newConnection": "New connection…",
-      "newFolder": "New connection folder…",
-      "newScheduledTask": "New scheduled task",
-      "newNotebook": "New notebook",
-      "closeOtherTabs": "Close other tabs",
-      "closeAllTabs": "Close all tabs"
+      "newConnection": "新建连接…",
+      "newFolder": "新建连接文件夹…",
+      "newScheduledTask": "新建计划任务",
+      "newNotebook": "新建笔记本",
+      "closeOtherTabs": "关闭其他标签页",
+      "closeAllTabs": "关闭所有标签页"
     },
     "palette": {
-      "open": "Show all commands"
+      "open": "显示所有命令"
     },
     "goto": {
-      "open": "Go to…"
+      "open": "转到…"
     },
     "view": {
-      "showExplorer": "Show Explorer",
-      "showProjects": "Show Projects",
-      "showLibrary": "Show script library",
-      "showHistory": "Show history",
-      "showScheduled": "Show scheduled tasks",
-      "revealActive": "Reveal tab in Explorer"
+      "showExplorer": "显示资源管理器",
+      "showProjects": "显示项目",
+      "showLibrary": "显示脚本库",
+      "showHistory": "显示历史记录",
+      "showScheduled": "显示计划任务",
+      "revealActive": "在资源管理器中定位标签页"
     },
     "editor": {
-      "runSelection": "Run selection",
-      "cancel": "Cancel run",
-      "optimize": "Optimize query",
-      "runMultiDb": "Run on several databases…",
-      "saveToLibrary": "Save to library",
-      "showProblems": "Show problems",
-      "commit": "Commit transaction",
-      "rollback": "Roll back transaction",
-      "toggleManualTx": "Toggle manual transactions",
-      "toggleContinueOnError": "Toggle \"Continue on error\""
+      "runSelection": "运行所选内容",
+      "cancel": "取消运行",
+      "optimize": "优化查询",
+      "runMultiDb": "在多个数据库上运行…",
+      "saveToLibrary": "保存到库",
+      "showProblems": "显示问题",
+      "commit": "提交事务",
+      "rollback": "回滚事务",
+      "toggleManualTx": "切换手动事务",
+      "toggleContinueOnError": "切换“出错时继续”"
     },
     "database": {
-      "reveal": "Reveal in Explorer",
-      "search": "Search the database…",
-      "healthCheck": "Health check",
-      "designer": "Open table designer",
-      "newFromTemplate": "New object from a template…",
-      "diagram": "Database diagram",
-      "queryBuilder": "Design query…",
-      "document": "Document the database…",
+      "reveal": "在资源管理器中定位",
+      "search": "搜索数据库…",
+      "healthCheck": "健康检查",
+      "designer": "打开表设计器",
+      "newFromTemplate": "从模板新建对象…",
+      "diagram": "数据库关系图",
+      "queryBuilder": "设计查询…",
+      "document": "为数据库生成文档…",
       "profiler": "Profiler",
-      "scriptGenerator": "Generate script…",
-      "migrate": "Migrate…",
-      "compareSchemas": "Compare schemas…",
-      "compareData": "Compare data…",
-      "usersAndPermissions": "Users and permissions…",
-      "backups": "Backups…",
-      "importData": "Import data…",
-      "runScriptFile": "Run script file…",
-      "linkProject": "Link project…"
+      "scriptGenerator": "生成脚本…",
+      "migrate": "迁移…",
+      "compareSchemas": "比较架构…",
+      "compareData": "比较数据…",
+      "usersAndPermissions": "用户和权限…",
+      "backups": "备份…",
+      "importData": "导入数据…",
+      "runScriptFile": "运行脚本文件…",
+      "linkProject": "关联项目…"
     },
     "connection": {
-      "connect": "Connect",
-      "disconnect": "Disconnect",
-      "monitor": "Server monitor",
-      "serverBackups": "Server backups…",
-      "newDatabase": "New database…",
-      "edit": "Edit connection…",
-      "duplicate": "Duplicate connection"
+      "connect": "连接",
+      "disconnect": "断开连接",
+      "monitor": "服务器监视器",
+      "serverBackups": "服务器备份…",
+      "newDatabase": "新建数据库…",
+      "edit": "编辑连接…",
+      "duplicate": "复制连接"
     },
     "settings": {
-      "sync": "Sync",
-      "drivers": "Drivers",
-      "mcp": "MCP clients (AI assistants)",
-      "devices": "Paired phones",
-      "mail": "Mail",
-      "lint": "Code analyzer rules",
-      "snippets": "Snippets",
-      "shortcuts": "Keyboard shortcuts"
+      "sync": "同步",
+      "drivers": "驱动",
+      "mcp": "MCP 客户端（AI 助手）",
+      "devices": "已配对的手机",
+      "mail": "邮件",
+      "lint": "代码分析器规则",
+      "snippets": "代码片段",
+      "shortcuts": "键盘快捷键"
     },
     "help": {
-      "checkUpdates": "Check for updates…",
-      "support": "Support the project",
-      "feedback": "Send feedback"
+      "checkUpdates": "检查更新…",
+      "support": "支持本项目",
+      "feedback": "发送反馈"
     }
   },
   "commands": {
-    "placeholder": "Type the name of a command",
-    "empty": "No matching commands",
-    "recent": "recently used",
-    "other": "other commands"
+    "placeholder": "输入命令名称",
+    "empty": "没有匹配的命令",
+    "recent": "最近使用",
+    "other": "其他命令"
   },
   "goto": {
-    "placeholder": "Search a connection, database, table, view, routine, query or tab (\">\" for commands)",
-    "empty": "Nothing by that name",
-    "tabs": "open tabs",
-    "connections": "connections",
-    "tab": "Tab",
-    "connection": "Connection",
-    "database": "Database",
-    "query": "Query"
+    "placeholder": "搜索连接、数据库、表、视图、例程、查询或标签页（输入“>”查找命令）",
+    "empty": "没有该名称的内容",
+    "tabs": "已打开的标签页",
+    "connections": "连接",
+    "tab": "标签页",
+    "connection": "连接",
+    "database": "数据库",
+    "query": "查询"
   },
   "pick": {
-    "connection": "Choose the connection",
-    "database": "Choose the database of {{connection}}",
-    "noConnection": "No connection offers this action",
-    "noDatabases": "No databases to choose from",
-    "template": "Choose the template"
+    "connection": "选择连接",
+    "database": "选择 {{connection}} 的数据库",
+    "noConnection": "没有连接提供此操作",
+    "noDatabases": "没有可选择的数据库",
+    "template": "选择模板"
   }
 }

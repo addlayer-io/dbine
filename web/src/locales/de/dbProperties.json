@@ -1,12 +1,12 @@
 {
-  "menu": "Properties…",
-  "title": "Properties of “{{name}}”",
-  "apply": "Apply",
-  "confirmTitle": "Apply changes to “{{name}}”",
-  "warningsTitle": "Warning:",
-  "applied": "Properties of “{{name}}” updated",
-  "scriptName": "Properties of {{name}}",
-  "nothing": "This engine has nothing to show or change in this tab.",
-  "readOnly": "Read-only connection: properties can be seen but not changed.",
-  "noChanges": "(no changes)"
+  "menu": "Eigenschaften…",
+  "title": "Eigenschaften von „{{name}}“",
+  "apply": "Anwenden",
+  "confirmTitle": "Änderungen auf „{{name}}“ anwenden",
+  "warningsTitle": "Warnung:",
+  "applied": "Eigenschaften von „{{name}}“ aktualisiert",
+  "scriptName": "Eigenschaften von {{name}}",
+  "nothing": "Diese Engine hat auf diesem Tab nichts anzuzeigen oder zu ändern.",
+  "readOnly": "Schreibgeschützte Verbindung: Eigenschaften können angezeigt, aber nicht geändert werden.",
+  "noChanges": "(keine Änderungen)"
 }

@@ -1,20 +1,20 @@
 {
-  "menu": "Health check",
-  "tab": "Health",
-  "title": "Health check · {{name}}",
-  "checkedAt": "Checked on {{at}}",
-  "run": "Check again",
-  "running": "Checking the database…",
-  "showOk": "Show what's OK",
+  "menu": "Zustandsprüfung",
+  "tab": "Zustand",
+  "title": "Zustandsprüfung · {{name}}",
+  "checkedAt": "Geprüft am {{at}}",
+  "run": "Erneut prüfen",
+  "running": "Datenbank wird geprüft…",
+  "showOk": "Zeigen, was in Ordnung ist",
   "severity": {
-    "critical": "Critical",
-    "warning": "Warnings",
-    "info": "Information",
+    "critical": "Kritisch",
+    "warning": "Warnungen",
+    "info": "Informationen",
     "ok": "OK"
   },
-  "openFix": "Open in a query",
-  "fixName": "Fix: {{title}}",
-  "more": "and {{count}} more",
-  "allOk": "No problems found.",
-  "skipped": "Could not be checked:"
+  "openFix": "In einer Abfrage öffnen",
+  "fixName": "Beheben: {{title}}",
+  "more": "und {{count}} weitere",
+  "allOk": "Keine Probleme gefunden.",
+  "skipped": "Konnte nicht geprüft werden:"
 }

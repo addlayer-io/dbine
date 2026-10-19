@@ -1,11 +1,11 @@
 {
-  "right": "Split right",
-  "down": "Split down",
-  "moveLeft": "Move to the left group",
-  "moveRight": "Move to the right group",
-  "moveUp": "Move to the group above",
-  "moveDown": "Move to the group below",
-  "button": "Split editor ({{key}}) · {{alt}}+click: down",
-  "closeGroup": "Close group",
-  "empty": "Empty group: the next tab you open goes here. You can also drag a tab onto this area."
+  "right": "오른쪽으로 분할",
+  "down": "아래로 분할",
+  "moveLeft": "왼쪽 그룹으로 이동",
+  "moveRight": "오른쪽 그룹으로 이동",
+  "moveUp": "위쪽 그룹으로 이동",
+  "moveDown": "아래쪽 그룹으로 이동",
+  "button": "편집기 분할({{key}}) · {{alt}}+클릭: 아래로",
+  "closeGroup": "그룹 닫기",
+  "empty": "빈 그룹입니다. 다음에 여는 탭이 여기에 열립니다. 탭을 이곳으로 끌어다 놓을 수도 있습니다."
 }

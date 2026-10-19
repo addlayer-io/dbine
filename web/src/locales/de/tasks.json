@@ -1,38 +1,38 @@
 {
   "status": {
-    "running_one": "{{count}} task running",
-    "running_other": "{{count}} tasks running",
-    "title": "View running tasks",
-    "many": "{{count}} tasks",
+    "running_one": "{{count}} Aufgabe läuft",
+    "running_other": "{{count}} Aufgaben laufen",
+    "title": "Laufende Aufgaben anzeigen",
+    "many": "{{count}} Aufgaben",
     "line": "{{title}}: {{elapsed}}",
     "lineEta": "{{title}}: {{elapsed}} · {{eta}}"
   },
   "panel": {
-    "title": "Tasks",
-    "empty": "There are no tasks.",
-    "clearFinished": "Remove finished",
-    "cancel": "Cancel",
-    "cancelling": "Cancelling…",
-    "detail": "View details",
-    "remove": "Remove",
-    "background": "Keep running in the background"
+    "title": "Aufgaben",
+    "empty": "Es gibt keine Aufgaben.",
+    "clearFinished": "Abgeschlossene entfernen",
+    "cancel": "Abbrechen",
+    "cancelling": "Wird abgebrochen…",
+    "detail": "Details anzeigen",
+    "remove": "Entfernen",
+    "background": "Im Hintergrund weiterlaufen lassen"
   },
   "state": {
-    "running": "Running",
-    "done": "Finished",
-    "error": "With errors",
-    "cancelled": "Cancelled"
+    "running": "Läuft",
+    "done": "Abgeschlossen",
+    "error": "Mit Fehlern",
+    "cancelled": "Abgebrochen"
   },
   "progress": {
-    "of": "{{done}} of {{total}} {{unit}}",
+    "of": "{{done}} von {{total}} {{unit}}",
     "count": "{{done}} {{unit}}"
   },
   "unit": {
-    "statements": "statements",
-    "rows": "rows",
-    "bytes": "bytes",
-    "tables": "tables",
-    "objects": "objects"
+    "statements": "Anweisungen",
+    "rows": "Zeilen",
+    "bytes": "Bytes",
+    "tables": "Tabellen",
+    "objects": "Objekte"
   },
   "elapsed": {
     "seconds": "{{n}} s",
@@ -41,174 +41,174 @@
     "days": "{{n}} d {{h}} h"
   },
   "eta": {
-    "calculating": "calculating…",
-    "lessThanMinute": "less than 1 min",
+    "calculating": "wird berechnet…",
+    "lessThanMinute": "weniger als 1 min",
     "minutes": "≈ {{n}} min",
     "hours": "≈ {{h}} h {{m}} min",
     "hoursExact": "≈ {{h}} h",
     "days": "≈ {{d}} d {{h}} h",
-    "remaining": "{{eta}} remaining",
-    "phase": "{{eta}} for this stage",
-    "none": "no estimate",
-    "low": "initial estimate, may change"
+    "remaining": "noch {{eta}}",
+    "phase": "{{eta}} für diese Phase",
+    "none": "keine Schätzung",
+    "low": "erste Schätzung, kann sich ändern"
   },
   "detail": {
-    "title": "Task details",
-    "messages": "Messages",
-    "noMessages": "No messages.",
-    "result": "Result",
-    "error": "Error",
+    "title": "Aufgabendetails",
+    "messages": "Meldungen",
+    "noMessages": "Keine Meldungen.",
+    "result": "Ergebnis",
+    "error": "Fehler",
     "started": "Start",
-    "elapsed": "Elapsed",
-    "remaining": "Estimated remaining",
-    "ended": "End",
-    "duration": "Total duration"
+    "elapsed": "Verstrichen",
+    "remaining": "Geschätzte Restdauer",
+    "ended": "Ende",
+    "duration": "Gesamtdauer"
   },
   "notify": {
     "title": {
-      "done": "Task finished",
-      "error": "Task with errors",
-      "cancelled": "Task cancelled"
+      "done": "Aufgabe abgeschlossen",
+      "error": "Aufgabe mit Fehlern",
+      "cancelled": "Aufgabe abgebrochen"
     },
-    "done": "{{title}}: finished in {{elapsed}}.",
-    "error": "{{title}}: finished with errors in {{elapsed}}.",
-    "cancelled": "{{title}}: cancelled after {{elapsed}}.",
+    "done": "{{title}}: in {{elapsed}} abgeschlossen.",
+    "error": "{{title}}: mit Fehlern in {{elapsed}} abgeschlossen.",
+    "cancelled": "{{title}}: nach {{elapsed}} abgebrochen.",
     "withSummary": "{{title}}: {{summary}}, {{elapsed}}.",
-    "failed": "{{title}}: failed after {{elapsed}}. {{error}}"
+    "failed": "{{title}}: nach {{elapsed}} fehlgeschlagen. {{error}}"
   },
   "quit": {
-    "title": "Background runs",
-    "message_one": "There is {{count}} background run: {{list}}. If you close the application it will be cancelled. Close it anyway?",
-    "message_other": "There are {{count}} background runs: {{list}}. If you close the application they will be cancelled. Close it anyway?",
-    "confirm": "Cancel and close",
-    "stay": "Keep working",
-    "window": "{{title}} (window {{n}})"
+    "title": "Hintergrundläufe",
+    "message_one": "Es gibt {{count}} Hintergrundlauf: {{list}}. Wenn Sie die Anwendung schließen, wird er abgebrochen. Trotzdem schließen?",
+    "message_other": "Es gibt {{count}} Hintergrundläufe: {{list}}. Wenn Sie die Anwendung schließen, werden sie abgebrochen. Trotzdem schließen?",
+    "confirm": "Abbrechen und schließen",
+    "stay": "Weiterarbeiten",
+    "window": "{{title}} (Fenster {{n}})"
   },
   "update": {
-    "title": "Background runs",
-    "message_one": "There is {{count}} background run: {{list}}. To finish the update DBine restarts, and it will be cancelled. Restart anyway?",
-    "message_other": "There are {{count}} background runs: {{list}}. To finish the update DBine restarts, and they will be cancelled. Restart anyway?",
-    "confirm": "Cancel and restart",
-    "stay": "Keep working"
+    "title": "Hintergrundläufe",
+    "message_one": "Es gibt {{count}} Hintergrundlauf: {{list}}. Zum Abschluss des Updates startet DBine neu, und er wird abgebrochen. Trotzdem neu starten?",
+    "message_other": "Es gibt {{count}} Hintergrundläufe: {{list}}. Zum Abschluss des Updates startet DBine neu, und sie werden abgebrochen. Trotzdem neu starten?",
+    "confirm": "Abbrechen und neu starten",
+    "stay": "Weiterarbeiten"
   },
   "closeWindow": {
-    "title": "Runs in this window",
-    "message_one": "There is {{count}} background run in this window: {{list}}. If you close the window it will be cancelled. Close it anyway?",
-    "message_other": "There are {{count}} background runs in this window: {{list}}. If you close the window they will be cancelled. Close it anyway?",
-    "confirm": "Cancel and close the window",
-    "stay": "Keep working"
+    "title": "Läufe in diesem Fenster",
+    "message_one": "Es gibt {{count}} Hintergrundlauf in diesem Fenster: {{list}}. Wenn Sie das Fenster schließen, wird er abgebrochen. Trotzdem schließen?",
+    "message_other": "Es gibt {{count}} Hintergrundläufe in diesem Fenster: {{list}}. Wenn Sie das Fenster schließen, werden sie abgebrochen. Trotzdem schließen?",
+    "confirm": "Abbrechen und Fenster schließen",
+    "stay": "Weiterarbeiten"
   },
   "dataSync": {
-    "title": "Data sync of {{table}} ({{where}})",
-    "unit": "statements",
-    "phase": "Applying on {{side}}: {{parts}}",
-    "applied": "Already applied on {{sides}}",
-    "nothingApplied": "No complete script was applied",
-    "stoppedOn": "{{side}} stopped halfway: it may have partially applied changes",
-    "lateCancel": "The cancellation arrived when the scripts had already finished: the changes were applied.",
-    "stale": "The run stopped halfway and the data may have changed: these scripts can no longer be run. The comparison was reloaded.",
-    "regenerate": "Regenerate the scripts"
+    "title": "Datensynchronisierung von {{table}} ({{where}})",
+    "unit": "Anweisungen",
+    "phase": "Wird auf {{side}} angewendet: {{parts}}",
+    "applied": "Bereits angewendet auf {{sides}}",
+    "nothingApplied": "Es wurde kein vollständiges Skript angewendet",
+    "stoppedOn": "{{side}} wurde mittendrin angehalten: Es sind möglicherweise Änderungen teilweise angewendet",
+    "lateCancel": "Der Abbruch kam, als die Skripte bereits fertig waren: Die Änderungen wurden angewendet.",
+    "stale": "Die Ausführung wurde mittendrin angehalten, und die Daten haben sich möglicherweise geändert: Diese Skripte können nicht mehr ausgeführt werden. Der Vergleich wurde neu geladen.",
+    "regenerate": "Skripte neu erzeugen"
   },
   "compareSync": {
-    "title": "Sync of {{target}}",
-    "sideStart_one": "{{side}}: {{count}} statement",
-    "sideStart_other": "{{side}}: {{count}} statements",
-    "summary": "{{count}} of {{total}} statements",
-    "summaryAll_one": "{{count}} statement",
-    "summaryAll_other": "{{count}} statements"
+    "title": "Synchronisierung von {{target}}",
+    "sideStart_one": "{{side}}: {{count}} Anweisung",
+    "sideStart_other": "{{side}}: {{count}} Anweisungen",
+    "summary": "{{count}} von {{total}} Anweisungen",
+    "summaryAll_one": "{{count}} Anweisung",
+    "summaryAll_other": "{{count}} Anweisungen"
   },
   "backups": {
-    "copy": "Copy of {{where}}",
-    "copyDone": "{{size}} at {{path}}",
-    "restoreCopy": "Restore copy to {{where}}",
-    "statements": "{{n}} statements",
-    "statementsWithErrors": "{{n}} statements, {{errors}} with errors",
+    "copy": "Kopie von {{where}}",
+    "copyDone": "{{size}} unter {{path}}",
+    "restoreCopy": "Kopie nach {{where}} wiederherstellen",
+    "statements": "{{n}} Anweisungen",
+    "statementsWithErrors": "{{n}} Anweisungen, {{errors}} mit Fehlern",
     "native": {
-      "backup": "Backup of {{where}}",
-      "restore": "Restore to {{where}}",
-      "delete": "Delete backup at {{where}}"
+      "backup": "Sicherung von {{where}}",
+      "restore": "Wiederherstellung nach {{where}}",
+      "delete": "Sicherung unter {{where}} löschen"
     }
   },
   "dialogs": {
-    "schemaCreate": "Create schema {{name}} in {{db}}",
-    "schemaDrop": "Drop schema {{name}} in {{db}}",
-    "dropIndex": "Drop index {{name}} from {{table}}",
-    "cloneTable": "Clone {{table}} as {{name}}",
-    "runScriptFile": "Run {{file}} in {{db}}",
-    "applyEdits": "Save changes in {{table}}",
-    "saving": "Saving…",
-    "rows_one": "{{n}} row",
-    "rows_other": "{{n}} rows",
-    "statements_one": "{{n}} statement",
-    "statements_other": "{{n}} statements",
-    "statementsWithErrors_one": "{{n}} statement, {{errors}} with errors",
-    "statementsWithErrors_other": "{{n}} statements, {{errors}} with errors"
+    "schemaCreate": "Schema {{name}} in {{db}} erstellen",
+    "schemaDrop": "Schema {{name}} in {{db}} löschen",
+    "dropIndex": "Index {{name}} aus {{table}} löschen",
+    "cloneTable": "{{table}} als {{name}} klonen",
+    "runScriptFile": "{{file}} in {{db}} ausführen",
+    "applyEdits": "Änderungen in {{table}} speichern",
+    "saving": "Wird gespeichert…",
+    "rows_one": "{{n}} Zeile",
+    "rows_other": "{{n}} Zeilen",
+    "statements_one": "{{n}} Anweisung",
+    "statements_other": "{{n}} Anweisungen",
+    "statementsWithErrors_one": "{{n}} Anweisung, {{errors}} mit Fehlern",
+    "statementsWithErrors_other": "{{n}} Anweisungen, {{errors}} mit Fehlern"
   },
   "backupsSecurity": {
-    "run": "Change of users and permissions in {{where}}"
+    "run": "Änderung von Benutzern und Berechtigungen in {{where}}"
   },
   "actions": {
-    "createDatabase": "Create database {{name}} on {{server}}",
-    "dropDatabase": "Drop database {{name}} from {{server}}",
-    "dropOne": "Drop {{name}} in {{db}}",
-    "dropMany": "Drop {{count}} objects in {{db}}",
-    "dropped_one": "{{count}} object dropped",
-    "dropped_other": "{{count}} objects dropped",
-    "dropFailed": "{{failed}} of {{total}} could not be dropped (the detail says why)"
+    "createDatabase": "Datenbank {{name}} auf {{server}} erstellen",
+    "dropDatabase": "Datenbank {{name}} von {{server}} löschen",
+    "dropOne": "{{name}} in {{db}} löschen",
+    "dropMany": "{{count}} Objekte in {{db}} löschen",
+    "dropped_one": "{{count}} Objekt gelöscht",
+    "dropped_other": "{{count}} Objekte gelöscht",
+    "dropFailed": "{{failed}} von {{total}} konnten nicht gelöscht werden (das Detail nennt den Grund)"
   },
   "dataCompare": {
-    "buildTitle": "Data sync scripts of {{table}}",
-    "buildPhase": "Generating the scripts",
-    "applied": "These scripts were already run and the comparison was reloaded: they cannot be run again. For another sync, generate them again."
+    "buildTitle": "Datensynchronisierungsskripte von {{table}}",
+    "buildPhase": "Skripte werden erzeugt",
+    "applied": "Diese Skripte wurden bereits ausgeführt, und der Vergleich wurde neu geladen: Sie können nicht erneut ausgeführt werden. Erzeugen Sie sie für eine weitere Synchronisierung neu."
   },
   "settingsGit": {
     "git": {
-      "link": "Link the library to the repo",
-      "commit": "Library commit",
-      "pull": "Library pull",
-      "push": "Library push",
-      "sync": "Sync the library with the repo",
-      "resolve": "Resolve the library conflicts",
-      "unlink": "Unlink the library from the repo",
-      "conflicts_one": "{{count}} script with a conflict: open «Library in git» to resolve it",
-      "conflicts_other": "{{count}} scripts with conflicts: open «Library in git» to resolve them"
+      "link": "Bibliothek mit dem Repo verknüpfen",
+      "commit": "Bibliothek-Commit",
+      "pull": "Bibliothek-Pull",
+      "push": "Bibliothek-Push",
+      "sync": "Bibliothek mit dem Repo synchronisieren",
+      "resolve": "Konflikte der Bibliothek lösen",
+      "unlink": "Bibliothek vom Repo trennen",
+      "conflicts_one": "{{count}} Skript mit Konflikt: Öffnen Sie «Bibliothek in Git», um ihn zu lösen",
+      "conflicts_other": "{{count}} Skripte mit Konflikten: Öffnen Sie «Bibliothek in Git», um sie zu lösen"
     },
     "sync": {
-      "setupUpload": "Enable sync and upload the backup",
-      "setupRestore": "Restore the backup on this machine",
-      "now": "Sync with the cloud",
-      "upload": "Upload the backup to the cloud",
-      "restore": "Restore from the cloud",
-      "change": "Change the passphrase and re-encrypt the backup",
-      "disconnect": "Stop syncing and delete the backup in the cloud",
-      "local": "Restore local copy"
+      "setupUpload": "Synchronisierung aktivieren und Sicherung hochladen",
+      "setupRestore": "Sicherung auf diesem Rechner wiederherstellen",
+      "now": "Mit der Cloud synchronisieren",
+      "upload": "Sicherung in die Cloud hochladen",
+      "restore": "Aus der Cloud wiederherstellen",
+      "change": "Passphrase ändern und Sicherung neu verschlüsseln",
+      "disconnect": "Synchronisierung beenden und Sicherung in der Cloud löschen",
+      "local": "Lokale Kopie wiederherstellen"
     },
     "drivers": {
-      "install": "Download the {{label}} driver"
+      "install": "Treiber {{label}} herunterladen"
     }
   },
   "genImportExport": {
-    "script": "Script of {{db}}",
-    "scriptToFile": "Script of {{db}} in {{file}}",
+    "script": "Skript von {{db}}",
+    "scriptToFile": "Skript von {{db}} in {{file}}",
     "withRows": "{{objects}}, {{rows}}",
-    "import": "Import {{file}} into {{table}}",
-    "export": "Export {{file}}"
+    "import": "{{file}} in {{table}} importieren",
+    "export": "{{file}} exportieren"
   },
   "nativeBackup": {
     "phase": {
-      "backup": "Copying the data",
-      "restore": "Restoring the data",
-      "verify": "Verifying the backup",
-      "export": "Exporting with Data Pump",
-      "import": "Importing with Data Pump"
+      "backup": "Daten werden kopiert",
+      "restore": "Daten werden wiederhergestellt",
+      "verify": "Sicherung wird verifiziert",
+      "export": "Export mit Data Pump",
+      "import": "Import mit Data Pump"
     }
   },
   "importExport": {
     "phase": {
-      "reading": "Reading the file",
-      "inserting": "Inserting rows"
+      "reading": "Datei wird gelesen",
+      "inserting": "Zeilen werden eingefügt"
     },
-    "ofTotal": "of {{total}}",
-    "estimated": "of ~{{total}} estimated"
+    "ofTotal": "von {{total}}",
+    "estimated": "von ~{{total}} geschätzt"
   }
 }

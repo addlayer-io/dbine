@@ -1,105 +1,105 @@
 {
   "cmd": {
     "file": {
-      "newConnection": "New connection…",
-      "newFolder": "New connection folder…",
-      "newScheduledTask": "New scheduled task",
-      "newNotebook": "New notebook",
-      "closeOtherTabs": "Close other tabs",
-      "closeAllTabs": "Close all tabs"
+      "newConnection": "新しい接続…",
+      "newFolder": "新しい接続フォルダー…",
+      "newScheduledTask": "新しいスケジュールタスク",
+      "newNotebook": "新しいノートブック",
+      "closeOtherTabs": "ほかのタブを閉じる",
+      "closeAllTabs": "すべてのタブを閉じる"
     },
     "palette": {
-      "open": "Show all commands"
+      "open": "すべてのコマンドを表示"
     },
     "goto": {
-      "open": "Go to…"
+      "open": "移動…"
     },
     "view": {
-      "showExplorer": "Show Explorer",
-      "showProjects": "Show Projects",
-      "showLibrary": "Show script library",
-      "showHistory": "Show history",
-      "showScheduled": "Show scheduled tasks",
-      "revealActive": "Reveal tab in Explorer"
+      "showExplorer": "エクスプローラーを表示",
+      "showProjects": "プロジェクトを表示",
+      "showLibrary": "スクリプトライブラリを表示",
+      "showHistory": "履歴を表示",
+      "showScheduled": "スケジュールタスクを表示",
+      "revealActive": "エクスプローラーでタブを表示"
     },
     "editor": {
-      "runSelection": "Run selection",
-      "cancel": "Cancel run",
-      "optimize": "Optimize query",
-      "runMultiDb": "Run on several databases…",
-      "saveToLibrary": "Save to library",
-      "showProblems": "Show problems",
-      "commit": "Commit transaction",
-      "rollback": "Roll back transaction",
-      "toggleManualTx": "Toggle manual transactions",
-      "toggleContinueOnError": "Toggle \"Continue on error\""
+      "runSelection": "選択範囲を実行",
+      "cancel": "実行をキャンセル",
+      "optimize": "クエリを最適化",
+      "runMultiDb": "複数のデータベースで実行…",
+      "saveToLibrary": "ライブラリに保存",
+      "showProblems": "問題を表示",
+      "commit": "トランザクションをコミット",
+      "rollback": "トランザクションをロールバック",
+      "toggleManualTx": "手動トランザクションの切り替え",
+      "toggleContinueOnError": "「エラー時も続行」の切り替え"
     },
     "database": {
-      "reveal": "Reveal in Explorer",
-      "search": "Search the database…",
-      "healthCheck": "Health check",
-      "designer": "Open table designer",
-      "newFromTemplate": "New object from a template…",
-      "diagram": "Database diagram",
-      "queryBuilder": "Design query…",
-      "document": "Document the database…",
+      "reveal": "エクスプローラーで表示",
+      "search": "データベース内を検索…",
+      "healthCheck": "ヘルスチェック",
+      "designer": "テーブルデザイナーを開く",
+      "newFromTemplate": "テンプレートから新しいオブジェクト…",
+      "diagram": "データベースダイアグラム",
+      "queryBuilder": "クエリを設計…",
+      "document": "データベースをドキュメント化…",
       "profiler": "Profiler",
-      "scriptGenerator": "Generate script…",
-      "migrate": "Migrate…",
-      "compareSchemas": "Compare schemas…",
-      "compareData": "Compare data…",
-      "usersAndPermissions": "Users and permissions…",
-      "backups": "Backups…",
-      "importData": "Import data…",
-      "runScriptFile": "Run script file…",
-      "linkProject": "Link project…"
+      "scriptGenerator": "スクリプトを生成…",
+      "migrate": "移行…",
+      "compareSchemas": "スキーマを比較…",
+      "compareData": "データを比較…",
+      "usersAndPermissions": "ユーザーと権限…",
+      "backups": "バックアップ…",
+      "importData": "データをインポート…",
+      "runScriptFile": "スクリプトファイルを実行…",
+      "linkProject": "プロジェクトを関連付け…"
     },
     "connection": {
-      "connect": "Connect",
-      "disconnect": "Disconnect",
-      "monitor": "Server monitor",
-      "serverBackups": "Server backups…",
-      "newDatabase": "New database…",
-      "edit": "Edit connection…",
-      "duplicate": "Duplicate connection"
+      "connect": "接続",
+      "disconnect": "切断",
+      "monitor": "サーバーモニター",
+      "serverBackups": "サーバーのバックアップ…",
+      "newDatabase": "新しいデータベース…",
+      "edit": "接続を編集…",
+      "duplicate": "接続を複製"
     },
     "settings": {
-      "sync": "Sync",
-      "drivers": "Drivers",
-      "mcp": "MCP clients (AI assistants)",
-      "devices": "Paired phones",
-      "mail": "Mail",
-      "lint": "Code analyzer rules",
-      "snippets": "Snippets",
-      "shortcuts": "Keyboard shortcuts"
+      "sync": "同期",
+      "drivers": "ドライバー",
+      "mcp": "MCP クライアント(AI アシスタント)",
+      "devices": "ペアリング済みのスマートフォン",
+      "mail": "メール",
+      "lint": "コードアナライザーのルール",
+      "snippets": "コードスニペット",
+      "shortcuts": "キーボードショートカット"
     },
     "help": {
-      "checkUpdates": "Check for updates…",
-      "support": "Support the project",
-      "feedback": "Send feedback"
+      "checkUpdates": "更新を確認…",
+      "support": "プロジェクトを応援する",
+      "feedback": "フィードバックを送信"
     }
   },
   "commands": {
-    "placeholder": "Type the name of a command",
-    "empty": "No matching commands",
-    "recent": "recently used",
-    "other": "other commands"
+    "placeholder": "コマンド名を入力",
+    "empty": "一致するコマンドがありません",
+    "recent": "最近使用",
+    "other": "その他のコマンド"
   },
   "goto": {
-    "placeholder": "Search a connection, database, table, view, routine, query or tab (\">\" for commands)",
-    "empty": "Nothing by that name",
-    "tabs": "open tabs",
-    "connections": "connections",
-    "tab": "Tab",
-    "connection": "Connection",
-    "database": "Database",
-    "query": "Query"
+    "placeholder": "接続、データベース、テーブル、ビュー、ルーチン、クエリ、タブを検索(\">\" でコマンド)",
+    "empty": "その名前のものはありません",
+    "tabs": "開いているタブ",
+    "connections": "接続",
+    "tab": "タブ",
+    "connection": "接続",
+    "database": "データベース",
+    "query": "クエリ"
   },
   "pick": {
-    "connection": "Choose the connection",
-    "database": "Choose the database of {{connection}}",
-    "noConnection": "No connection offers this action",
-    "noDatabases": "No databases to choose from",
-    "template": "Choose the template"
+    "connection": "接続を選択",
+    "database": "{{connection}} のデータベースを選択",
+    "noConnection": "この操作ができる接続がありません",
+    "noDatabases": "選択できるデータベースがありません",
+    "template": "テンプレートを選択"
   }
 }

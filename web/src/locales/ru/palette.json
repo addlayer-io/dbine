@@ -1,105 +1,105 @@
 {
   "cmd": {
     "file": {
-      "newConnection": "New connection…",
-      "newFolder": "New connection folder…",
-      "newScheduledTask": "New scheduled task",
-      "newNotebook": "New notebook",
-      "closeOtherTabs": "Close other tabs",
-      "closeAllTabs": "Close all tabs"
+      "newConnection": "Новое подключение…",
+      "newFolder": "Новая папка подключений…",
+      "newScheduledTask": "Новая запланированная задача",
+      "newNotebook": "Новый блокнот",
+      "closeOtherTabs": "Закрыть остальные вкладки",
+      "closeAllTabs": "Закрыть все вкладки"
     },
     "palette": {
-      "open": "Show all commands"
+      "open": "Показать все команды"
     },
     "goto": {
-      "open": "Go to…"
+      "open": "Перейти к…"
     },
     "view": {
-      "showExplorer": "Show Explorer",
-      "showProjects": "Show Projects",
-      "showLibrary": "Show script library",
-      "showHistory": "Show history",
-      "showScheduled": "Show scheduled tasks",
-      "revealActive": "Reveal tab in Explorer"
+      "showExplorer": "Показать обозреватель",
+      "showProjects": "Показать проекты",
+      "showLibrary": "Показать библиотеку скриптов",
+      "showHistory": "Показать историю",
+      "showScheduled": "Показать запланированные задачи",
+      "revealActive": "Показать вкладку в обозревателе"
     },
     "editor": {
-      "runSelection": "Run selection",
-      "cancel": "Cancel run",
-      "optimize": "Optimize query",
-      "runMultiDb": "Run on several databases…",
-      "saveToLibrary": "Save to library",
-      "showProblems": "Show problems",
-      "commit": "Commit transaction",
-      "rollback": "Roll back transaction",
-      "toggleManualTx": "Toggle manual transactions",
-      "toggleContinueOnError": "Toggle \"Continue on error\""
+      "runSelection": "Выполнить выделенное",
+      "cancel": "Отменить выполнение",
+      "optimize": "Оптимизировать запрос",
+      "runMultiDb": "Выполнить в нескольких базах данных…",
+      "saveToLibrary": "Сохранить в библиотеку",
+      "showProblems": "Показать проблемы",
+      "commit": "Зафиксировать транзакцию",
+      "rollback": "Откатить транзакцию",
+      "toggleManualTx": "Переключить ручные транзакции",
+      "toggleContinueOnError": "Переключить «Продолжать при ошибке»"
     },
     "database": {
-      "reveal": "Reveal in Explorer",
-      "search": "Search the database…",
-      "healthCheck": "Health check",
-      "designer": "Open table designer",
-      "newFromTemplate": "New object from a template…",
-      "diagram": "Database diagram",
-      "queryBuilder": "Design query…",
-      "document": "Document the database…",
+      "reveal": "Показать в обозревателе",
+      "search": "Поиск по базе данных…",
+      "healthCheck": "Проверка состояния",
+      "designer": "Открыть конструктор таблиц",
+      "newFromTemplate": "Новый объект из шаблона…",
+      "diagram": "Диаграмма базы данных",
+      "queryBuilder": "Построить запрос…",
+      "document": "Документировать базу данных…",
       "profiler": "Profiler",
-      "scriptGenerator": "Generate script…",
-      "migrate": "Migrate…",
-      "compareSchemas": "Compare schemas…",
-      "compareData": "Compare data…",
-      "usersAndPermissions": "Users and permissions…",
-      "backups": "Backups…",
-      "importData": "Import data…",
-      "runScriptFile": "Run script file…",
-      "linkProject": "Link project…"
+      "scriptGenerator": "Создать скрипт…",
+      "migrate": "Мигрировать…",
+      "compareSchemas": "Сравнить схемы…",
+      "compareData": "Сравнить данные…",
+      "usersAndPermissions": "Пользователи и разрешения…",
+      "backups": "Резервные копии…",
+      "importData": "Импортировать данные…",
+      "runScriptFile": "Выполнить файл скрипта…",
+      "linkProject": "Связать проект…"
     },
     "connection": {
-      "connect": "Connect",
-      "disconnect": "Disconnect",
-      "monitor": "Server monitor",
-      "serverBackups": "Server backups…",
-      "newDatabase": "New database…",
-      "edit": "Edit connection…",
-      "duplicate": "Duplicate connection"
+      "connect": "Подключиться",
+      "disconnect": "Отключиться",
+      "monitor": "Монитор сервера",
+      "serverBackups": "Резервные копии сервера…",
+      "newDatabase": "Новая база данных…",
+      "edit": "Изменить подключение…",
+      "duplicate": "Дублировать подключение"
     },
     "settings": {
-      "sync": "Sync",
-      "drivers": "Drivers",
-      "mcp": "MCP clients (AI assistants)",
-      "devices": "Paired phones",
-      "mail": "Mail",
-      "lint": "Code analyzer rules",
-      "snippets": "Snippets",
-      "shortcuts": "Keyboard shortcuts"
+      "sync": "Синхронизация",
+      "drivers": "Драйверы",
+      "mcp": "Клиенты MCP (ИИ-ассистенты)",
+      "devices": "Привязанные телефоны",
+      "mail": "Почта",
+      "lint": "Правила анализатора кода",
+      "snippets": "Сниппеты",
+      "shortcuts": "Сочетания клавиш"
     },
     "help": {
-      "checkUpdates": "Check for updates…",
-      "support": "Support the project",
-      "feedback": "Send feedback"
+      "checkUpdates": "Проверить обновления…",
+      "support": "Поддержать проект",
+      "feedback": "Отправить отзыв"
     }
   },
   "commands": {
-    "placeholder": "Type the name of a command",
-    "empty": "No matching commands",
-    "recent": "recently used",
-    "other": "other commands"
+    "placeholder": "Введите название команды",
+    "empty": "Нет подходящих команд",
+    "recent": "недавно использованные",
+    "other": "другие команды"
   },
   "goto": {
-    "placeholder": "Search a connection, database, table, view, routine, query or tab (\">\" for commands)",
-    "empty": "Nothing by that name",
-    "tabs": "open tabs",
-    "connections": "connections",
-    "tab": "Tab",
-    "connection": "Connection",
-    "database": "Database",
-    "query": "Query"
+    "placeholder": "Поиск подключения, базы данных, таблицы, представления, процедуры, запроса или вкладки («>» для команд)",
+    "empty": "С таким именем ничего нет",
+    "tabs": "открытые вкладки",
+    "connections": "подключения",
+    "tab": "Вкладка",
+    "connection": "Подключение",
+    "database": "База данных",
+    "query": "Запрос"
   },
   "pick": {
-    "connection": "Choose the connection",
-    "database": "Choose the database of {{connection}}",
-    "noConnection": "No connection offers this action",
-    "noDatabases": "No databases to choose from",
-    "template": "Choose the template"
+    "connection": "Выберите подключение",
+    "database": "Выберите базу данных {{connection}}",
+    "noConnection": "Нет подключения, предлагающего это действие",
+    "noDatabases": "Нет баз данных для выбора",
+    "template": "Выберите шаблон"
   }
 }

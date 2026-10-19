@@ -1,52 +1,52 @@
 {
   "app": {
-    "about": "About DBine",
-    "settings": "Settings…",
-    "services": "Services",
-    "hide": "Hide DBine",
-    "hideOthers": "Hide others",
-    "showAll": "Show all",
-    "quit": "Quit DBine"
+    "about": "DBine 정보",
+    "settings": "설정…",
+    "services": "서비스",
+    "hide": "DBine 숨기기",
+    "hideOthers": "다른 앱 숨기기",
+    "showAll": "모두 보기",
+    "quit": "DBine 종료"
   },
   "file": {
-    "title": "File",
-    "newConnection": "New connection",
-    "newQuery": "New query",
-    "newNotebook": "New notebook",
-    "newWindow": "New window",
-    "closeTab": "Close tab",
-    "open": "Open File…"
+    "title": "파일",
+    "newConnection": "새 연결",
+    "newQuery": "새 쿼리",
+    "newNotebook": "새 노트북",
+    "newWindow": "새 창",
+    "closeTab": "탭 닫기",
+    "open": "파일 열기…"
   },
   "edit": {
-    "title": "Edit",
-    "undo": "Undo",
-    "redo": "Redo",
-    "cut": "Cut",
-    "copy": "Copy",
-    "paste": "Paste",
-    "selectAll": "Select all"
+    "title": "편집",
+    "undo": "실행 취소",
+    "redo": "다시 실행",
+    "cut": "잘라내기",
+    "copy": "복사",
+    "paste": "붙여넣기",
+    "selectAll": "모두 선택"
   },
   "view": {
-    "title": "View",
-    "explorer": "Explorer",
-    "output": "Output",
-    "ai": "AI assistant",
-    "fullscreen": "Full screen"
+    "title": "보기",
+    "explorer": "탐색기",
+    "output": "출력",
+    "ai": "AI 어시스턴트",
+    "fullscreen": "전체 화면"
   },
   "window": {
-    "title": "Window",
-    "minimize": "Minimize",
-    "zoom": "Zoom"
+    "title": "창",
+    "minimize": "최소화",
+    "zoom": "확대/축소"
   },
   "help": {
-    "title": "Help",
-    "checkUpdates": "Check for updates…",
-    "support": "Support the project"
+    "title": "도움말",
+    "checkUpdates": "업데이트 확인…",
+    "support": "프로젝트 후원"
   },
   "palette": {
-    "open": "Command palette…"
+    "open": "명령 팔레트…"
   },
   "goto": {
-    "open": "Go to…"
+    "open": "이동…"
   }
 }

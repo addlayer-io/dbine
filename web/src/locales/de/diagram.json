@@ -1,61 +1,61 @@
 {
-  "primaryKey": "Primary key",
-  "foreignKey": "Foreign key",
-  "unnamedForeignKey": "Unnamed foreign key",
-  "exportFailed": "Couldn't export the image: {{error}}",
-  "busy": "Laying out {{tables}} tables and {{relations}} relationships…",
-  "hint": "Drag to move around · ⌘/pinch + wheel to zoom · double-click opens the table",
+  "primaryKey": "Primärschlüssel",
+  "foreignKey": "Fremdschlüssel",
+  "unnamedForeignKey": "Unbenannter Fremdschlüssel",
+  "exportFailed": "Das Bild konnte nicht exportiert werden: {{error}}",
+  "busy": "{{tables}} Tabellen und {{relations}} Beziehungen werden angeordnet…",
+  "hint": "Ziehen zum Verschieben · ⌘/Pinch + Rad zum Zoomen · Doppelklick öffnet die Tabelle",
   "tab": {
-    "connectFailed": "Couldn't connect.",
-    "reading": "Reading the database structure…",
-    "drawFailed": "Couldn't draw the diagram: {{error}}",
-    "fileName": "diagram-{{name}}",
-    "fileNameDefault": "database"
+    "connectFailed": "Verbindung nicht möglich.",
+    "reading": "Datenbankstruktur wird gelesen…",
+    "drawFailed": "Das Diagramm konnte nicht gezeichnet werden: {{error}}",
+    "fileName": "diagramm-{{name}}",
+    "fileNameDefault": "datenbank"
   },
   "toolbar": {
-    "tables": "Tables",
-    "relations": "Relationships",
-    "simplifiedLayout": "simplified layout",
-    "simplifiedLayoutTitle": "The automatic layout failed with this structure: the tables are shown in a grid (you can move them by hand).",
-    "searchPlaceholder": "Search table…",
-    "allSchemas": "All schemas",
-    "allColumns": "All columns",
-    "keysOnly": "Keys only",
-    "relayout": "Rearrange",
-    "relayoutTitle": "Arrange the tables automatically again",
-    "svgImage": "SVG image",
-    "pngImage": "PNG image"
+    "tables": "Tabellen",
+    "relations": "Beziehungen",
+    "simplifiedLayout": "vereinfachtes Layout",
+    "simplifiedLayoutTitle": "Das automatische Layout ist mit dieser Struktur fehlgeschlagen: Die Tabellen werden in einem Raster angezeigt (Sie können sie von Hand verschieben).",
+    "searchPlaceholder": "Tabelle suchen…",
+    "allSchemas": "Alle Schemas",
+    "allColumns": "Alle Spalten",
+    "keysOnly": "Nur Schlüssel",
+    "relayout": "Neu anordnen",
+    "relayoutTitle": "Die Tabellen erneut automatisch anordnen",
+    "svgImage": "SVG-Bild",
+    "pngImage": "PNG-Bild"
   },
   "card": {
-    "openHint": "Double-click to open",
-    "nullable": "Allows NULL",
-    "noColumns": "no columns",
-    "moreColumns_one": "+{{count}} column",
-    "moreColumns_other": "+{{count}} columns",
-    "showLess": "Show less"
+    "openHint": "Doppelklick zum Öffnen",
+    "nullable": "Erlaubt NULL",
+    "noColumns": "keine Spalten",
+    "moreColumns_one": "+{{count}} Spalte",
+    "moreColumns_other": "+{{count}} Spalten",
+    "showLess": "Weniger anzeigen"
   },
   "empty": {
-    "title": "No tables to show",
-    "text": "The database has no tables or the engine doesn't report its structure.",
-    "noRelations": "No relationships: the database declares no foreign keys (or the engine doesn't report them). Only the tables are shown."
+    "title": "Keine Tabellen anzuzeigen",
+    "text": "Die Datenbank hat keine Tabellen, oder die Engine meldet ihre Struktur nicht.",
+    "noRelations": "Keine Beziehungen: Die Datenbank deklariert keine Fremdschlüssel (oder die Engine meldet sie nicht). Es werden nur die Tabellen angezeigt."
   },
   "zoom": {
-    "zoomOut": "Zoom out (−)",
-    "actualSize": "Actual size (0)",
-    "zoomIn": "Zoom in (+)",
-    "fit": "Fit to view (F)",
+    "zoomOut": "Verkleinern (−)",
+    "actualSize": "Originalgröße (0)",
+    "zoomIn": "Vergrößern (+)",
+    "fit": "An Ansicht anpassen (F)",
     "minimap": "Minimap"
   },
   "props": {
-    "table": "table",
-    "openTable": "Open the table",
-    "close": "Close (Esc)",
-    "columns": "Columns",
-    "unnamed": "(unnamed)",
-    "indexes": "Indexes",
-    "unique": "unique",
-    "references": "References",
-    "referencedBy": "Referenced by",
-    "outside": "outside the diagram"
+    "table": "tabelle",
+    "openTable": "Tabelle öffnen",
+    "close": "Schließen (Esc)",
+    "columns": "Spalten",
+    "unnamed": "(ohne Namen)",
+    "indexes": "Indizes",
+    "unique": "eindeutig",
+    "references": "Referenziert",
+    "referencedBy": "Referenziert von",
+    "outside": "außerhalb des Diagramms"
   }
 }

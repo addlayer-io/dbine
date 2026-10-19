@@ -1,0 +1,117 @@
+{
+  "pair": {
+    "intro": "用手机查看数据库的锁和正在运行的查询。连接和密码都保留在你的电脑上。",
+    "name": "这部手机的名称",
+    "defaultName": "我的手机",
+    "scan": "与 DBine 配对",
+    "connecting": "正在连接…",
+    "step1": "在电脑上，打开 DBine › 设置 › 设备。",
+    "step2": "开启“允许手机”，然后点击“配对手机”。",
+    "step3": "扫描出现的二维码。如果手机不在同一网络，将通过互联网连接（前提是 DBine 在“本地网络之外”中允许）。",
+    "confirmOn": "请在“{{desktop}}”上确认。",
+    "compare": "请核对电脑上显示的是否为同一个码：",
+    "noCamera": "没有使用相机的权限，就无法读取二维码。",
+    "fromLink": "你将把这部手机与“{{desktop}}”配对。之后请在那台电脑上确认代码是否一致。",
+    "pairLink": "配对",
+    "scanInstead": "扫描另一个码",
+    "alreadyPaired": "这部手机已与“{{desktop}}”配对。要与另一台电脑配对，请先取消配对。"
+  },
+  "connections": {
+    "filter": "搜索连接",
+    "none": "DBine 没有已保存的连接。",
+    "loading": "加载中…",
+    "thisPhone": "这部手机：{{code}}",
+    "unpair": "取消配对",
+    "unpairConfirm": "要取消这部手机的配对吗？再次使用需要扫描新的二维码。",
+    "via": {
+      "local": "本地网络",
+      "internet": "通过互联网"
+    }
+  },
+  "conn": {
+    "monitor": "监视器",
+    "locks": "锁",
+    "processes": "进行中",
+    "health": "健康",
+    "unsupported": "{{engine}} 不报告其状态、锁或进程。",
+    "noLocks": "没有被阻塞的会话。",
+    "noProcesses": "没有正在运行的查询。",
+    "session": "会话 {{id}}",
+    "blocks_other": "阻塞 {{count}} 个会话",
+    "waitsFor": "等待 {{id}}",
+    "kill": "终止",
+    "killConfirm": "要终止会话 {{id}} 吗？其进行中的事务将被回滚。\n\n{{sql}}",
+    "killReason": "终止会话 {{id}}",
+    "notConfirmed": "未确认：会话继续。",
+    "killed": "会话 {{id}} 已终止。",
+    "notAllowed": "要从这部手机终止会话，请在 DBine › 设置 › 设备中启用。",
+    "engineCantKill": "此连接不允许终止会话（它是只读的，或引擎不支持）。",
+    "f": {
+      "status": "状态",
+      "user": "用户",
+      "host": "主机",
+      "database": "数据库",
+      "client": "客户端",
+      "object": "对象",
+      "waitsFor": "等待"
+    },
+    "loading": "正在查询 {{engine}}…"
+  },
+  "nav": {
+    "connections": "连接",
+    "activity": "活动"
+  },
+  "tasks": {
+    "title": "计划任务",
+    "none": "DBine 没有计划任务。",
+    "neverRan": "尚未运行。",
+    "next": "下次：{{at}}",
+    "disabled": "已禁用",
+    "runNow": "立即运行",
+    "runConfirm": "要在电脑上立即运行“{{name}}”吗？",
+    "runReason": "运行“{{name}}”",
+    "notConfirmed": "未确认：任务未运行。",
+    "started": "任务已在电脑上启动。完成后会显示在这里。",
+    "needsApproval": "此任务会更改数据，并有未批准的步骤：请在电脑上的 DBine 中批准。",
+    "notAllowed": "要从这部手机运行任务，请在 DBine › 设置 › 设备中启用。",
+    "status": {
+      "running": "进行中",
+      "ok": "成功",
+      "partial": "有错误",
+      "failed": "失败"
+    },
+    "at": "第 {{n}} 步，共 {{total}} 步：{{name}}",
+    "cancel": "取消任务",
+    "cancelConfirm": "要取消“{{name}}”吗？进行中的步骤会被中断，后面的步骤不会运行。",
+    "cancelReason": "取消“{{name}}”",
+    "cancelling": "已请求取消任务：几秒钟后会中断。"
+  },
+  "health": {
+    "run": "检查数据库",
+    "running": "检查中…",
+    "allGood": "未发现问题。",
+    "fine_other": "{{count}} 项检查无问题"
+  },
+  "activity": {
+    "title": "活动",
+    "queries": "查询",
+    "tasks": "计划任务",
+    "running": "进行中",
+    "recent": "已完成",
+    "none": "没有正在运行的查询，最近也没有已完成的查询。",
+    "cancel": "取消",
+    "cancelConfirm": "要在电脑上取消这个查询吗？\n\n{{sql}}",
+    "cancelReason": "取消一个查询",
+    "notConfirmed": "未确认：查询继续。",
+    "cancelled": "已请求取消查询。",
+    "done": "顺利完成",
+    "startedAt": "开始于 {{at}}",
+    "hint": "这里会在你于 DBine 编辑器中运行的查询运行期间显示它们，也会在耗时超过 10 秒的查询结束后显示。如果你允许，手机会在它们结束时通知你：应用打开时立即通知；应用关闭时，在 Android 的下一次检查时通知（每 15 分钟）。当某个查询运行超过 30 秒时，DBine 不会让电脑进入休眠。",
+    "tapForDetail": "点击查看详情",
+    "cancelNotAllowed": "要从这部手机取消查询，请在 DBine › 设置 › 设备中启用。"
+  },
+  "update": {
+    "available": "有新版本的 DBine（{{version}}）。",
+    "download": "下载"
+  }
+}

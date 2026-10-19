@@ -1,246 +1,246 @@
 {
-  "nav": "Code quality",
+  "nav": "Качество кода",
   "settings": {
-    "help": "While you type, the editor flags what usually causes problems: slow queries, unexpected results, or changes that affect more rows than you think. The analysis is done on the text, without querying the database. Turn off the rules that don't help you.",
-    "enabled": "Check the code as I write",
-    "enabledHelp": "Marks the problems in the margin and underlines them; hover to see why and how to fix them.",
-    "rules": "Rules",
-    "engines": "Applies to",
-    "allOn": "Turn all on",
-    "loadError": "Could not load the list of rules."
+    "help": "Пока вы печатаете, редактор отмечает то, что обычно вызывает проблемы: медленные запросы, неожиданные результаты или изменения, затрагивающие больше строк, чем вы думаете. Анализ выполняется по тексту, без обращения к базе данных. Отключите правила, которые вам не помогают.",
+    "enabled": "Проверять код по мере набора",
+    "enabledHelp": "Отмечает проблемы на полях и подчёркивает их; наведите курсор, чтобы увидеть причину и способ исправления.",
+    "rules": "Правила",
+    "engines": "Применяется к",
+    "allOn": "Включить все",
+    "loadError": "Не удалось загрузить список правил."
   },
   "severity": {
-    "error": "Error",
-    "warning": "Warning",
-    "info": "Suggestion"
+    "error": "Ошибка",
+    "warning": "Предупреждение",
+    "info": "Совет"
   },
   "groups": {
-    "sql": "All SQL engines",
-    "tsql": "SQL Server, Azure SQL, Fabric and Sybase",
-    "postgres": "PostgreSQL family",
-    "mysql": "MySQL family",
+    "sql": "Все движки SQL",
+    "tsql": "SQL Server, Azure SQL, Fabric и Sybase",
+    "postgres": "Семейство PostgreSQL",
+    "mysql": "Семейство MySQL",
     "oracle": "Oracle",
-    "influxql": "InfluxDB (InfluxQL and SQL)",
-    "cql": "Cassandra, ScyllaDB and Amazon Keyspaces",
-    "mongodb": "MongoDB, FerretDB and DocumentDB",
+    "influxql": "InfluxDB (InfluxQL и SQL)",
+    "cql": "Cassandra, ScyllaDB и Amazon Keyspaces",
+    "mongodb": "MongoDB, FerretDB и DocumentDB",
     "couchdb": "CouchDB",
-    "search": "Elasticsearch, OpenSearch and Solr",
-    "redis": "Redis, Valkey and Dragonfly",
+    "search": "Elasticsearch, OpenSearch и Solr",
+    "redis": "Redis, Valkey и Dragonfly",
     "etcd": "etcd",
-    "cypher": "Neo4j, Memgraph and Neptune"
+    "cypher": "Neo4j, Memgraph и Neptune"
   },
   "problems": {
-    "button": "View problems",
-    "count_one": "1 problem",
-    "count_many": "{{count}} problems",
-    "count_few": "{{count}} problems",
-    "count_other": "{{count}} problems",
-    "none": "No problems",
-    "title": "Script problems",
-    "line": "Line {{line}}",
-    "settings": "Configure rules…"
+    "button": "Показать проблемы",
+    "count_one": "{{count}} проблема",
+    "count_many": "Проблем: {{count}}",
+    "count_few": "{{count}} проблемы",
+    "count_other": "{{count}} проблемы",
+    "none": "Проблем нет",
+    "title": "Проблемы скрипта",
+    "line": "Строка {{line}}",
+    "settings": "Настроить правила…"
   },
-  "ruleId": "Rule: {{id}}",
+  "ruleId": "Правило: {{id}}",
   "rules": {
     "select-star": {
       "title": "SELECT *",
-      "message": "SELECT * fetches all columns",
-      "why": "It fetches columns you don't use, prevents an index from covering the query, and changes shape when someone adds a column. List only the columns you need."
+      "message": "SELECT * извлекает все столбцы",
+      "why": "Извлекаются столбцы, которые вы не используете, индекс не может покрыть запрос, а результат меняет форму, когда кто-то добавляет столбец. Перечисляйте только нужные столбцы."
     },
     "dml-without-where": {
-      "title": "UPDATE or DELETE without WHERE",
-      "message": "{{keyword}} without WHERE: affects all rows of the table",
-      "why": "Without a condition, the statement changes or deletes the whole table. If that is what you want, use TRUNCATE to empty it; otherwise, add the WHERE that limits the rows."
+      "title": "UPDATE или DELETE без WHERE",
+      "message": "{{keyword}} без WHERE: затрагивает все строки таблицы",
+      "why": "Без условия инструкция изменяет или удаляет всю таблицу. Если это то, что вам нужно, для очистки используйте TRUNCATE; иначе добавьте WHERE, ограничивающее строки."
     },
     "not-in-subquery": {
-      "title": "NOT IN with a subquery",
-      "message": "NOT IN (subquery): if it returns a NULL, no rows come out",
-      "why": "A single NULL in the subquery is enough for the condition to never be true and the query to return nothing. Use NOT EXISTS, or filter out the NULLs inside the subquery."
+      "title": "NOT IN с подзапросом",
+      "message": "NOT IN (подзапрос): если он вернёт NULL, не будет ни одной строки",
+      "why": "Достаточно одного NULL в подзапросе, чтобы условие никогда не выполнялось, а запрос ничего не возвращал. Используйте NOT EXISTS или отфильтруйте NULL внутри подзапроса."
     },
     "leading-wildcard": {
-      "title": "Leading wildcard",
-      "message": "The pattern {{pattern}} starts with a wildcard: it can't use an index",
-      "why": "A pattern that starts with % (or * / ?) forces a check of every value. If you can, anchor the start of the text ('abc%') or use a full-text search."
+      "title": "Подстановочный знак в начале",
+      "message": "Шаблон {{pattern}} начинается с подстановочного знака: индекс использовать нельзя",
+      "why": "Шаблон, начинающийся с % (или * / ?), заставляет проверять каждое значение. По возможности привяжите начало текста ('abc%') или используйте полнотекстовый поиск."
     },
     "function-on-column": {
-      "title": "Function on a column in the WHERE",
-      "message": "{{fn}}(…) on the column prevents using its index",
-      "why": "By wrapping the column in a function, the engine has to compute it row by row. Move the transformation to the other side of the comparison (for example, a date range instead of YEAR(col) = 2024) or create an index on the expression."
+      "title": "Функция над столбцом в WHERE",
+      "message": "{{fn}}(…) над столбцом не позволяет использовать его индекс",
+      "why": "Если обернуть столбец функцией, движку приходится вычислять её построчно. Перенесите преобразование на другую сторону сравнения (например, диапазон дат вместо YEAR(col) = 2024) или создайте индекс по выражению."
     },
     "equals-null": {
-      "title": "= NULL or <> NULL",
-      "message": "Comparing with NULL using = or <> is never true",
-      "why": "NULL is neither equal nor different to anything, not even another NULL: the condition evaluates to unknown and lets no rows through. Use IS NULL or IS NOT NULL."
+      "title": "= NULL или <> NULL",
+      "message": "Сравнение с NULL через = или <> никогда не бывает истинным",
+      "why": "NULL не равен и не отличается ни от чего, даже от другого NULL: условие вычисляется как неизвестное и не пропускает ни одной строки. Используйте IS NULL или IS NOT NULL."
     },
     "order-by-ordinal": {
-      "title": "ORDER BY by position",
-      "message": "ORDER BY {{n}} sorts by the column's position",
-      "why": "If someone changes the order of the SELECT columns, the result is sorted by another one without warning. Write the column name or its alias."
+      "title": "ORDER BY по номеру",
+      "message": "ORDER BY {{n}} сортирует по номеру столбца",
+      "why": "Если кто-то изменит порядок столбцов в SELECT, результат без предупреждения будет отсортирован по другому. Напишите имя столбца или его псевдоним."
     },
     "order-by-random": {
-      "title": "Random order",
-      "message": "{{call}} sorts the whole table to pick random rows",
-      "why": "It computes a random value for each row and sorts them all, even if you then ask for just one. On large tables use the engine's sampling (TABLESAMPLE, SAMPLE) or pick from a random key range."
+      "title": "Случайный порядок",
+      "message": "{{call}} сортирует всю таблицу, чтобы выбрать случайные строки",
+      "why": "Для каждой строки вычисляется случайное значение, и все они сортируются, даже если потом запрашивается всего одна. В больших таблицах используйте выборку движка (TABLESAMPLE, SAMPLE) или выбирайте из случайного диапазона ключей."
     },
     "implicit-cross-join": {
-      "title": "Implicit join without a condition",
-      "message": "\"{{table}}\" is joined with a comma and no condition: Cartesian product",
-      "why": "A table in the FROM separated by a comma, with no WHERE condition relating it to the others, combines each row with all the others. Use JOIN … ON with the condition; if the product is intentional, write CROSS JOIN."
+      "title": "Неявное соединение без условия",
+      "message": "«{{table}}» соединена запятой и без условия: декартово произведение",
+      "why": "Таблица в FROM, отделённая запятой и без условия в WHERE, связывающего её с остальными, объединяет каждую строку со всеми остальными. Используйте JOIN … ON с условием; если произведение задумано, напишите CROSS JOIN."
     },
     "insert-without-columns": {
-      "title": "INSERT without a column list",
-      "message": "INSERT without a column list",
-      "why": "Values are assigned by the position of the table's columns: if someone adds or reorders columns, the INSERT fails or stores data in the wrong column. Name the columns."
+      "title": "INSERT без списка столбцов",
+      "message": "INSERT без списка столбцов",
+      "why": "Значения присваиваются по позиции столбцов таблицы: если кто-то добавит столбцы или изменит их порядок, INSERT завершится ошибкой или запишет данные не в тот столбец. Укажите имена столбцов."
     },
     "distinct-group-by": {
-      "title": "DISTINCT together with GROUP BY",
-      "message": "DISTINCT is redundant: GROUP BY already returns unique rows",
-      "why": "Grouping already leaves one row per group; DISTINCT adds work without changing the result (unless the SELECT doesn't include all the grouped columns). Remove one of the two."
+      "title": "DISTINCT вместе с GROUP BY",
+      "message": "DISTINCT избыточен: GROUP BY уже возвращает уникальные строки",
+      "why": "Группировка и так оставляет одну строку на группу; DISTINCT добавляет работы, не меняя результат (если только SELECT не включает не все сгруппированные столбцы). Уберите одно из двух."
     },
     "union-distinct": {
-      "title": "UNION instead of UNION ALL",
-      "message": "UNION removes duplicates; if there can't be any, UNION ALL is faster",
-      "why": "UNION sorts or builds a hash of the whole result to eliminate repeated rows. If the parts don't overlap or duplicates don't matter, use UNION ALL."
+      "title": "UNION вместо UNION ALL",
+      "message": "UNION удаляет дубликаты; если их быть не может, UNION ALL быстрее",
+      "why": "UNION сортирует или строит хеш всего результата, чтобы исключить повторяющиеся строки. Если части не пересекаются или дубликаты не важны, используйте UNION ALL."
     },
     "nolock": {
       "title": "NOLOCK / READ UNCOMMITTED",
-      "message": "{{hint}} reads uncommitted data",
-      "why": "It can return rows that are later rolled back, duplicated rows, or missing rows if the table is reorganized during the read. If what you want is for reads not to wait, use snapshot isolation (READ_COMMITTED_SNAPSHOT)."
+      "message": "{{hint}} читает незафиксированные данные",
+      "why": "Может вернуть строки, которые потом будут откачены, дублирующиеся строки или пропустить строки, если таблица реорганизуется во время чтения. Если нужно, чтобы чтение не ждало, используйте изоляцию снимков (READ_COMMITTED_SNAPSHOT)."
     },
     "cursor": {
-      "title": "Cursors",
-      "message": "Cursor: processes rows one at a time",
-      "why": "A cursor walks row by row through what a set-based statement (UPDATE … FROM, MERGE, a subquery) resolves at once. If you need one, declare it LOCAL FAST_FORWARD."
+      "title": "Курсоры",
+      "message": "Курсор: обрабатывает строки по одной",
+      "why": "Курсор идёт по строкам по одной там, где инструкция над множеством (UPDATE … FROM, MERGE, подзапрос) решает задачу сразу. Если он нужен, объявите его как LOCAL FAST_FORWARD."
     },
     "set-rowcount": {
       "title": "SET ROWCOUNT",
-      "message": "SET ROWCOUNT stays active in the session and is deprecated for INSERT, UPDATE and DELETE",
-      "why": "It affects all following statements in the session, including triggers, until someone sets it back to 0. Use TOP (n) in the statement."
+      "message": "SET ROWCOUNT остаётся активным в сеансе и объявлен устаревшим для INSERT, UPDATE и DELETE",
+      "why": "Влияет на все последующие инструкции сеанса, включая триггеры, пока кто-то не вернёт 0. Используйте TOP (n) в инструкции."
     },
     "global-identity": {
       "title": "@@IDENTITY",
-      "message": "@@IDENTITY may return the identity generated by a trigger",
-      "why": "It returns the last identity value of the session in any table, even one inserted by a trigger. Use SCOPE_IDENTITY() or the OUTPUT clause."
+      "message": "@@IDENTITY может вернуть значение идентификатора, созданное триггером",
+      "why": "Возвращает последнее значение идентификатора в сеансе в любой таблице, даже вставленное триггером. Используйте SCOPE_IDENTITY() или предложение OUTPUT."
     },
     "sp-prefix": {
-      "title": "Procedures with the sp_ prefix",
-      "message": "\"{{name}}\": the sp_ prefix is for system procedures",
-      "why": "SQL Server looks for sp_ procedures in master first, which costs an extra lookup on every call and may run a system one with the same name. Use another prefix (usp_) or none."
+      "title": "Процедуры с префиксом sp_",
+      "message": "«{{name}}»: префикс sp_ предназначен для системных процедур",
+      "why": "SQL Server сначала ищет процедуры sp_ в master, что добавляет лишний поиск при каждом вызове и может выполнить системную процедуру с таким же именем. Используйте другой префикс (usp_) или никакого."
     },
     "set-nocount": {
-      "title": "Procedure without SET NOCOUNT ON",
-      "message": "\"{{name}}\" has no SET NOCOUNT ON",
-      "why": "Without it, each statement sends the client an \"N rows affected\" message: extra traffic and, for some clients, unexpected results. Add SET NOCOUNT ON at the start of the body."
+      "title": "Процедура без SET NOCOUNT ON",
+      "message": "В «{{name}}» нет SET NOCOUNT ON",
+      "why": "Без него каждая инструкция отправляет клиенту сообщение «затронуто N строк»: лишний трафик и, для некоторых клиентов, неожиданные результаты. Добавьте SET NOCOUNT ON в начале тела."
     },
     "for-update-wait": {
-      "title": "FOR UPDATE that waits for the lock",
-      "message": "{{clause}} waits for the lock to be released",
-      "why": "If another transaction holds the row, the query waits. For work queues use SKIP LOCKED; to fail right away, NOWAIT (in Oracle also WAIT n)."
+      "title": "FOR UPDATE, ожидающий блокировку",
+      "message": "{{clause}} ожидает снятия блокировки",
+      "why": "Если строку удерживает другая транзакция, запрос ждёт. Для очередей задач используйте SKIP LOCKED; чтобы сразу завершаться ошибкой — NOWAIT (в Oracle также WAIT n)."
     },
     "serial-identity": {
-      "title": "serial instead of IDENTITY",
-      "message": "{{type}}: prefer GENERATED … AS IDENTITY",
-      "why": "serial creates a separate sequence that doesn't travel with the permissions or with copies of the table and lets you insert values by hand without control. IDENTITY columns are the SQL standard and the sequence stays bound to the column."
+      "title": "serial вместо IDENTITY",
+      "message": "{{type}}: лучше GENERATED … AS IDENTITY",
+      "why": "serial создаёт отдельную последовательность, которая не переносится вместе с правами и копиями таблицы и позволяет вставлять значения вручную без контроля. Столбцы IDENTITY — стандарт SQL, и последовательность остаётся привязана к столбцу."
     },
     "group-by-nonaggregated": {
-      "title": "Columns outside the GROUP BY",
-      "message": "\"{{column}}\" is neither grouped nor inside an aggregate function",
-      "why": "MySQL without ONLY_FULL_GROUP_BY returns the value of an arbitrary row of the group, and with that mode the query fails. Add the column to the GROUP BY or use an aggregate function (MAX, ANY_VALUE…)."
+      "title": "Столбцы вне GROUP BY",
+      "message": "«{{column}}» не сгруппирован и не находится внутри агрегатной функции",
+      "why": "MySQL без ONLY_FULL_GROUP_BY возвращает значение произвольной строки группы, а в этом режиме запрос завершается ошибкой. Добавьте столбец в GROUP BY или используйте агрегатную функцию (MAX, ANY_VALUE…)."
     },
     "rownum-order-by": {
-      "title": "ROWNUM with ORDER BY",
-      "message": "ROWNUM is applied before ORDER BY",
-      "why": "In the same block, Oracle numbers and cuts the rows before sorting them: it doesn't return \"the first N\" according to the order. Sort in a subquery and filter ROWNUM outside, or use FETCH FIRST n ROWS ONLY."
+      "title": "ROWNUM с ORDER BY",
+      "message": "ROWNUM применяется до ORDER BY",
+      "why": "В одном блоке Oracle нумерует и отсекает строки до их сортировки: «первые N» согласно порядку он не вернёт. Отсортируйте в подзапросе и фильтруйте ROWNUM снаружи или используйте FETCH FIRST n ROWS ONLY."
     },
     "outer-join-plus": {
-      "title": "(+) outer join syntax",
-      "message": "(+) is the old outer join syntax",
-      "why": "It has restrictions that LEFT/RIGHT JOIN doesn't (it doesn't allow OR or FULL OUTER) and it is easy to forget in one of the conditions. Use LEFT JOIN … ON."
+      "title": "Внешнее соединение с синтаксисом (+)",
+      "message": "(+) — устаревший синтаксис внешнего соединения",
+      "why": "У него есть ограничения, которых нет у LEFT/RIGHT JOIN (не допускает OR и FULL OUTER), и его легко забыть в одном из условий. Используйте LEFT JOIN … ON."
     },
     "delete-without-time": {
-      "title": "DELETE without a time range",
-      "message": "DELETE without a condition on time: deletes the whole history of the series",
-      "why": "Without a time range, it deletes all the points that meet the condition from the beginning. Add time >= … AND time < … to limit it."
+      "title": "DELETE без диапазона времени",
+      "message": "DELETE без условия по времени: удаляет всю историю серии",
+      "why": "Без диапазона времени удаляются все точки, удовлетворяющие условию, с самого начала. Добавьте time >= … AND time < …, чтобы ограничить."
     },
     "drop-series": {
       "title": "DROP SERIES / MEASUREMENT",
-      "message": "DROP {{what}} deletes the whole history, with no time range",
-      "why": "It doesn't accept a time range: it removes all the points and the series index. If you want to delete a period, use DELETE with a condition on time."
+      "message": "DROP {{what}} удаляет всю историю без диапазона времени",
+      "why": "Не принимает диапазон времени: удаляет все точки и индекс серии. Чтобы удалить период, используйте DELETE с условием по времени."
     },
     "allow-filtering": {
       "title": "ALLOW FILTERING",
-      "message": "ALLOW FILTERING scans partitions to filter",
-      "why": "The coordinator reads data from many partitions and discards what doesn't meet the condition: the cost grows with the table. Model a table for that query or filter by the partition key."
+      "message": "ALLOW FILTERING сканирует разделы для фильтрации",
+      "why": "Координатор читает данные из многих разделов и отбрасывает то, что не соответствует условию: стоимость растёт вместе с таблицей. Смоделируйте таблицу под этот запрос или фильтруйте по ключу раздела."
     },
     "no-partition-key": {
-      "title": "SELECT without a partition key",
-      "message": "SELECT on {{table}} without WHERE: reads all partitions",
-      "why": "Without restricting the partition key, the query scans the whole cluster. Filter by the partition key or paginate with token()."
+      "title": "SELECT без ключа раздела",
+      "message": "SELECT к {{table}} без WHERE: читает все разделы",
+      "why": "Без ограничения по ключу раздела запрос сканирует весь кластер. Фильтруйте по ключу раздела или используйте постраничность через token()."
     },
     "batch-partitions": {
-      "title": "BATCH across partitions",
-      "message": "The BATCH writes to several tables or partitions",
-      "why": "A batch spanning several partitions is not faster: it loads the coordinator and, if LOGGED, also writes the batch log. Use it for atomicity within a partition; to load data, send the statements separately."
+      "title": "BATCH по нескольким разделам",
+      "message": "BATCH записывает в несколько таблиц или разделов",
+      "why": "Пакет, охватывающий несколько разделов, быстрее не работает: он нагружает координатор и, если он LOGGED, ещё и пишет журнал пакета. Используйте его для атомарности в пределах раздела; для загрузки данных отправляйте инструкции по отдельности."
     },
     "write-all": {
-      "title": "Write without a filter",
-      "message": "{{call}} has no filter: it affects everything",
-      "why": "Without a filter, the operation changes or deletes all documents or keys. If that is what you want, write the explicit filter or use the engine's truncate operation; otherwise, add the condition."
+      "title": "Запись без фильтра",
+      "message": "{{call}} без фильтра: затрагивает всё",
+      "why": "Без фильтра операция изменяет или удаляет все документы или ключи. Если это то, что вам нужно, напишите явный фильтр или используйте операцию очистки движка (truncate); иначе добавьте условие."
     },
     "where-operator": {
       "title": "$where",
-      "message": "$where runs JavaScript for each document",
-      "why": "It doesn't use indexes, is slow and is disabled on many servers. Replace it with query operators or with $expr."
+      "message": "$where выполняет JavaScript для каждого документа",
+      "why": "Не использует индексы, работает медленно и отключён на многих серверах. Замените операторами запросов или на $expr."
     },
     "unanchored-regex": {
-      "title": "Unanchored regular expression",
-      "message": "The expression {{pattern}} doesn't start with ^: it scans the whole index",
-      "why": "Only an expression anchored at the start (^abc) and case-sensitive makes good use of an index. If you are searching for loose text, use a text index."
+      "title": "Регулярное выражение без привязки",
+      "message": "Выражение {{pattern}} не начинается с ^: сканируется весь индекс",
+      "why": "Индекс хорошо используется только выражением, привязанным к началу (^abc) и чувствительным к регистру. Если вы ищете произвольный текст, используйте текстовый индекс."
     },
     "read-all": {
-      "title": "Read without a filter",
-      "message": "{{call}} without a filter reads everything",
-      "why": "It fetches all documents or keys. Add a filter, a projection and a limit to fetch only what you need."
+      "title": "Чтение без фильтра",
+      "message": "{{call}} без фильтра читает всё",
+      "why": "Извлекает все документы или ключи. Добавьте фильтр, проекцию и ограничение, чтобы получить только нужное."
     },
     "keys-command": {
       "title": "KEYS",
-      "message": "KEYS {{pattern}} scans all keys and blocks the server",
-      "why": "Redis serves one command at a time: while KEYS scans the database, it answers no one. Use SCAN with MATCH and COUNT, which advances in parts."
+      "message": "KEYS {{pattern}} сканирует все ключи и блокирует сервер",
+      "why": "Redis обслуживает по одной команде за раз: пока KEYS сканирует базу данных, он никому не отвечает. Используйте SCAN с MATCH и COUNT, который продвигается по частям."
     },
     "flush": {
       "title": "FLUSHALL / FLUSHDB",
-      "message": "{{command}} deletes all keys",
-      "why": "FLUSHDB empties the current database and FLUSHALL all the databases on the server, with no way back. Make sure you are connected to the right server."
+      "message": "{{command}} удаляет все ключи",
+      "why": "FLUSHDB очищает текущую базу данных, а FLUSHALL — все базы данных сервера, без возможности вернуть. Убедитесь, что подключены к нужному серверу."
     },
     "big-read": {
-      "title": "Full read of a key",
-      "message": "{{command}} reads the entire key",
-      "why": "With large keys, the response takes long and blocks the server while it is built. Use HSCAN / SSCAN, or ask for a bounded range."
+      "title": "Полное чтение ключа",
+      "message": "{{command}} читает ключ целиком",
+      "why": "С большими ключами ответ формируется долго и блокирует сервер. Используйте HSCAN / SSCAN или запрашивайте ограниченный диапазон."
     },
     "match-without-label": {
-      "title": "MATCH without a label",
-      "message": "This pattern has no label or properties: it scans all nodes",
-      "why": "Without a label (:Person) or a property filter, the engine has to check every node in the database. Add the label so it can use its indexes."
+      "title": "MATCH без метки",
+      "message": "У этого шаблона нет метки или свойств: сканируются все узлы",
+      "why": "Без метки (:Person) или фильтра по свойствам движку приходится проверять каждый узел в базе данных. Добавьте метку, чтобы он мог использовать её индексы."
     },
     "cartesian-product": {
-      "title": "Disconnected patterns",
-      "message": "This pattern shares no nodes with the rest: Cartesian product",
-      "why": "Two patterns separated by a comma with no variables in common combine each result of one with all those of the other. Relate them in the same pattern or with a WHERE."
+      "title": "Несвязанные шаблоны",
+      "message": "У этого шаблона нет общих узлов с остальными: декартово произведение",
+      "why": "Два шаблона через запятую без общих переменных объединяют каждый результат одного со всеми результатами другого. Свяжите их в одном шаблоне или через WHERE."
     },
     "detach-delete-all": {
-      "title": "DETACH DELETE without WHERE",
-      "message": "DETACH DELETE without WHERE deletes all the nodes the MATCH finds",
-      "why": "It deletes the nodes and all their relationships. Without a WHERE or a property filter, it takes all the nodes of the pattern with it. Review the MATCH; to delete many, do it in batches (CALL { … } IN TRANSACTIONS)."
+      "title": "DETACH DELETE без WHERE",
+      "message": "DETACH DELETE без WHERE удаляет все узлы, найденные MATCH",
+      "why": "Удаляет узлы и все их связи. Без WHERE или фильтра по свойствам вместе с ними уйдут все узлы шаблона. Проверьте MATCH; чтобы удалить много, делайте это пакетами (CALL { … } IN TRANSACTIONS)."
     },
     "unknown-table": {
-      "title": "Unknown table",
-      "message": "“{{name}}” does not exist in this database",
-      "why": "The name is not among the objects of the tab's database (according to the explorer). It may be a typo, an object from another database, or one that doesn't exist yet. Temporary tables, CTEs, aliases and objects the same script creates are not flagged."
+      "title": "Неизвестная таблица",
+      "message": "«{{name}}» не существует в этой базе данных",
+      "why": "Имя не входит в объекты базы данных вкладки (по данным обозревателя). Это может быть опечатка, объект из другой базы данных или ещё не существующий объект. Временные таблицы, CTE, псевдонимы и объекты, которые создаёт тот же скрипт, не отмечаются."
     },
     "unknown-column": {
-      "title": "Unknown column",
-      "message": "“{{table}}” has no column “{{column}}”",
-      "why": "The column is not among the table's loaded columns. Only qualified columns (alias.column) or those in an INSERT list are checked, and only when the table exists and its columns have already loaded."
+      "title": "Неизвестный столбец",
+      "message": "В «{{table}}» нет столбца «{{column}}»",
+      "why": "Столбца нет среди загруженных столбцов таблицы. Проверяются только квалифицированные столбцы (псевдоним.столбец) или столбцы из списка INSERT, и только когда таблица существует, а её столбцы уже загружены."
     }
   }
 }

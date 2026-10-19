@@ -1,138 +1,138 @@
 {
   "actions": {
-    "createQueryFailed": "Couldn't create the query: {{error}}",
-    "nameRequired": "Enter a name",
-    "create": "Create",
+    "createQueryFailed": "无法创建查询：{{error}}",
+    "nameRequired": "请输入名称",
+    "create": "创建",
     "renameQuery": {
-      "prompt": "Query name:",
-      "title": "Rename"
+      "prompt": "查询名称：",
+      "title": "重命名"
     },
-    "copyName": "{{name}} (copy)",
-    "copyNameN": "{{name}} (copy {{n}})",
+    "copyName": "{{name}}（副本）",
+    "copyNameN": "{{name}}（副本 {{n}}）",
     "deleteQuery": {
-      "confirm": "Delete the query \"{{name}}\"? This can't be undone.",
-      "title": "Delete query"
+      "confirm": "删除查询“{{name}}”？此操作无法撤销。",
+      "title": "删除查询"
     },
     "newObjectPrefix": "new_",
     "createDatabase": {
-      "prompt": "Name of the new database:",
-      "title": "New database",
-      "done": "Database “{{name}}” created"
+      "prompt": "新数据库的名称：",
+      "title": "新建数据库",
+      "done": "数据库“{{name}}”已创建"
     },
     "dropObjects": {
-      "more": "{{list}} and {{count}} more",
-      "confirmOne": "Delete “{{name}}” from {{where}}? It's dropped with all its data and this can't be undone.",
-      "confirmMany": "{{count}} objects will be deleted from {{where}}, with all their data: {{list}}.\n\nThis can't be undone. Type “{{word}}” to confirm:",
-      "titleMany": "Delete {{count}} objects",
-      "word": "delete",
-      "typeWord": "Type “{{word}}”",
-      "failed": "Couldn't delete {{failed}} of {{total}}",
-      "droppedOne": "“{{name}}” deleted",
-      "droppedMany": "{{count}} objects deleted"
+      "more": "{{list}} 等另外 {{count}} 个",
+      "confirmOne": "从 {{where}} 删除“{{name}}”？它将连同所有数据一起被删除，且无法撤销。",
+      "confirmMany": "将从 {{where}} 删除 {{count}} 个对象及其所有数据：{{list}}。\n\n此操作无法撤销。请输入“{{word}}”以确认：",
+      "titleMany": "删除 {{count}} 个对象",
+      "word": "删除",
+      "typeWord": "输入“{{word}}”",
+      "failed": "{{total}} 个中有 {{failed}} 个无法删除",
+      "droppedOne": "“{{name}}”已删除",
+      "droppedMany": "已删除 {{count}} 个对象"
     },
     "dropDatabase": {
-      "confirm": "This drops the database “{{name}}” from {{server}} with all its contents. This can't be undone.\n\nType the database name to confirm:",
-      "title": "Delete database",
-      "mismatch": "The name doesn't match",
-      "done": "Database “{{name}}” deleted"
+      "confirm": "这将从 {{server}} 删除数据库“{{name}}”及其全部内容。此操作无法撤销。\n\n请输入数据库名称以确认：",
+      "title": "删除数据库",
+      "mismatch": "名称不匹配",
+      "done": "数据库“{{name}}”已删除"
     }
   },
   "files": {
-    "saved": "Saved",
-    "saveFailed": "Couldn't save: {{error}}"
+    "saved": "已保存",
+    "saveFailed": "无法保存：{{error}}"
   },
   "format": {
-    "redis": "Redis commands go one per line: there's nothing to format.",
-    "unavailable": "There's no formatter for this language yet."
+    "redis": "Redis 命令每行一条：无需格式化。",
+    "unavailable": "此语言暂时没有格式化工具。"
   },
   "copy": {
-    "withHeadersLabel": "Copy with headers",
-    "withHeaders": "With headers",
-    "withoutHeadersLabel": "Copy without headers",
-    "withoutHeaders": "Without headers",
-    "headersOnlyLabel": "Copy headers only",
-    "headersOnly": "Headers only",
-    "as": "Copy as {{format}}"
+    "withHeadersLabel": "连同表头复制",
+    "withHeaders": "含表头",
+    "withoutHeadersLabel": "不含表头复制",
+    "withoutHeaders": "不含表头",
+    "headersOnlyLabel": "仅复制表头",
+    "headersOnly": "仅表头",
+    "as": "复制为 {{format}}"
   },
   "export": {
-    "csvSemicolon": "CSV (semicolon-separated)",
-    "csvExcel": "CSV for MS Excel",
-    "tsv": "TSV (tab-separated)",
-    "defaultTable": "table",
-    "defaultSheet": "Result",
-    "defaultFile": "result"
+    "csvSemicolon": "CSV（分号分隔）",
+    "csvExcel": "适用于 MS Excel 的 CSV",
+    "tsv": "TSV（制表符分隔）",
+    "defaultTable": "表",
+    "defaultSheet": "结果",
+    "defaultFile": "结果"
   },
   "filter": {
-    "clear": "Clear filter",
-    "values": "Filter multiple values…",
-    "isNull": "Is NULL",
-    "notNull": "Is not NULL",
-    "isTrue": "Is true",
-    "isFalse": "Is false",
-    "trueOrNull": "Is true or NULL",
-    "falseOrNull": "Is false or NULL",
-    "isEmpty": "Is empty",
-    "notEmpty": "Is not empty",
-    "eq": "Equals…",
-    "ne": "Does not equal…",
-    "contains": "Contains…",
-    "notContains": "Does not contain…",
-    "startsWith": "Starts with…",
-    "endsWith": "Ends with…",
-    "gt": "Greater than…",
-    "ge": "Greater than or equal to…",
-    "lt": "Less than…",
-    "le": "Less than or equal to…",
-    "sql": "SQL condition…",
-    "sqlRight": "SQL condition, right-hand side…",
-    "describeTrueOrNull": "TRUE or NULL",
-    "describeFalseOrNull": "FALSE or NULL"
+    "clear": "清除筛选",
+    "values": "筛选多个值…",
+    "isNull": "为 NULL",
+    "notNull": "不为 NULL",
+    "isTrue": "为真",
+    "isFalse": "为假",
+    "trueOrNull": "为真或 NULL",
+    "falseOrNull": "为假或 NULL",
+    "isEmpty": "为空",
+    "notEmpty": "不为空",
+    "eq": "等于…",
+    "ne": "不等于…",
+    "contains": "包含…",
+    "notContains": "不包含…",
+    "startsWith": "开头是…",
+    "endsWith": "结尾是…",
+    "gt": "大于…",
+    "ge": "大于或等于…",
+    "lt": "小于…",
+    "le": "小于或等于…",
+    "sql": "SQL 条件…",
+    "sqlRight": "SQL 条件，右侧…",
+    "describeTrueOrNull": "TRUE 或 NULL",
+    "describeFalseOrNull": "FALSE 或 NULL"
   },
   "gridEdit": {
-    "notFind": "the query isn't a find on a collection",
-    "engineCantEdit": "this engine doesn't allow editing query results: open the object from the explorer",
-    "queryNotFound": "the query that produced this result wasn't found",
-    "usesWith": "the query uses WITH: edit from the table",
-    "combinesRows": "the result combines or groups rows: only queries on a single table can be edited",
-    "noTable": "the query doesn't read from a table",
-    "tableUnknown": "the query's table isn't recognized",
-    "combinesTables": "the result combines tables: only queries on a single table can be edited",
-    "missingKey": "the result doesn't include the primary key ({{columns}}): add it to the SELECT to edit",
-    "noPrimaryKey": "The table has no primary key: the WHERE uses every column (it may affect more than one row if there are duplicates).",
-    "keyNotComparable": "the row key includes «{{column}}», with a binary or long value that can't be compared in the WHERE",
-    "noComparableColumns": "no column of the row can be compared in the WHERE: they are all binary or long",
-    "skippedColumns": "Binary or long columns ({{columns}}) are left out of the WHERE."
+    "notFind": "该查询不是对集合的查找",
+    "engineCantEdit": "此引擎不允许编辑查询结果：请从资源管理器中打开该对象",
+    "queryNotFound": "未找到生成此结果的查询",
+    "usesWith": "查询使用了 WITH：请从表中编辑",
+    "combinesRows": "结果合并或分组了行：只能编辑针对单个表的查询",
+    "noTable": "查询不读取任何表",
+    "tableUnknown": "无法识别查询中的表",
+    "combinesTables": "结果合并了多个表：只能编辑针对单个表的查询",
+    "missingKey": "结果不包含主键（{{columns}}）：请将其添加到 SELECT 中以便编辑",
+    "noPrimaryKey": "该表没有主键：WHERE 会使用所有列（如有重复，可能影响多行）。",
+    "keyNotComparable": "行键包含“{{column}}”，其值为二进制或过长，无法在 WHERE 中比较",
+    "noComparableColumns": "该行没有可在 WHERE 中比较的列：它们全是二进制或过长的",
+    "skippedColumns": "二进制或过长的列（{{columns}}）不参与 WHERE。"
   },
   "connections": {
-    "downloading": "Downloading {{component}}, just this once… {{pct}} % ({{done}} of {{total}} MB)",
-    "connected": "Connected: {{version}}",
-    "connectFailed": "Couldn't connect: {{error}}",
-    "password": "Password for {{user}} on {{connection}}:",
-    "queryName": "Query {{n}}"
+    "downloading": "正在下载 {{component}}，仅此一次… {{pct}} %（{{done}} / {{total}} MB）",
+    "connected": "已连接：{{version}}",
+    "connectFailed": "无法连接：{{error}}",
+    "password": "{{connection}} 上 {{user}} 的密码：",
+    "queryName": "查询 {{n}}"
   },
   "ai": {
-    "stopped": "Stopped.",
-    "downloading": "downloading",
-    "starting": "starting"
+    "stopped": "已停止。",
+    "downloading": "下载中",
+    "starting": "启动中"
   },
   "families": {
-    "relational": "Relational",
-    "analytical": "Analytical",
-    "document": "Document",
-    "keyValue": "Key-value",
-    "wideColumn": "Wide-column",
-    "search": "Search",
-    "timeSeries": "Time series",
-    "streaming": "Streaming",
-    "graph": "Graph"
+    "relational": "关系型",
+    "analytical": "分析型",
+    "document": "文档型",
+    "keyValue": "键值型",
+    "wideColumn": "宽列型",
+    "search": "搜索",
+    "timeSeries": "时序",
+    "streaming": "流处理",
+    "graph": "图"
   },
   "openFiles": {
-    "failed": "Couldn't open \"{{name}}\": {{error}}",
-    "opened": "File opened: {{name}}",
-    "dialogTitle": "Open file",
-    "filterName": "Databases and data files",
-    "saved": "\"{{name}}\" is now saved in your connections",
-    "dropTitle": "Drop to open",
-    "dropHint": "SQLite, DuckDB, CSV, TSV, Parquet, JSON or Excel. Each file opens as a temporary connection."
+    "failed": "无法打开“{{name}}”：{{error}}",
+    "opened": "文件已打开：{{name}}",
+    "dialogTitle": "打开文件",
+    "filterName": "数据库和数据文件",
+    "saved": "“{{name}}”现已保存到你的连接中",
+    "dropTitle": "拖放以打开",
+    "dropHint": "SQLite、DuckDB、CSV、TSV、Parquet、JSON 或 Excel。每个文件都会作为临时连接打开。"
   }
 }

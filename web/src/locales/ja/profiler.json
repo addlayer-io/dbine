@@ -1,85 +1,85 @@
 {
-  "couldNotConnect": "Couldn't connect.",
-  "connection": "Connection",
-  "thisEngine": "This engine",
-  "unsupported": "{{engine}} doesn't allow seeing other clients' queries.",
+  "couldNotConnect": "接続できませんでした。",
+  "connection": "接続",
+  "thisEngine": "このエンジン",
+  "unsupported": "{{engine}} では、他のクライアントのクエリを表示できません。",
   "hint": {
     "duration": "> 500 · < 1s · >= 2.5s",
-    "text": "contains… · !doesn't contain · =equals",
-    "database": "contains… · !doesn't contain"
+    "text": "含む… · !含まない · =等しい",
+    "database": "含む… · !含まない"
   },
   "menu": {
     "filter": {
-      "user": "Filter by user “{{value}}”",
-      "client": "Filter by client “{{value}}”",
-      "application": "Filter by application “{{value}}”",
-      "database": "Filter by database “{{value}}”"
+      "user": "ユーザー「{{value}}」でフィルター",
+      "client": "クライアント「{{value}}」でフィルター",
+      "application": "アプリケーション「{{value}}」でフィルター",
+      "database": "データベース「{{value}}」でフィルター"
     },
-    "filterSame": "Filter the ones like this query",
-    "copy": "Copy the query"
+    "filterSame": "このクエリと同じものでフィルター",
+    "copy": "クエリをコピー"
   },
-  "openInQuery": "Open in a query",
+  "openInQuery": "クエリで開く",
   "column": {
-    "time": "Time",
-    "duration": "Duration",
-    "query": "Query",
-    "database": "Database",
-    "user": "User",
-    "client": "Client",
-    "application": "Application",
-    "rows": "Rows",
+    "time": "時刻",
+    "duration": "所要時間",
+    "query": "クエリ",
+    "database": "データベース",
+    "user": "ユーザー",
+    "client": "クライアント",
+    "application": "アプリケーション",
+    "rows": "行",
     "cpu": "CPU",
-    "reads": "Reads",
-    "writes": "Writes"
+    "reads": "読み取り",
+    "writes": "書き込み"
   },
-  "columns": "Columns",
-  "columnsHint": "Show or hide columns",
-  "showAll": "Show all",
+  "columns": "列",
+  "columnsHint": "列の表示/非表示",
+  "showAll": "すべて表示",
   "status": {
-    "starting": "Starting…",
-    "capturing": "Capturing",
-    "stopped": "Stopped",
-    "notStarted": "Not started"
+    "starting": "開始中…",
+    "capturing": "キャプチャ中",
+    "stopped": "停止",
+    "notStarted": "未開始"
   },
-  "source": "Source: {{source}}",
+  "source": "ソース: {{source}}",
   "mode": {
-    "complete": "Full capture",
-    "sampled": "Sampling"
+    "complete": "完全キャプチャ",
+    "sampled": "サンプリング"
   },
-  "clearFilters": "Clear filters",
-  "resume": "Resume",
-  "sampledNote": "This engine only shows what's running: queries shorter than ~100 ms may not appear.",
-  "enabled": "{{source}} was enabled on the server.",
-  "disabled": "{{source}} was disabled.",
+  "clearFilters": "フィルターを解除",
+  "resume": "再開",
+  "sampledNote": "このエンジンは実行中のものだけを表示します。約 100 ms 未満のクエリは表示されない場合があります。",
+  "enabled": "サーバーで {{source}} を有効にしました。",
+  "disabled": "{{source}} を無効にしました。",
   "stats": {
-    "title": "This query",
-    "runs_other": "{n} runs",
-    "avg": "average",
-    "min": "min",
-    "max": "max"
+    "title": "このクエリ",
+    "runs_other": "{n} 回実行",
+    "avg": "平均",
+    "min": "最小",
+    "max": "最大"
   },
-  "filtersHint": "Only queries that pass the filters are kept",
-  "sameAs": "Like: {{label}}",
-  "removeFilter": "Remove this filter",
-  "noneYet": "None has appeared yet",
-  "noValues": "No values",
+  "filtersHint": "フィルターを通過したクエリのみ保存されます",
+  "sameAs": "同じもの: {{label}}",
+  "removeFilter": "このフィルターを削除",
+  "noneYet": "まだ何も現れていません",
+  "noValues": "値なし",
   "empty": {
-    "noMatch": "No queries match.",
-    "waitingFiltered": "Waiting for queries that pass the filters…",
-    "waiting": "Waiting for queries…",
-    "none": "No queries captured."
+    "noMatch": "一致するクエリはありません。",
+    "waitingFiltered": "フィルターを通過するクエリを待っています…",
+    "waiting": "クエリを待っています…",
+    "none": "キャプチャされたクエリはありません。"
   },
-  "dragHint": "Drag to change the height",
+  "dragHint": "ドラッグして高さを変更",
   "detail": {
-    "rows_other": "{{n}} rows"
+    "rows_other": "{{n}} 行"
   },
   "foot": {
-    "queries_other": "{{n}} queries",
-    "passing": "{{n}} pass the filters",
-    "skipped": "{{n}} discarded by the filters",
-    "dropped": "the {{n}} oldest were discarded (the last {{max}} are kept)",
-    "arrivalOrder": "Back to arrival order",
-    "toEnd": "Go to the end"
+    "queries_other": "{{n}} 件のクエリ",
+    "passing": "{{n}} 件がフィルターを通過",
+    "skipped": "{{n}} 件がフィルターで除外",
+    "dropped": "古い {{n}} 件を破棄しました(直近 {{max}} 件を保持)",
+    "arrivalOrder": "到着順に戻す",
+    "toEnd": "末尾へ移動"
   },
-  "unitHint": "In {{unit}}"
+  "unitHint": "単位: {{unit}}"
 }

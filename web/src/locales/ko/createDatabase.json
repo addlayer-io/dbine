@@ -1,10 +1,10 @@
 {
-  "name": "Name",
-  "advanced": "Advanced options",
-  "default": "Server default",
-  "serverDefault": "Default: {{value}}",
-  "showScript": "Show script",
-  "script": "Script",
-  "openInQuery": "Open in a query",
-  "scriptName": "Create {{name}}"
+  "name": "이름",
+  "advanced": "고급 옵션",
+  "default": "서버 기본값",
+  "serverDefault": "기본값: {{value}}",
+  "showScript": "스크립트 보기",
+  "script": "스크립트",
+  "openInQuery": "쿼리에서 열기",
+  "scriptName": "{{name}} 만들기"
 }

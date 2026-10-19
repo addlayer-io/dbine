@@ -1,5 +1,5 @@
 {
-  "couldNotConnect": "Couldn't connect.",
+  "couldNotConnect": "Verbindung nicht möglich.",
   "duration": {
     "s": "{{s}} s",
     "dh": "{{d}} d {{h}} h",
@@ -7,25 +7,25 @@
     "ms": "{{m}} min {{s}} s"
   },
   "level": {
-    "warn": "high",
-    "crit": "critical"
+    "warn": "hoch",
+    "crit": "kritisch"
   },
-  "justNow": "just now",
-  "secondsAgo": "{{s}} s ago",
-  "connection": "Connection",
-  "paused": "Paused",
-  "every": "Every {{s}} s",
-  "resume": "Resume",
-  "pause": "Pause",
-  "refresh": "Refresh",
-  "unsupported": "{{engine}} doesn't offer monitoring.",
-  "thisEngine": "This engine",
-  "measuring": "measuring…",
-  "of": "of {{max}}",
-  "filter": "Filter…",
-  "noMatch": "No rows match.",
-  "noRows": "No rows.",
+  "justNow": "gerade eben",
+  "secondsAgo": "vor {{s}} s",
+  "connection": "Verbindung",
+  "paused": "Pausiert",
+  "every": "Alle {{s}} s",
+  "resume": "Fortsetzen",
+  "pause": "Pausieren",
+  "refresh": "Aktualisieren",
+  "unsupported": "{{engine}} bietet kein Monitoring.",
+  "thisEngine": "Diese Engine",
+  "measuring": "wird gemessen…",
+  "of": "von {{max}}",
+  "filter": "Filtern…",
+  "noMatch": "Keine passenden Zeilen.",
+  "noRows": "Keine Zeilen.",
   "sparkline": {
-    "noData": "no data"
+    "noData": "keine Daten"
   }
 }

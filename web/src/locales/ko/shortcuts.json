@@ -1,57 +1,57 @@
 {
-  "nav": "Keyboard shortcuts",
-  "help": "The keys of each action. Click a combination and press the new one (Esc cancels). The change applies right away and travels with the rest of the settings.",
-  "search": "Search by action or key",
-  "none": "No action matches the search.",
-  "resetAll": "Reset all",
-  "reset": "Back to the original combination",
-  "remove": "Remove the combination",
-  "change": "Change the combination",
-  "recording": "Press the combination…",
-  "unbound": "No shortcut",
-  "conflict": "Also used by: {{names}}",
-  "reserved": "It's a system shortcut (copy, paste, undo…): it stops working where the action runs.",
+  "nav": "키보드 단축키",
+  "help": "각 작업의 단축키입니다. 조합을 클릭하고 새 키를 누르세요(Esc로 취소). 변경 사항은 즉시 적용되며 나머지 설정과 함께 동기화됩니다.",
+  "search": "작업 또는 키로 검색",
+  "none": "검색과 일치하는 작업이 없습니다.",
+  "resetAll": "모두 초기화",
+  "reset": "원래 조합으로 되돌리기",
+  "remove": "조합 제거",
+  "change": "조합 변경",
+  "recording": "조합을 누르세요…",
+  "unbound": "단축키 없음",
+  "conflict": "다음에서도 사용 중: {{names}}",
+  "reserved": "시스템 단축키(복사, 붙여넣기, 실행 취소…)입니다. 작업이 실행되는 곳에서는 작동하지 않게 됩니다.",
   "group": {
-    "general": "General",
-    "view": "View",
-    "editor": "Editor",
-    "results": "Results",
-    "database": "Database",
-    "connection": "Connection",
-    "settings": "Preferences",
-    "help": "Help"
+    "general": "일반",
+    "view": "보기",
+    "editor": "편집기",
+    "results": "결과",
+    "database": "데이터베이스",
+    "connection": "연결",
+    "settings": "환경설정",
+    "help": "도움말"
   },
   "cmd": {
     "file": {
-      "newQuery": "New query",
-      "newWindow": "New window",
-      "closeTab": "Close the tab",
-      "save": "Save",
-      "open": "Open file…"
+      "newQuery": "새 쿼리",
+      "newWindow": "새 창",
+      "closeTab": "탭 닫기",
+      "save": "저장",
+      "open": "파일 열기…"
     },
     "app": {
-      "settings": "Settings",
-      "quit": "Quit DBine"
+      "settings": "설정",
+      "quit": "DBine 종료"
     },
     "view": {
-      "explorer": "Show or hide the explorer",
-      "output": "Show or hide the bottom panel",
-      "ai": "Show or hide the AI assistant"
+      "explorer": "탐색기 표시 또는 숨기기",
+      "output": "하단 패널 표시 또는 숨기기",
+      "ai": "AI 어시스턴트 표시 또는 숨기기"
     },
     "editor": {
-      "run": "Run the selection or everything",
-      "runStatement": "Run the statement at the cursor",
-      "planEstimated": "Estimated plan",
-      "planActual": "Run with actual plan",
-      "format": "Format",
-      "comment": "Comment or uncomment",
-      "find": "Find and replace",
-      "gotoLine": "Go to line…",
-      "autocomplete": "Autocomplete suggestions",
-      "toggleVim": "Turn Vim mode on or off"
+      "run": "선택 영역 또는 전체 실행",
+      "runStatement": "커서 위치의 문 실행",
+      "planEstimated": "예상 실행 계획",
+      "planActual": "실제 실행 계획과 함께 실행",
+      "format": "서식 지정",
+      "comment": "주석 처리 또는 해제",
+      "find": "찾기 및 바꾸기",
+      "gotoLine": "줄로 이동…",
+      "autocomplete": "자동 완성 제안",
+      "toggleVim": "Vim 모드 켜기 또는 끄기"
     },
     "results": {
-      "export": "Export the results…"
+      "export": "결과 내보내기…"
     }
   }
 }

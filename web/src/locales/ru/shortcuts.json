@@ -1,57 +1,57 @@
 {
-  "nav": "Keyboard shortcuts",
-  "help": "The keys of each action. Click a combination and press the new one (Esc cancels). The change applies right away and travels with the rest of the settings.",
-  "search": "Search by action or key",
-  "none": "No action matches the search.",
-  "resetAll": "Reset all",
-  "reset": "Back to the original combination",
-  "remove": "Remove the combination",
-  "change": "Change the combination",
-  "recording": "Press the combination…",
-  "unbound": "No shortcut",
-  "conflict": "Also used by: {{names}}",
-  "reserved": "It's a system shortcut (copy, paste, undo…): it stops working where the action runs.",
+  "nav": "Сочетания клавиш",
+  "help": "Клавиши каждого действия. Щёлкните сочетание и нажмите новое (Esc — отмена). Изменение применяется сразу и передаётся вместе с остальными настройками.",
+  "search": "Поиск по действию или клавише",
+  "none": "Ни одно действие не соответствует поиску.",
+  "resetAll": "Сбросить всё",
+  "reset": "Вернуть исходное сочетание",
+  "remove": "Убрать сочетание",
+  "change": "Изменить сочетание",
+  "recording": "Нажмите сочетание…",
+  "unbound": "Без сочетания",
+  "conflict": "Также используется: {{names}}",
+  "reserved": "Это системное сочетание (копировать, вставить, отменить…): там, где выполняется действие, оно перестаёт работать.",
   "group": {
-    "general": "General",
-    "view": "View",
-    "editor": "Editor",
-    "results": "Results",
-    "database": "Database",
-    "connection": "Connection",
-    "settings": "Preferences",
-    "help": "Help"
+    "general": "Общие",
+    "view": "Вид",
+    "editor": "Редактор",
+    "results": "Результаты",
+    "database": "База данных",
+    "connection": "Подключение",
+    "settings": "Параметры",
+    "help": "Справка"
   },
   "cmd": {
     "file": {
-      "newQuery": "New query",
-      "newWindow": "New window",
-      "closeTab": "Close the tab",
-      "save": "Save",
-      "open": "Open file…"
+      "newQuery": "Новый запрос",
+      "newWindow": "Новое окно",
+      "closeTab": "Закрыть вкладку",
+      "save": "Сохранить",
+      "open": "Открыть файл…"
     },
     "app": {
-      "settings": "Settings",
-      "quit": "Quit DBine"
+      "settings": "Настройки",
+      "quit": "Завершить DBine"
     },
     "view": {
-      "explorer": "Show or hide the explorer",
-      "output": "Show or hide the bottom panel",
-      "ai": "Show or hide the AI assistant"
+      "explorer": "Показать или скрыть обозреватель",
+      "output": "Показать или скрыть нижнюю панель",
+      "ai": "Показать или скрыть ИИ-ассистента"
     },
     "editor": {
-      "run": "Run the selection or everything",
-      "runStatement": "Run the statement at the cursor",
-      "planEstimated": "Estimated plan",
-      "planActual": "Run with actual plan",
-      "format": "Format",
-      "comment": "Comment or uncomment",
-      "find": "Find and replace",
-      "gotoLine": "Go to line…",
-      "autocomplete": "Autocomplete suggestions",
-      "toggleVim": "Turn Vim mode on or off"
+      "run": "Выполнить выделенное или всё",
+      "runStatement": "Выполнить инструкцию под курсором",
+      "planEstimated": "Предполагаемый план",
+      "planActual": "Выполнить с фактическим планом",
+      "format": "Форматировать",
+      "comment": "Закомментировать или раскомментировать",
+      "find": "Найти и заменить",
+      "gotoLine": "Перейти к строке…",
+      "autocomplete": "Подсказки автодополнения",
+      "toggleVim": "Включить или выключить режим Vim"
     },
     "results": {
-      "export": "Export the results…"
+      "export": "Экспортировать результаты…"
     }
   }
 }

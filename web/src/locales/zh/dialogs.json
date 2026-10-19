@@ -1,54 +1,54 @@
 {
   "folder": {
-    "new": "New folder",
-    "edit": "Edit folder · {{name}}",
-    "name": "Name",
-    "namePlaceholder": "Client, environment…",
-    "nameRequired": "Enter a name",
-    "color": "Color",
-    "noColor": "No color",
-    "colorHelp": "Connections without their own color take their folder's (handy to mark production).",
-    "inside": "Inside",
-    "create": "Create",
-    "topLevel": "(Top level)"
+    "new": "新建文件夹",
+    "edit": "编辑文件夹 · {{name}}",
+    "name": "名称",
+    "namePlaceholder": "客户、环境…",
+    "nameRequired": "请输入名称",
+    "color": "颜色",
+    "noColor": "无颜色",
+    "colorHelp": "没有自己颜色的连接会使用其文件夹的颜色（便于标记生产环境）。",
+    "inside": "位于",
+    "create": "创建",
+    "topLevel": "（顶层）"
   },
   "move": {
-    "title": "Move «{{name}}» to…",
-    "move": "Move"
+    "title": "将“{{name}}”移动到…",
+    "move": "移动"
   },
   "database": {
-    "scriptTitle": "Generate script · {{db}}",
-    "scriptName": "Script of {{db}}",
-    "scriptNameConverted": "Script of {{db}} (converted)",
-    "theDatabase": "the database"
+    "scriptTitle": "生成脚本 · {{db}}",
+    "scriptName": "{{db}} 的脚本",
+    "scriptNameConverted": "{{db}} 的脚本（已转换）",
+    "theDatabase": "数据库"
   },
   "drivers": {
-    "intro": "Each driver downloads by itself the first time you connect to that engine. Here you can download them ahead (for example, if you'll work offline) or delete the ones you don't use.",
-    "search": "Search engine",
-    "diskTitle": "Disk space used by the downloaded drivers",
-    "summary": "{{installed}} of {{total}} downloaded · {{size}} MB",
-    "downloadAll": "Download all ({{size}} MB)",
-    "downloading": "Downloading",
-    "download": "Download",
-    "remove": "Delete",
-    "checkUpdates": "Check for updates",
-    "checking": "Checking…",
-    "upToDateAll": "Drivers are up to date.",
-    "rollback": "Roll back",
-    "rollbackTitle": "Drop version {{version}} and go back to {{previous}}",
-    "rollbackConfirm": "Go back to version {{previous}} of the {{label}} driver? Version {{version}} won't be used again. Open connections keep the current version until you close them.",
-    "statusDownloading": "Downloading version {{available}}…",
-    "statusReady": "Version {{version}} is used from the next connection",
-    "statusNeedsApp": "A newer version needs DBine {{minApp}} or later",
-    "statusRolledBack": "Version {{from}} failed and it went back to {{version}}",
-    "statusRolledBackUser": "Went back to version {{version}}; {{from}} won't be used",
-    "statusRestart": "Restart DBine to see this driver's new options"
+    "intro": "每个驱动会在你首次连接该引擎时自动下载。你也可以在此提前下载（例如要离线工作时），或删除不用的驱动。",
+    "search": "搜索引擎",
+    "diskTitle": "已下载驱动占用的磁盘空间",
+    "summary": "已下载 {{installed}} / {{total}} · {{size}} MB",
+    "downloadAll": "全部下载（{{size}} MB）",
+    "downloading": "下载中",
+    "download": "下载",
+    "remove": "删除",
+    "checkUpdates": "检查更新",
+    "checking": "检查中…",
+    "upToDateAll": "驱动已是最新。",
+    "rollback": "回退",
+    "rollbackTitle": "放弃版本 {{version}} 并回到 {{previous}}",
+    "rollbackConfirm": "要将 {{label}} 驱动回退到版本 {{previous}} 吗？版本 {{version}} 将不再使用。已打开的连接在关闭前继续使用当前版本。",
+    "statusDownloading": "正在下载版本 {{available}}…",
+    "statusReady": "版本 {{version}} 将从下次连接起使用",
+    "statusNeedsApp": "较新的版本需要 DBine {{minApp}} 或更高版本",
+    "statusRolledBack": "版本 {{from}} 失败，已回退到 {{version}}",
+    "statusRolledBackUser": "已回退到版本 {{version}}；不会再使用 {{from}}",
+    "statusRestart": "请重启 DBine 以查看此驱动的新选项"
   },
   "support": {
-    "title": "Support DBine",
-    "text": "DBine is free and will stay free. Your support helps us maintain the app and keep adding features.",
-    "notPayment": "It's support, not a payment: the app works the same either way.",
-    "notNow": "Not now",
-    "support": "Support the project"
+    "title": "支持 DBine",
+    "text": "DBine 是免费的，并将一直免费。你的支持能帮助我们维护应用并持续添加功能。",
+    "notPayment": "这是支持，而不是付费：无论如何应用的功能都一样。",
+    "notNow": "暂不",
+    "support": "支持本项目"
   }
 }

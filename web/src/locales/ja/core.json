@@ -1,138 +1,138 @@
 {
   "actions": {
-    "createQueryFailed": "Couldn't create the query: {{error}}",
-    "nameRequired": "Enter a name",
-    "create": "Create",
+    "createQueryFailed": "クエリを作成できませんでした: {{error}}",
+    "nameRequired": "名前を入力してください",
+    "create": "作成",
     "renameQuery": {
-      "prompt": "Query name:",
-      "title": "Rename"
+      "prompt": "クエリ名:",
+      "title": "名前を変更"
     },
-    "copyName": "{{name}} (copy)",
-    "copyNameN": "{{name}} (copy {{n}})",
+    "copyName": "{{name}}(コピー)",
+    "copyNameN": "{{name}}(コピー {{n}})",
     "deleteQuery": {
-      "confirm": "Delete the query \"{{name}}\"? This can't be undone.",
-      "title": "Delete query"
+      "confirm": "クエリ \"{{name}}\" を削除しますか？ この操作は元に戻せません。",
+      "title": "クエリを削除"
     },
     "newObjectPrefix": "new_",
     "createDatabase": {
-      "prompt": "Name of the new database:",
-      "title": "New database",
-      "done": "Database “{{name}}” created"
+      "prompt": "新しいデータベースの名前:",
+      "title": "新しいデータベース",
+      "done": "データベース「{{name}}」を作成しました"
     },
     "dropObjects": {
-      "more": "{{list}} and {{count}} more",
-      "confirmOne": "Delete “{{name}}” from {{where}}? It's dropped with all its data and this can't be undone.",
-      "confirmMany": "{{count}} objects will be deleted from {{where}}, with all their data: {{list}}.\n\nThis can't be undone. Type “{{word}}” to confirm:",
-      "titleMany": "Delete {{count}} objects",
-      "word": "delete",
-      "typeWord": "Type “{{word}}”",
-      "failed": "Couldn't delete {{failed}} of {{total}}",
-      "droppedOne": "“{{name}}” deleted",
-      "droppedMany": "{{count}} objects deleted"
+      "more": "{{list}} ほか {{count}} 件",
+      "confirmOne": "{{where}} の「{{name}}」を削除しますか？ すべてのデータごと削除され、元に戻せません。",
+      "confirmMany": "{{where}} から {{count}} 個のオブジェクトをデータごと削除します: {{list}}。\n\n元に戻せません。確認のため「{{word}}」と入力してください:",
+      "titleMany": "{{count}} 個のオブジェクトを削除",
+      "word": "削除",
+      "typeWord": "「{{word}}」と入力してください",
+      "failed": "{{total}} 件中 {{failed}} 件を削除できませんでした",
+      "droppedOne": "「{{name}}」を削除しました",
+      "droppedMany": "{{count}} 個のオブジェクトを削除しました"
     },
     "dropDatabase": {
-      "confirm": "This drops the database “{{name}}” from {{server}} with all its contents. This can't be undone.\n\nType the database name to confirm:",
-      "title": "Delete database",
-      "mismatch": "The name doesn't match",
-      "done": "Database “{{name}}” deleted"
+      "confirm": "{{server}} のデータベース「{{name}}」を、内容もすべて削除します。元に戻せません。\n\n確認のため、データベース名を入力してください:",
+      "title": "データベースを削除",
+      "mismatch": "名前が一致しません",
+      "done": "データベース「{{name}}」を削除しました"
     }
   },
   "files": {
-    "saved": "Saved",
-    "saveFailed": "Couldn't save: {{error}}"
+    "saved": "保存しました",
+    "saveFailed": "保存できませんでした: {{error}}"
   },
   "format": {
-    "redis": "Redis commands go one per line: there's nothing to format.",
-    "unavailable": "There's no formatter for this language yet."
+    "redis": "Redis のコマンドは 1 行に 1 つです。整形するものはありません。",
+    "unavailable": "この言語のフォーマッターはまだありません。"
   },
   "copy": {
-    "withHeadersLabel": "Copy with headers",
-    "withHeaders": "With headers",
-    "withoutHeadersLabel": "Copy without headers",
-    "withoutHeaders": "Without headers",
-    "headersOnlyLabel": "Copy headers only",
-    "headersOnly": "Headers only",
-    "as": "Copy as {{format}}"
+    "withHeadersLabel": "ヘッダー付きでコピー",
+    "withHeaders": "ヘッダー付き",
+    "withoutHeadersLabel": "ヘッダーなしでコピー",
+    "withoutHeaders": "ヘッダーなし",
+    "headersOnlyLabel": "ヘッダーのみコピー",
+    "headersOnly": "ヘッダーのみ",
+    "as": "{{format}} としてコピー"
   },
   "export": {
-    "csvSemicolon": "CSV (semicolon-separated)",
-    "csvExcel": "CSV for MS Excel",
-    "tsv": "TSV (tab-separated)",
+    "csvSemicolon": "CSV(セミコロン区切り)",
+    "csvExcel": "MS Excel 用 CSV",
+    "tsv": "TSV(タブ区切り)",
     "defaultTable": "table",
-    "defaultSheet": "Result",
+    "defaultSheet": "結果",
     "defaultFile": "result"
   },
   "filter": {
-    "clear": "Clear filter",
-    "values": "Filter multiple values…",
-    "isNull": "Is NULL",
-    "notNull": "Is not NULL",
-    "isTrue": "Is true",
-    "isFalse": "Is false",
-    "trueOrNull": "Is true or NULL",
-    "falseOrNull": "Is false or NULL",
-    "isEmpty": "Is empty",
-    "notEmpty": "Is not empty",
-    "eq": "Equals…",
-    "ne": "Does not equal…",
-    "contains": "Contains…",
-    "notContains": "Does not contain…",
-    "startsWith": "Starts with…",
-    "endsWith": "Ends with…",
-    "gt": "Greater than…",
-    "ge": "Greater than or equal to…",
-    "lt": "Less than…",
-    "le": "Less than or equal to…",
-    "sql": "SQL condition…",
-    "sqlRight": "SQL condition, right-hand side…",
-    "describeTrueOrNull": "TRUE or NULL",
-    "describeFalseOrNull": "FALSE or NULL"
+    "clear": "フィルターを解除",
+    "values": "複数の値でフィルター…",
+    "isNull": "NULL である",
+    "notNull": "NULL ではない",
+    "isTrue": "真である",
+    "isFalse": "偽である",
+    "trueOrNull": "真または NULL",
+    "falseOrNull": "偽または NULL",
+    "isEmpty": "空である",
+    "notEmpty": "空ではない",
+    "eq": "次と等しい…",
+    "ne": "次と等しくない…",
+    "contains": "次を含む…",
+    "notContains": "次を含まない…",
+    "startsWith": "次で始まる…",
+    "endsWith": "次で終わる…",
+    "gt": "次より大きい…",
+    "ge": "次以上…",
+    "lt": "次より小さい…",
+    "le": "次以下…",
+    "sql": "SQL 条件…",
+    "sqlRight": "SQL 条件(右辺)…",
+    "describeTrueOrNull": "TRUE または NULL",
+    "describeFalseOrNull": "FALSE または NULL"
   },
   "gridEdit": {
-    "notFind": "the query isn't a find on a collection",
-    "engineCantEdit": "this engine doesn't allow editing query results: open the object from the explorer",
-    "queryNotFound": "the query that produced this result wasn't found",
-    "usesWith": "the query uses WITH: edit from the table",
-    "combinesRows": "the result combines or groups rows: only queries on a single table can be edited",
-    "noTable": "the query doesn't read from a table",
-    "tableUnknown": "the query's table isn't recognized",
-    "combinesTables": "the result combines tables: only queries on a single table can be edited",
-    "missingKey": "the result doesn't include the primary key ({{columns}}): add it to the SELECT to edit",
-    "noPrimaryKey": "The table has no primary key: the WHERE uses every column (it may affect more than one row if there are duplicates).",
-    "keyNotComparable": "the row key includes «{{column}}», with a binary or long value that can't be compared in the WHERE",
-    "noComparableColumns": "no column of the row can be compared in the WHERE: they are all binary or long",
-    "skippedColumns": "Binary or long columns ({{columns}}) are left out of the WHERE."
+    "notFind": "クエリはコレクションに対する find ではありません",
+    "engineCantEdit": "このエンジンではクエリ結果を編集できません。エクスプローラーからオブジェクトを開いてください",
+    "queryNotFound": "この結果を生成したクエリが見つかりません",
+    "usesWith": "クエリが WITH を使用しています。テーブルから編集してください",
+    "combinesRows": "結果が行を結合またはグループ化しています。編集できるのは単一のテーブルに対するクエリのみです",
+    "noTable": "クエリはテーブルから読み取っていません",
+    "tableUnknown": "クエリのテーブルを特定できません",
+    "combinesTables": "結果が複数のテーブルを結合しています。編集できるのは単一のテーブルに対するクエリのみです",
+    "missingKey": "結果に主キー({{columns}})が含まれていません。編集するには SELECT に追加してください",
+    "noPrimaryKey": "テーブルに主キーがありません。WHERE はすべての列を使用します(重複がある場合、複数の行に影響する可能性があります)。",
+    "keyNotComparable": "行のキーに「{{column}}」が含まれていますが、バイナリまたは長い値のため WHERE で比較できません",
+    "noComparableColumns": "行のどの列も WHERE で比較できません。すべてバイナリまたは長い値です",
+    "skippedColumns": "バイナリまたは長い列({{columns}})は WHERE から除外されます。"
   },
   "connections": {
-    "downloading": "Downloading {{component}}, just this once… {{pct}} % ({{done}} of {{total}} MB)",
-    "connected": "Connected: {{version}}",
-    "connectFailed": "Couldn't connect: {{error}}",
-    "password": "Password for {{user}} on {{connection}}:",
-    "queryName": "Query {{n}}"
+    "downloading": "{{component}} をダウンロードしています(初回のみ)… {{pct}} %({{done}} / {{total}} MB)",
+    "connected": "接続しました: {{version}}",
+    "connectFailed": "接続できませんでした: {{error}}",
+    "password": "{{connection}} の {{user}} のパスワード:",
+    "queryName": "クエリ {{n}}"
   },
   "ai": {
-    "stopped": "Stopped.",
-    "downloading": "downloading",
-    "starting": "starting"
+    "stopped": "停止しました。",
+    "downloading": "ダウンロード中",
+    "starting": "起動中"
   },
   "families": {
-    "relational": "Relational",
-    "analytical": "Analytical",
-    "document": "Document",
-    "keyValue": "Key-value",
-    "wideColumn": "Wide-column",
-    "search": "Search",
-    "timeSeries": "Time series",
-    "streaming": "Streaming",
-    "graph": "Graph"
+    "relational": "リレーショナル",
+    "analytical": "分析",
+    "document": "ドキュメント",
+    "keyValue": "キーバリュー",
+    "wideColumn": "ワイドカラム",
+    "search": "検索",
+    "timeSeries": "時系列",
+    "streaming": "ストリーミング",
+    "graph": "グラフ"
   },
   "openFiles": {
-    "failed": "Couldn't open \"{{name}}\": {{error}}",
-    "opened": "File opened: {{name}}",
-    "dialogTitle": "Open file",
-    "filterName": "Databases and data files",
-    "saved": "\"{{name}}\" is now saved in your connections",
-    "dropTitle": "Drop to open",
-    "dropHint": "SQLite, DuckDB, CSV, TSV, Parquet, JSON or Excel. Each file opens as a temporary connection."
+    "failed": "「{{name}}」を開けませんでした: {{error}}",
+    "opened": "ファイルを開きました: {{name}}",
+    "dialogTitle": "ファイルを開く",
+    "filterName": "データベースとデータファイル",
+    "saved": "「{{name}}」を接続に保存しました",
+    "dropTitle": "ドロップして開く",
+    "dropHint": "SQLite、DuckDB、CSV、TSV、Parquet、JSON、Excel に対応しています。各ファイルは一時的な接続として開かれます。"
   }
 }

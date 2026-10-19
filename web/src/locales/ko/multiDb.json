@@ -1,49 +1,49 @@
 {
-  "action": "Run on several databases…",
-  "actionTip": "Runs the code (or the selection) on several databases of this connection and merges the results",
+  "action": "여러 데이터베이스에서 실행…",
+  "actionTip": "코드(또는 선택 영역)를 이 연결의 여러 데이터베이스에서 실행하고 결과를 합칩니다",
   "dialog": {
-    "title": "Run on several databases",
-    "intro": "The editor code (or the selection) runs on each chosen database, each in its own session and {{max}} at a time. The results are merged in the results panel.",
-    "filter": "Filter databases (supports *, e.g. *tenant-n*)",
-    "all": "All",
-    "none": "None",
-    "count": "{{selected}} of {{total}} databases selected",
-    "shown": "{{shown}} visible",
-    "current": "current",
-    "noMatch": "No database matches the filter.",
-    "loading": "Loading databases…",
-    "noDatabases": "Could not read the databases of the connection.",
-    "readOnly": "The connection is read-only: any statement that is not a read is rejected.",
-    "run_other": "Run on {{count}} databases",
-    "progress": "{{done}} of {{total}} databases finished",
-    "close": "Close",
-    "empty": "There is no code to run."
+    "title": "여러 데이터베이스에서 실행",
+    "intro": "편집기의 코드(또는 선택 영역)가 선택한 각 데이터베이스에서 각자의 세션으로 한 번에 {{max}}개씩 실행됩니다. 결과는 결과 패널에 합쳐집니다.",
+    "filter": "데이터베이스 필터(*, 예: *tenant-n* 지원)",
+    "all": "모두",
+    "none": "없음",
+    "count": "데이터베이스 {{total}}개 중 {{selected}}개 선택됨",
+    "shown": "{{shown}}개 표시됨",
+    "current": "현재",
+    "noMatch": "필터와 일치하는 데이터베이스가 없습니다.",
+    "loading": "데이터베이스를 불러오는 중…",
+    "noDatabases": "연결의 데이터베이스를 읽지 못했습니다.",
+    "readOnly": "읽기 전용 연결입니다. 읽기가 아닌 문은 모두 거부됩니다.",
+    "run_other": "데이터베이스 {{count}}개에서 실행",
+    "progress": "데이터베이스 {{total}}개 중 {{done}}개 완료",
+    "close": "닫기",
+    "empty": "실행할 코드가 없습니다."
   },
   "confirm": {
-    "title": "Confirm changes on several databases",
-    "write_other": "The code is not read-only (it has {{keyword}}). It will run on {{count}} databases and may change all of them.",
-    "unknown_other": "On this engine it is not possible to verify that the code is read-only. It will run on {{count}} databases and may change all of them.",
-    "run_other": "Run on {{count}} databases"
+    "title": "여러 데이터베이스의 변경 확인",
+    "write_other": "코드가 읽기 전용이 아닙니다({{keyword}} 포함). 데이터베이스 {{count}}개에서 실행되며 모두 변경될 수 있습니다.",
+    "unknown_other": "이 엔진에서는 코드가 읽기 전용인지 확인할 수 없습니다. 데이터베이스 {{count}}개에서 실행되며 모두 변경될 수 있습니다.",
+    "run_other": "데이터베이스 {{count}}개에서 실행"
   },
   "status": {
-    "pending": "Waiting or running",
-    "ok": "OK",
-    "error": "Error",
-    "cancelled": "Cancelled",
-    "skipped": "Not run"
+    "pending": "대기 중 또는 진행 중",
+    "ok": "성공",
+    "error": "오류",
+    "cancelled": "취소됨",
+    "skipped": "실행되지 않음"
   },
   "summary": {
-    "ok": "{{ok}} of {{total}} databases OK",
-    "error_other": "{{count}} with errors",
-    "cancelled_other": "{{count}} cancelled",
-    "messages": "See the per-database detail in Messages."
+    "ok": "데이터베이스 {{total}}개 중 {{ok}}개 성공",
+    "error_other": "오류 {{count}}개",
+    "cancelled_other": "취소 {{count}}개",
+    "messages": "데이터베이스별 세부 정보는 메시지에서 확인하세요."
   },
   "results": {
-    "merged_other": "Result ({{count}} databases)",
-    "bar": "Several databases: {{summary}}"
+    "merged_other": "결과(데이터베이스 {{count}}개)",
+    "bar": "여러 데이터베이스: {{summary}}"
   },
   "task": {
-    "title_other": "Run on {{count}} databases of {{connection}}",
-    "unit": "databases"
+    "title_other": "{{connection}}의 데이터베이스 {{count}}개에서 실행",
+    "unit": "데이터베이스"
   }
 }

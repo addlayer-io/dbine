@@ -1,111 +1,111 @@
 {
-  "title": "Assistant",
-  "defaultModel": "default",
-  "reasoning": "Reasoning",
+  "title": "어시스턴트",
+  "defaultModel": "기본값",
+  "reasoning": "추론",
   "head": {
-    "setup": "Models and providers",
-    "newChat": "New conversation",
-    "close": "Close (⌘I)",
-    "history": "History"
+    "setup": "모델 및 제공업체",
+    "newChat": "새 대화",
+    "close": "닫기 (⌘I)",
+    "history": "기록"
   },
   "context": {
-    "noDatabase": "No database selected",
-    "openQuery": "open query",
-    "sent": "context: {{context}}",
-    "objects_other": "{{count}} objects",
-    "tables_other": "{{count}} tables",
-    "tablesOf_other": "{{shown}} of {{count}} tables",
-    "editor": "editor",
-    "selection": "selection",
-    "lastError": "last error"
+    "noDatabase": "선택된 데이터베이스 없음",
+    "openQuery": "열려 있는 쿼리",
+    "sent": "컨텍스트: {{context}}",
+    "objects_other": "개체 {{count}}개",
+    "tables_other": "테이블 {{count}}개",
+    "tablesOf_other": "테이블 {{count}}개 중 {{shown}}개",
+    "editor": "편집기",
+    "selection": "선택 영역",
+    "lastError": "마지막 오류"
   },
   "suggest": {
-    "whyFails": "Why does the last run fail? Fix it.",
-    "explain": "Explain the query in the editor",
-    "optimize": "Review and optimize the query in the editor",
-    "largestTables": "Write a query that lists the largest tables",
-    "relatedTables": "Which tables are related to customers?",
-    "joinAggregate": "How do I write a JOIN with aggregation?"
+    "whyFails": "마지막 실행은 왜 실패하나요? 수정해 주세요.",
+    "explain": "편집기의 쿼리를 설명해 주세요",
+    "optimize": "편집기의 쿼리를 검토하고 최적화해 주세요",
+    "largestTables": "가장 큰 테이블을 나열하는 쿼리를 작성해 주세요",
+    "relatedTables": "고객과 관련된 테이블은 무엇인가요?",
+    "joinAggregate": "집계가 포함된 JOIN은 어떻게 작성하나요?"
   },
   "code": {
-    "appended": "Appended to the end of the query. Review it and run it whenever you want.",
-    "newQueryTitle": "From the assistant",
-    "replaced": "Query replaced (⌘Z to undo).",
-    "code": "code",
-    "appendHint": "Append to the end of the open query",
-    "newQueryHint": "Open in a new query",
-    "append": "Add to query",
-    "newQuery": "New query",
-    "replaceHint": "Replace the whole editor content (⌘Z undoes)",
-    "replace": "Replace",
-    "destructive": "Changes data or structure. Nothing was run: review it before you run it yourself.",
-    "asText": "Insert as text",
-    "asTextHint": "Add the answer as a text cell of the notebook (runs nothing)",
-    "textAdded": "Added as a text cell.",
-    "cellAdded": "Added as a new cell, not run. Check it and run it when you want."
+    "appended": "쿼리 끝에 추가했습니다. 검토한 후 원할 때 실행하세요.",
+    "newQueryTitle": "어시스턴트에서",
+    "replaced": "쿼리를 바꿨습니다 (⌘Z로 실행 취소).",
+    "code": "코드",
+    "appendHint": "열려 있는 쿼리 끝에 추가",
+    "newQueryHint": "새 쿼리에서 열기",
+    "append": "쿼리에 추가",
+    "newQuery": "새 쿼리",
+    "replaceHint": "편집기의 전체 내용 바꾸기 (⌘Z로 실행 취소)",
+    "replace": "바꾸기",
+    "destructive": "데이터 또는 구조를 수정합니다. 아무것도 실행되지 않았으니 직접 실행하기 전에 검토하세요.",
+    "asText": "텍스트로 삽입",
+    "asTextHint": "응답을 노트북의 텍스트 셀로 추가합니다 (아무것도 실행하지 않음)",
+    "textAdded": "텍스트 셀로 추가했습니다.",
+    "cellAdded": "새 셀로 추가했으며 실행하지 않았습니다. 검토한 후 원할 때 실행하세요."
   },
   "phase": {
-    "schema": "Reading the database structure…",
-    "engine": "Downloading the AI engine, just this once…",
-    "thinking": "Thinking…",
-    "retry": "Asking again…",
-    "tool": "Querying the connection:"
+    "schema": "데이터베이스 구조를 읽는 중…",
+    "engine": "AI 엔진을 다운로드하는 중입니다. 처음 한 번만 필요합니다…",
+    "thinking": "생각하는 중…",
+    "retry": "다시 질문하는 중…",
+    "tool": "연결을 조회하는 중:"
   },
   "setup": {
-    "detecting": "Looking for AI tools on this machine…",
-    "lead": "The assistant needs a model. The simplest option: download the {model}. It runs on this machine, with nothing to install and nothing leaving it.",
-    "leadModel": "built-in model",
-    "embedded": "Built into DBine",
-    "embeddedUnavailable": "The built-in model isn't available on this platform.",
-    "recommended": "recommended for this machine",
-    "use": "Use",
-    "pause": "Pause",
-    "pauseHint": "Resumes where it left off",
-    "download": "Download ({{size}})",
-    "detected": "Detected on this machine",
-    "pull": "Download {{model}}",
-    "cliNote": "Claude Code and Codex use your own account (subscription or API). They run without tools: they can't read files, run commands or connect to your databases.",
-    "redetect": "Detect again"
+    "detecting": "이 컴퓨터에서 AI 도구를 찾는 중…",
+    "lead": "어시스턴트를 사용하려면 모델이 필요합니다. 가장 간단한 방법은 {model}을(를) 다운로드하는 것입니다. 이 컴퓨터에서 실행되며, 아무것도 설치할 필요가 없고 어떤 데이터도 컴퓨터 밖으로 나가지 않습니다.",
+    "leadModel": "내장 모델",
+    "embedded": "DBine에 내장",
+    "embeddedUnavailable": "내장 모델은 이 플랫폼에서 사용할 수 없습니다.",
+    "recommended": "이 컴퓨터에 권장",
+    "use": "사용",
+    "pause": "일시 중지",
+    "pauseHint": "중단된 지점부터 다시 시작됩니다",
+    "download": "다운로드({{size}})",
+    "detected": "이 컴퓨터에서 감지됨",
+    "pull": "{{model}} 받기",
+    "cliNote": "Claude Code와 Codex는 사용자 본인의 계정(구독 또는 API)을 사용합니다. 도구 없이 실행되므로 파일을 읽거나 명령을 실행하거나 데이터베이스에 연결할 수 없습니다.",
+    "redetect": "다시 감지"
   },
   "privacy": {
-    "local": "Local: nothing leaves this machine.",
-    "remote": "Goes to {{vendor}} with your account: the question, the structure and the editor, never the data."
+    "local": "로컬: 어떤 데이터도 이 컴퓨터 밖으로 나가지 않습니다.",
+    "remote": "사용자 계정으로 {{vendor}}에 전송됩니다. 질문, 구조, 편집기 내용이 전송되며 데이터는 전송되지 않습니다."
   },
   "empty": {
-    "lead": "Ask it for queries, to explain or fix the one in the editor, or ask about the database structure.",
-    "neverRuns": "The assistant never runs anything: what it writes goes into your query and you decide whether to run it."
+    "lead": "쿼리를 요청하거나, 편집기의 쿼리를 설명하거나 수정해 달라고 하거나, 데이터베이스 구조에 대해 질문해 보세요.",
+    "neverRuns": "어시스턴트는 아무것도 실행하지 않습니다. 작성한 내용은 쿼리에 들어가며 실행 여부는 사용자가 결정합니다."
   },
   "compose": {
-    "placeholder": "Ask or request a query… (Enter sends, Shift+Enter new line)",
-    "send": "Send"
+    "placeholder": "질문하거나 쿼리를 요청하세요… (Enter로 전송, Shift+Enter로 줄 바꿈)",
+    "send": "보내기"
   },
   "better": {
-    "text": "Your machine can use a bigger model: {{model}}. It understands hard requests better and makes fewer SQL mistakes.",
-    "dismiss": "Not now"
+    "text": "사용 중인 컴퓨터에서 더 큰 모델인 {{model}}을(를) 사용할 수 있습니다. 어려운 요청을 더 잘 이해하고 SQL 오류도 줄어듭니다.",
+    "dismiss": "나중에"
   },
   "history": {
-    "title": "Previous conversations",
-    "empty": "No previous conversations yet: “New conversation” saves the current one here.",
-    "untitled": "(untitled)",
-    "messages_other": "{{count}} messages",
-    "delete": "Delete this conversation",
-    "clear": "Clear history",
-    "clearConfirm": "All previous conversations will be deleted. The current one is not touched."
+    "title": "이전 대화",
+    "empty": "이전 대화가 아직 없습니다. 「새 대화」를 누르면 현재 대화가 여기에 저장됩니다.",
+    "untitled": "(제목 없음)",
+    "messages_other": "메시지 {{count}}개",
+    "delete": "이 대화 삭제",
+    "clear": "기록 삭제",
+    "clearConfirm": "이전 대화가 모두 삭제됩니다. 현재 대화는 삭제되지 않습니다."
   },
   "tools": {
-    "read_other": "Queried the connection {{count}} times"
+    "read_other": "연결을 {{count}}번 조회했습니다"
   },
   "approval": {
-    "title": "The model ({{model}}) wants to read data from {{connection}} › {{database}} with this query:",
-    "local": "local",
-    "approve": "Approve",
-    "reject": "Reject",
-    "approveAll": "Approve reads in this conversation",
-    "note": "Read-only: DBine runs it in a session that rejects any change. If you reject it, the model carries on without that data."
+    "title": "모델({{model}})이 다음 쿼리로 {{connection}} › {{database}}의 데이터를 읽으려고 합니다.",
+    "local": "로컬",
+    "approve": "승인",
+    "reject": "거부",
+    "approveAll": "이 대화에서 읽기 모두 승인",
+    "note": "읽기 전용: DBine이 모든 변경을 거부하는 세션에서 실행합니다. 거부하면 모델은 해당 데이터 없이 계속 진행합니다."
   },
   "link": {
-    "title": "Open link",
-    "body": "The assistant's answer leads to this address. Open it only if you trust it: a link can send data from the conversation to another site.",
-    "open": "Open in browser"
+    "title": "링크 열기",
+    "body": "어시스턴트의 응답이 이 주소로 연결됩니다. 신뢰할 수 있는 경우에만 여세요. 링크를 통해 대화의 데이터가 다른 사이트로 전송될 수 있습니다.",
+    "open": "브라우저에서 열기"
   }
 }

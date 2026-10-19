@@ -1,35 +1,35 @@
 {
   "dialog": {
-    "title": "A new version of DBine is available",
-    "text": "Version {{latest}} is available. You have {{current}}.",
-    "skip": "Skip this version",
-    "later": "Later",
-    "download": "Download",
-    "updateNow": "Update now",
-    "downloading": "Downloading DBine {{latest}}…",
-    "progress": "{{done}} of {{total}}",
-    "progressUnknown": "{{done}} downloaded",
-    "verifying": "Verifying the signature…",
-    "cancel": "Cancel",
-    "readyTitle": "DBine {{latest}} is ready",
-    "ready": "The update has been downloaded and verified. Restart DBine to finish installing it.",
-    "restart": "Restart to finish",
-    "failedTitle": "Could not update DBine",
-    "failed": "You can download the new version from its release page.",
-    "openPage": "Open the download page",
-    "close": "Close"
+    "title": "有新版本的 DBine 可用",
+    "text": "版本 {{latest}} 可用。你当前是 {{current}}。",
+    "skip": "跳过此版本",
+    "later": "稍后",
+    "download": "下载",
+    "updateNow": "立即更新",
+    "downloading": "正在下载 DBine {{latest}}…",
+    "progress": "{{done}} / {{total}}",
+    "progressUnknown": "已下载 {{done}}",
+    "verifying": "正在验证签名…",
+    "cancel": "取消",
+    "readyTitle": "DBine {{latest}} 已就绪",
+    "ready": "更新已下载并验证。请重启 DBine 以完成安装。",
+    "restart": "重启以完成",
+    "failedTitle": "无法更新 DBine",
+    "failed": "你可以从发布页面下载新版本。",
+    "openPage": "打开下载页面",
+    "close": "关闭"
   },
   "reason": {
-    "package": "You installed DBine with a system package: download the new version from its release page.",
-    "location": "Move DBine to Applications so it can update itself."
+    "package": "你是通过系统软件包安装的 DBine：请从其发布页面下载新版本。",
+    "location": "请将 DBine 移动到“应用程序”，以便它能自行更新。"
   },
   "settings": {
-    "installed": "Installed version: {{version}}",
-    "help": "DBine checks for a new version when it opens and updates itself from there.",
-    "check": "Check for updates"
+    "installed": "已安装版本：{{version}}",
+    "help": "DBine 会在打开时检查新版本，并从那里自行更新。",
+    "check": "检查更新"
   },
-  "upToDate": "You're on the latest version ({{version}}).",
-  "managedByFlatpak": "You have version {{version}}. This install comes from Flathub: Flatpak updates it (from your software center or with “flatpak update”).",
-  "busyInWindow": "The update is in progress in window {{n}}.",
-  "failed": "Could not check for updates: {{error}}"
+  "upToDate": "你使用的已是最新版本（{{version}}）。",
+  "managedByFlatpak": "你使用的是版本 {{version}}。此安装来自 Flathub：由 Flatpak 更新（通过你的软件中心或“flatpak update”）。",
+  "busyInWindow": "更新正在窗口 {{n}} 中进行。",
+  "failed": "无法检查更新：{{error}}"
 }

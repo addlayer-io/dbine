@@ -1,63 +1,63 @@
 {
-  "primaryKey": "Primary key",
-  "foreignKey": "Foreign key",
-  "unnamedForeignKey": "Unnamed foreign key",
-  "exportFailed": "Couldn't export the image: {{error}}",
-  "busy": "Laying out {{tables}} tables and {{relations}} relationships…",
-  "hint": "Drag to move around · ⌘/pinch + wheel to zoom · double-click opens the table",
+  "primaryKey": "Первичный ключ",
+  "foreignKey": "Внешний ключ",
+  "unnamedForeignKey": "Внешний ключ без имени",
+  "exportFailed": "Не удалось экспортировать изображение: {{error}}",
+  "busy": "Раскладка таблиц ({{tables}}) и связей ({{relations}})…",
+  "hint": "Перетаскивайте для перемещения · ⌘/щипок + колесо — масштаб · двойной щелчок открывает таблицу",
   "tab": {
-    "connectFailed": "Couldn't connect.",
-    "reading": "Reading the database structure…",
-    "drawFailed": "Couldn't draw the diagram: {{error}}",
-    "fileName": "diagram-{{name}}",
-    "fileNameDefault": "database"
+    "connectFailed": "Не удалось подключиться.",
+    "reading": "Чтение структуры базы данных…",
+    "drawFailed": "Не удалось нарисовать диаграмму: {{error}}",
+    "fileName": "диаграмма-{{name}}",
+    "fileNameDefault": "база-данных"
   },
   "toolbar": {
-    "tables": "Tables",
-    "relations": "Relationships",
-    "simplifiedLayout": "simplified layout",
-    "simplifiedLayoutTitle": "The automatic layout failed with this structure: the tables are shown in a grid (you can move them by hand).",
-    "searchPlaceholder": "Search table…",
-    "allSchemas": "All schemas",
-    "allColumns": "All columns",
-    "keysOnly": "Keys only",
-    "relayout": "Rearrange",
-    "relayoutTitle": "Arrange the tables automatically again",
-    "svgImage": "SVG image",
-    "pngImage": "PNG image"
+    "tables": "Таблицы",
+    "relations": "Связи",
+    "simplifiedLayout": "упрощённая раскладка",
+    "simplifiedLayoutTitle": "Автоматическая раскладка завершилась ошибкой с этой структурой: таблицы показаны сеткой (их можно перемещать вручную).",
+    "searchPlaceholder": "Поиск таблицы…",
+    "allSchemas": "Все схемы",
+    "allColumns": "Все столбцы",
+    "keysOnly": "Только ключи",
+    "relayout": "Перестроить",
+    "relayoutTitle": "Снова расположить таблицы автоматически",
+    "svgImage": "Изображение SVG",
+    "pngImage": "Изображение PNG"
   },
   "card": {
-    "openHint": "Double-click to open",
-    "nullable": "Allows NULL",
-    "noColumns": "no columns",
-    "moreColumns_one": "+{{count}} column",
-    "moreColumns_few": "+{{count}} columns",
-    "moreColumns_other": "+{{count}} columns",
-    "showLess": "Show less",
-    "moreColumns_many": "+{{count}} columns"
+    "openHint": "Двойной щелчок, чтобы открыть",
+    "nullable": "Допускает NULL",
+    "noColumns": "нет столбцов",
+    "moreColumns_one": "+{{count}} столбец",
+    "moreColumns_few": "+{{count}} столбца",
+    "moreColumns_other": "+{{count}} столбца",
+    "showLess": "Показать меньше",
+    "moreColumns_many": "+{{count}} столбцов"
   },
   "empty": {
-    "title": "No tables to show",
-    "text": "The database has no tables or the engine doesn't report its structure.",
-    "noRelations": "No relationships: the database declares no foreign keys (or the engine doesn't report them). Only the tables are shown."
+    "title": "Нет таблиц для показа",
+    "text": "В базе данных нет таблиц, или движок не сообщает её структуру.",
+    "noRelations": "Связей нет: база данных не объявляет внешних ключей (или движок их не сообщает). Показаны только таблицы."
   },
   "zoom": {
-    "zoomOut": "Zoom out (−)",
-    "actualSize": "Actual size (0)",
-    "zoomIn": "Zoom in (+)",
-    "fit": "Fit to view (F)",
-    "minimap": "Minimap"
+    "zoomOut": "Уменьшить (−)",
+    "actualSize": "Реальный размер (0)",
+    "zoomIn": "Увеличить (+)",
+    "fit": "Вписать в окно (F)",
+    "minimap": "Миникарта"
   },
   "props": {
-    "table": "table",
-    "openTable": "Open the table",
-    "close": "Close (Esc)",
-    "columns": "Columns",
-    "unnamed": "(unnamed)",
-    "indexes": "Indexes",
-    "unique": "unique",
-    "references": "References",
-    "referencedBy": "Referenced by",
-    "outside": "outside the diagram"
+    "table": "таблица",
+    "openTable": "Открыть таблицу",
+    "close": "Закрыть (Esc)",
+    "columns": "Столбцы",
+    "unnamed": "(без имени)",
+    "indexes": "Индексы",
+    "unique": "уникальный",
+    "references": "Ссылается на",
+    "referencedBy": "На неё ссылаются",
+    "outside": "вне диаграммы"
   }
 }

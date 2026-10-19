@@ -1,14 +1,14 @@
 {
-  "save": "Save",
-  "title": "Save changes",
-  "hint": "These statements will run on the server ({{cells}} in {{rows}}). Review them before saving.",
-  "run": "Save",
-  "done": "Changes saved",
-  "doneRows_one": "Changes saved: 1 row updated",
-  "doneRows_other": "Changes saved: {{count}} rows updated",
-  "hintDeletes": "These statements will run on the server ({{deletes}}). Review them before saving.",
-  "hintBoth": "These statements will run on the server ({{deletes}}; {{cells}} in {{rows}}). Rows are deleted first and then the others are updated. Review them before saving.",
-  "doneAffected_one": "Changes saved: 1 row affected",
-  "doneAffected_other": "Changes saved: {{count}} rows affected",
-  "hintInserts": "These statements will run on the server ({{list}}). Rows are deleted first, then updated, and the new ones are inserted last. Review them before saving."
+  "save": "Speichern",
+  "title": "Änderungen speichern",
+  "hint": "Diese Anweisungen werden auf dem Server ausgeführt ({{cells}} in {{rows}}). Prüfen Sie sie vor dem Speichern.",
+  "run": "Speichern",
+  "done": "Änderungen gespeichert",
+  "doneRows_one": "Änderungen gespeichert: 1 Zeile aktualisiert",
+  "doneRows_other": "Änderungen gespeichert: {{count}} Zeilen aktualisiert",
+  "hintDeletes": "Diese Anweisungen werden auf dem Server ausgeführt ({{deletes}}). Prüfen Sie sie vor dem Speichern.",
+  "hintBoth": "Diese Anweisungen werden auf dem Server ausgeführt ({{deletes}}; {{cells}} in {{rows}}). Zuerst werden Zeilen gelöscht, dann die übrigen aktualisiert. Prüfen Sie sie vor dem Speichern.",
+  "doneAffected_one": "Änderungen gespeichert: 1 Zeile betroffen",
+  "doneAffected_other": "Änderungen gespeichert: {{count}} Zeilen betroffen",
+  "hintInserts": "Diese Anweisungen werden auf dem Server ausgeführt ({{list}}). Zuerst werden Zeilen gelöscht, dann aktualisiert, und die neuen zuletzt eingefügt. Prüfen Sie sie vor dem Speichern."
 }

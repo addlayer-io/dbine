@@ -1,35 +1,35 @@
 {
   "dialog": {
-    "title": "A new version of DBine is available",
-    "text": "Version {{latest}} is available. You have {{current}}.",
-    "skip": "Skip this version",
-    "later": "Later",
-    "download": "Download",
-    "updateNow": "Update now",
-    "downloading": "Downloading DBine {{latest}}…",
-    "progress": "{{done}} of {{total}}",
-    "progressUnknown": "{{done}} downloaded",
-    "verifying": "Verifying the signature…",
-    "cancel": "Cancel",
-    "readyTitle": "DBine {{latest}} is ready",
-    "ready": "The update has been downloaded and verified. Restart DBine to finish installing it.",
-    "restart": "Restart to finish",
-    "failedTitle": "Could not update DBine",
-    "failed": "You can download the new version from its release page.",
-    "openPage": "Open the download page",
-    "close": "Close"
+    "title": "DBine 새 버전이 있습니다",
+    "text": "버전 {{latest}}을(를) 사용할 수 있습니다. 현재 버전은 {{current}}입니다.",
+    "skip": "이 버전 건너뛰기",
+    "later": "나중에",
+    "download": "다운로드",
+    "updateNow": "지금 업데이트",
+    "downloading": "DBine {{latest}} 다운로드 중…",
+    "progress": "{{total}} 중 {{done}}",
+    "progressUnknown": "{{done}} 다운로드됨",
+    "verifying": "서명을 확인하는 중…",
+    "cancel": "취소",
+    "readyTitle": "DBine {{latest}} 준비 완료",
+    "ready": "업데이트를 다운로드하고 확인했습니다. 설치를 마치려면 DBine을 다시 시작하세요.",
+    "restart": "다시 시작하여 완료",
+    "failedTitle": "DBine을 업데이트하지 못했습니다",
+    "failed": "새 버전은 다운로드 페이지에서 받을 수 있습니다.",
+    "openPage": "다운로드 페이지 열기",
+    "close": "닫기"
   },
   "reason": {
-    "package": "You installed DBine with a system package: download the new version from its release page.",
-    "location": "Move DBine to Applications so it can update itself."
+    "package": "시스템 패키지로 DBine을 설치했습니다. 다운로드 페이지에서 새 버전을 받으세요.",
+    "location": "자동으로 업데이트되도록 DBine을 응용 프로그램 폴더로 옮기세요."
   },
   "settings": {
-    "installed": "Installed version: {{version}}",
-    "help": "DBine checks for a new version when it opens and updates itself from there.",
-    "check": "Check for updates"
+    "installed": "설치된 버전: {{version}}",
+    "help": "DBine은 열릴 때 새 버전이 있는지 확인하고 거기서 업데이트합니다.",
+    "check": "업데이트 확인"
   },
-  "upToDate": "You're on the latest version ({{version}}).",
-  "managedByFlatpak": "You have version {{version}}. This install comes from Flathub: Flatpak updates it (from your software center or with “flatpak update”).",
-  "busyInWindow": "The update is in progress in window {{n}}.",
-  "failed": "Could not check for updates: {{error}}"
+  "upToDate": "최신 버전({{version}})을 사용 중입니다.",
+  "managedByFlatpak": "버전 {{version}}을(를) 사용 중입니다. 이 설치는 Flathub 버전이며 Flatpak이 업데이트합니다(소프트웨어 센터 또는 「flatpak update」).",
+  "busyInWindow": "업데이트가 창 {{n}}에서 진행 중입니다.",
+  "failed": "업데이트를 확인하지 못했습니다: {{error}}"
 }

@@ -1,52 +1,52 @@
 {
   "app": {
-    "about": "About DBine",
-    "settings": "Settings…",
-    "services": "Services",
-    "hide": "Hide DBine",
-    "hideOthers": "Hide others",
-    "showAll": "Show all",
-    "quit": "Quit DBine"
+    "about": "DBine について",
+    "settings": "設定…",
+    "services": "サービス",
+    "hide": "DBine を非表示",
+    "hideOthers": "ほかを非表示",
+    "showAll": "すべて表示",
+    "quit": "DBine を終了"
   },
   "file": {
-    "title": "File",
-    "newConnection": "New connection",
-    "newQuery": "New query",
-    "newNotebook": "New notebook",
-    "newWindow": "New window",
-    "closeTab": "Close tab",
-    "open": "Open File…"
+    "title": "ファイル",
+    "newConnection": "新しい接続",
+    "newQuery": "新しいクエリ",
+    "newNotebook": "新しいノートブック",
+    "newWindow": "新しいウィンドウ",
+    "closeTab": "タブを閉じる",
+    "open": "ファイルを開く…"
   },
   "edit": {
-    "title": "Edit",
-    "undo": "Undo",
-    "redo": "Redo",
-    "cut": "Cut",
-    "copy": "Copy",
-    "paste": "Paste",
-    "selectAll": "Select all"
+    "title": "編集",
+    "undo": "元に戻す",
+    "redo": "やり直し",
+    "cut": "切り取り",
+    "copy": "コピー",
+    "paste": "貼り付け",
+    "selectAll": "すべて選択"
   },
   "view": {
-    "title": "View",
-    "explorer": "Explorer",
-    "output": "Output",
-    "ai": "AI assistant",
-    "fullscreen": "Full screen"
+    "title": "表示",
+    "explorer": "エクスプローラー",
+    "output": "出力",
+    "ai": "AI アシスタント",
+    "fullscreen": "フルスクリーン"
   },
   "window": {
-    "title": "Window",
-    "minimize": "Minimize",
-    "zoom": "Zoom"
+    "title": "ウィンドウ",
+    "minimize": "最小化",
+    "zoom": "ズーム"
   },
   "help": {
-    "title": "Help",
-    "checkUpdates": "Check for updates…",
-    "support": "Support the project"
+    "title": "ヘルプ",
+    "checkUpdates": "更新を確認…",
+    "support": "プロジェクトを応援する"
   },
   "palette": {
-    "open": "Command palette…"
+    "open": "コマンドパレット…"
   },
   "goto": {
-    "open": "Go to…"
+    "open": "移動…"
   }
 }

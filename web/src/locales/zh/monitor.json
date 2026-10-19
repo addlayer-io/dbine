@@ -1,31 +1,31 @@
 {
-  "couldNotConnect": "Couldn't connect.",
+  "couldNotConnect": "无法连接。",
   "duration": {
-    "s": "{{s}} s",
-    "dh": "{{d}} d {{h}} h",
-    "hm": "{{h}} h {{m}} min",
-    "ms": "{{m}} min {{s}} s"
+    "s": "{{s}} 秒",
+    "dh": "{{d}} 天 {{h}} 小时",
+    "hm": "{{h}} 小时 {{m}} 分钟",
+    "ms": "{{m}} 分钟 {{s}} 秒"
   },
   "level": {
-    "warn": "high",
-    "crit": "critical"
+    "warn": "高",
+    "crit": "严重"
   },
-  "justNow": "just now",
-  "secondsAgo": "{{s}} s ago",
-  "connection": "Connection",
-  "paused": "Paused",
-  "every": "Every {{s}} s",
-  "resume": "Resume",
-  "pause": "Pause",
-  "refresh": "Refresh",
-  "unsupported": "{{engine}} doesn't offer monitoring.",
-  "thisEngine": "This engine",
-  "measuring": "measuring…",
-  "of": "of {{max}}",
-  "filter": "Filter…",
-  "noMatch": "No rows match.",
-  "noRows": "No rows.",
+  "justNow": "刚刚",
+  "secondsAgo": "{{s}} 秒前",
+  "connection": "连接",
+  "paused": "已暂停",
+  "every": "每 {{s}} 秒",
+  "resume": "恢复",
+  "pause": "暂停",
+  "refresh": "刷新",
+  "unsupported": "{{engine}} 不提供监控。",
+  "thisEngine": "此引擎",
+  "measuring": "测量中…",
+  "of": "共 {{max}}",
+  "filter": "筛选…",
+  "noMatch": "没有匹配的行。",
+  "noRows": "没有行。",
   "sparkline": {
-    "noData": "no data"
+    "noData": "无数据"
   }
 }

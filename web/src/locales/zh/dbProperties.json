@@ -1,12 +1,12 @@
 {
-  "menu": "Properties…",
-  "title": "Properties of “{{name}}”",
-  "apply": "Apply",
-  "confirmTitle": "Apply changes to “{{name}}”",
-  "warningsTitle": "Warning:",
-  "applied": "Properties of “{{name}}” updated",
-  "scriptName": "Properties of {{name}}",
-  "nothing": "This engine has nothing to show or change in this tab.",
-  "readOnly": "Read-only connection: properties can be seen but not changed.",
-  "noChanges": "(no changes)"
+  "menu": "属性…",
+  "title": "“{{name}}”的属性",
+  "apply": "应用",
+  "confirmTitle": "将更改应用到“{{name}}”",
+  "warningsTitle": "警告：",
+  "applied": "“{{name}}”的属性已更新",
+  "scriptName": "{{name}} 的属性",
+  "nothing": "此引擎在此标签页中没有可显示或可更改的内容。",
+  "readOnly": "只读连接：可查看属性，但不能更改。",
+  "noChanges": "（无更改）"
 }

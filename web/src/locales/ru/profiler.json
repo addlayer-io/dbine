@@ -1,94 +1,94 @@
 {
-  "couldNotConnect": "Couldn't connect.",
-  "connection": "Connection",
-  "thisEngine": "This engine",
-  "unsupported": "{{engine}} doesn't allow seeing other clients' queries.",
+  "couldNotConnect": "Не удалось подключиться.",
+  "connection": "Подключение",
+  "thisEngine": "Этот движок",
+  "unsupported": "{{engine}} не позволяет видеть запросы других клиентов.",
   "hint": {
     "duration": "> 500 · < 1s · >= 2.5s",
-    "text": "contains… · !doesn't contain · =equals",
-    "database": "contains… · !doesn't contain"
+    "text": "содержит… · !не содержит · =равно",
+    "database": "содержит… · !не содержит"
   },
   "menu": {
     "filter": {
-      "user": "Filter by user “{{value}}”",
-      "client": "Filter by client “{{value}}”",
-      "application": "Filter by application “{{value}}”",
-      "database": "Filter by database “{{value}}”"
+      "user": "Фильтр по пользователю «{{value}}»",
+      "client": "Фильтр по клиенту «{{value}}»",
+      "application": "Фильтр по приложению «{{value}}»",
+      "database": "Фильтр по базе данных «{{value}}»"
     },
-    "filterSame": "Filter the ones like this query",
-    "copy": "Copy the query"
+    "filterSame": "Отфильтровать запросы, подобные этому",
+    "copy": "Копировать запрос"
   },
-  "openInQuery": "Open in a query",
+  "openInQuery": "Открыть в запросе",
   "column": {
-    "time": "Time",
-    "duration": "Duration",
-    "query": "Query",
-    "database": "Database",
-    "user": "User",
-    "client": "Client",
-    "application": "Application",
-    "rows": "Rows",
+    "time": "Время",
+    "duration": "Длительность",
+    "query": "Запрос",
+    "database": "База данных",
+    "user": "Пользователь",
+    "client": "Клиент",
+    "application": "Приложение",
+    "rows": "Строк",
     "cpu": "CPU",
-    "reads": "Reads",
-    "writes": "Writes"
+    "reads": "Чтений",
+    "writes": "Записей"
   },
-  "columns": "Columns",
-  "columnsHint": "Show or hide columns",
-  "showAll": "Show all",
+  "columns": "Столбцы",
+  "columnsHint": "Показать или скрыть столбцы",
+  "showAll": "Показать все",
   "status": {
-    "starting": "Starting…",
-    "capturing": "Capturing",
-    "stopped": "Stopped",
-    "notStarted": "Not started"
+    "starting": "Запуск…",
+    "capturing": "Захват",
+    "stopped": "Остановлено",
+    "notStarted": "Не запущено"
   },
-  "source": "Source: {{source}}",
+  "source": "Источник: {{source}}",
   "mode": {
-    "complete": "Full capture",
-    "sampled": "Sampling"
+    "complete": "Полный захват",
+    "sampled": "Выборочный захват"
   },
-  "clearFilters": "Clear filters",
-  "resume": "Resume",
-  "sampledNote": "This engine only shows what's running: queries shorter than ~100 ms may not appear.",
-  "enabled": "{{source}} was enabled on the server.",
-  "disabled": "{{source}} was disabled.",
+  "clearFilters": "Сбросить фильтры",
+  "resume": "Возобновить",
+  "sampledNote": "Этот движок показывает только то, что выполняется: запросы короче ~100 мс могут не появиться.",
+  "enabled": "{{source}} включён на сервере.",
+  "disabled": "{{source}} отключён.",
   "stats": {
-    "title": "This query",
-    "runs_one": "{n} run",
-    "runs_few": "{n} runs",
-    "runs_other": "{n} runs",
-    "avg": "average",
-    "min": "min",
-    "max": "max",
-    "runs_many": "{n} runs"
+    "title": "Этот запрос",
+    "runs_one": "{n} выполнение",
+    "runs_few": "{n} выполнения",
+    "runs_other": "{n} выполнения",
+    "avg": "среднее",
+    "min": "мин",
+    "max": "макс",
+    "runs_many": "{n} выполнений"
   },
-  "filtersHint": "Only queries that pass the filters are kept",
-  "sameAs": "Like: {{label}}",
-  "removeFilter": "Remove this filter",
-  "noneYet": "None has appeared yet",
-  "noValues": "No values",
+  "filtersHint": "Сохраняются только запросы, прошедшие фильтры",
+  "sameAs": "Как: {{label}}",
+  "removeFilter": "Убрать этот фильтр",
+  "noneYet": "Пока ничего не появилось",
+  "noValues": "Нет значений",
   "empty": {
-    "noMatch": "No queries match.",
-    "waitingFiltered": "Waiting for queries that pass the filters…",
-    "waiting": "Waiting for queries…",
-    "none": "No queries captured."
+    "noMatch": "Нет подходящих запросов.",
+    "waitingFiltered": "Ожидание запросов, проходящих фильтры…",
+    "waiting": "Ожидание запросов…",
+    "none": "Запросов не захвачено."
   },
-  "dragHint": "Drag to change the height",
+  "dragHint": "Перетащите, чтобы изменить высоту",
   "detail": {
-    "rows_one": "{{n}} row",
-    "rows_few": "{{n}} rows",
-    "rows_other": "{{n}} rows",
-    "rows_many": "{{n}} rows"
+    "rows_one": "{{n}} строка",
+    "rows_few": "{{n}} строки",
+    "rows_other": "{{n}} строки",
+    "rows_many": "{{n}} строк"
   },
   "foot": {
-    "queries_one": "{{n}} query",
-    "queries_few": "{{n}} queries",
-    "queries_other": "{{n}} queries",
-    "passing": "{{n}} pass the filters",
-    "skipped": "{{n}} discarded by the filters",
-    "dropped": "the {{n}} oldest were discarded (the last {{max}} are kept)",
-    "arrivalOrder": "Back to arrival order",
-    "toEnd": "Go to the end",
-    "queries_many": "{{n}} queries"
+    "queries_one": "{{n}} запрос",
+    "queries_few": "{{n}} запроса",
+    "queries_other": "{{n}} запроса",
+    "passing": "Проходят фильтры: {{n}}",
+    "skipped": "Отброшено фильтрами: {{n}}",
+    "dropped": "{{n}} самых старых отброшено (сохраняются последние {{max}})",
+    "arrivalOrder": "Вернуться к порядку поступления",
+    "toEnd": "Перейти в конец",
+    "queries_many": "{{n}} запросов"
   },
-  "unitHint": "In {{unit}}"
+  "unitHint": "В единицах: {{unit}}"
 }

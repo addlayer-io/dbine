@@ -1,147 +1,147 @@
 {
-  "action": "Optimize",
-  "actionTip": "Optimize query: equivalent rewrites, suggested indexes and timing comparison (the selection or the statement at the cursor)",
-  "tab": "Optimize",
-  "title": "Optimize query · {{name}}",
-  "queryName": "Optimized: {{title}}",
-  "indexQueryName": "Suggested index: {{table}}",
-  "noStatement": "Place the cursor in a query or select it.",
-  "reanalyze": "Analyze again",
-  "analyzing": "Analyzing the query…",
-  "original": "Original query",
-  "writesNote": "This query modifies data: it is never run. \"Compare\" only compares their estimated plans.",
-  "skipped": "Could not be read:",
-  "alternatives": "Alternatives",
-  "noAlternatives": "The rules found no safe rewrites for this query. You can ask the AI for alternatives or add your own.",
-  "noRulesEngine": "The rewrite rules don't apply to this engine's language. You can ask the AI for alternatives or add your own.",
+  "action": "Оптимизировать",
+  "actionTip": "Оптимизация запроса: равнозначные переписывания, предлагаемые индексы и сравнение времени (выделенное или инструкция под курсором)",
+  "tab": "Оптимизация",
+  "title": "Оптимизация запроса · {{name}}",
+  "queryName": "Оптимизирован: {{title}}",
+  "indexQueryName": "Предлагаемый индекс: {{table}}",
+  "noStatement": "Поставьте курсор в запрос или выделите его.",
+  "reanalyze": "Анализировать снова",
+  "analyzing": "Анализ запроса…",
+  "original": "Исходный запрос",
+  "writesNote": "Этот запрос изменяет данные: он никогда не выполняется. «Сравнить» сравнивает только их предполагаемые планы.",
+  "skipped": "Не удалось прочитать:",
+  "alternatives": "Варианты",
+  "noAlternatives": "Правила не нашли безопасных переписываний для этого запроса. Вы можете попросить варианты у ИИ или добавить свои.",
+  "noRulesEngine": "Правила переписывания не применимы к языку этого движка. Вы можете попросить варианты у ИИ или добавить свои.",
   "source": {
-    "rule": "Rule",
-    "ai": "AI",
-    "user": "Yours",
-    "original": "Original"
+    "rule": "Правило",
+    "ai": "ИИ",
+    "user": "Ваш",
+    "original": "Исходный"
   },
-  "verify": "It is not proven to be equivalent in every case: compare it before using it.",
-  "showSql": "Show query",
-  "hideSql": "Hide query",
-  "remove": "Remove",
-  "askAi": "Ask the AI for alternatives",
-  "askingAi": "Asking the AI…",
-  "aiMissing": "No AI assistant is configured. Open the assistant to pick one: the model built into DBine, Ollama or LM Studio (they run on this machine), or Claude Code or Codex with your own account.",
-  "openAssistant": "Open the assistant",
-  "aiNone": "The AI found no improvements for this query.",
-  "aiNothing": "The AI's response had no alternatives in the requested format. Try again or with another model.",
-  "aiDiscarded_one": "{{count}} alternative was left out because it doesn't compile on the database, even after the AI was asked to fix it.",
-  "aiDiscarded_few": "{{count}} alternatives were left out because they don't compile on the database, even after the AI was asked to fix them.",
-  "aiDiscarded_many": "{{count}} alternatives were left out because they don't compile on the database, even after the AI was asked to fix them.",
-  "aiDiscarded_other": "{{count}} alternatives were left out because they don't compile on the database, even after the AI was asked to fix them.",
-  "aiSent": "The query and {{what}} were sent to {{provider}}. Rows are never sent.",
-  "aiSentOnly": "Only the query was sent to {{provider}}. Rows are never sent.",
-  "aiTables": "{{count}} tables",
-  "aiPlan": "the plan",
-  "addOwn": "Add an alternative",
-  "ownTitle": "Your alternative",
-  "ownHint": "Write an equivalent version of the query: it is compared like the others.",
-  "ownName": "Alternative {{n}}",
-  "add": "Add",
-  "compare": "Compare",
-  "comparing": "Comparing… {{done}} of {{total}}",
-  "compareTip": "Runs the original and each alternative in a read-only session (once to warm up and then the indicated number of times) and compares times, rows and result. What modifies data is not run: their estimated plans are compared.",
-  "runs": "Runs",
-  "runsTip": "How many times each version is run, after a warm-up run",
-  "maxRows": "Max. rows",
-  "maxRowsTip": "Rows read and compared from each version. If one returns more, its result is not verified.",
+  "verify": "Равнозначность во всех случаях не доказана: сравните его, прежде чем использовать.",
+  "showSql": "Показать запрос",
+  "hideSql": "Скрыть запрос",
+  "remove": "Убрать",
+  "askAi": "Попросить варианты у ИИ",
+  "askingAi": "Запрос к ИИ…",
+  "aiMissing": "ИИ-ассистент не настроен. Откройте ассистента и выберите его: встроенную в DBine модель, Ollama или LM Studio (работают на этом компьютере), либо Claude Code или Codex с вашей учётной записью.",
+  "openAssistant": "Открыть ассистента",
+  "aiNone": "ИИ не нашёл улучшений для этого запроса.",
+  "aiNothing": "В ответе ИИ не оказалось вариантов в запрошенном формате. Повторите попытку или попробуйте другую модель.",
+  "aiDiscarded_one": "{{count}} вариант не включён, потому что он не компилируется в базе данных, даже после просьбы к ИИ исправить его.",
+  "aiDiscarded_few": "{{count}} варианта не включены, потому что они не компилируются в базе данных, даже после просьбы к ИИ исправить их.",
+  "aiDiscarded_many": "Не включены варианты ({{count}}), потому что они не компилируются в базе данных, даже после просьбы к ИИ исправить их.",
+  "aiDiscarded_other": "{{count}} варианта не включены, потому что они не компилируются в базе данных, даже после просьбы к ИИ исправить их.",
+  "aiSent": "Запрос и {{what}} отправлены в {{provider}}. Строки никогда не отправляются.",
+  "aiSentOnly": "В {{provider}} отправлен только запрос. Строки никогда не отправляются.",
+  "aiTables": "таблицы ({{count}})",
+  "aiPlan": "план",
+  "addOwn": "Добавить вариант",
+  "ownTitle": "Ваш вариант",
+  "ownHint": "Напишите равнозначную версию запроса: она сравнивается так же, как остальные.",
+  "ownName": "Вариант {{n}}",
+  "add": "Добавить",
+  "compare": "Сравнить",
+  "comparing": "Сравнение… {{done}} из {{total}}",
+  "compareTip": "Выполняет исходный запрос и каждый вариант в сеансе только для чтения (один раз для прогрева, затем указанное число раз) и сравнивает время, строки и результат. То, что изменяет данные, не выполняется: сравниваются их предполагаемые планы.",
+  "runs": "Запусков",
+  "runsTip": "Сколько раз выполняется каждая версия после прогревочного запуска",
+  "maxRows": "Макс. строк",
+  "maxRowsTip": "Строк, читаемых и сравниваемых из каждой версии. Если какая-то вернёт больше, её результат не проверяется.",
   "table": {
-    "version": "Version",
-    "min": "Min.",
-    "avg": "Avg.",
-    "rows": "Rows",
-    "cost": "Cost",
-    "result": "Result",
-    "speed": "vs. original"
+    "version": "Версия",
+    "min": "Мин.",
+    "avg": "Сред.",
+    "rows": "Строк",
+    "cost": "Стоимость",
+    "result": "Результат",
+    "speed": "К исходному"
   },
   "result": {
-    "same": "Same result",
-    "different": "NOT equivalent",
-    "unverified": "Unverified",
-    "truncated": "More than {{count}} rows: not compared",
-    "error": "Error",
-    "planOnly": "Plan only",
-    "pending": "Not compared"
+    "same": "Тот же результат",
+    "different": "НЕ равнозначен",
+    "unverified": "Не проверено",
+    "truncated": "Больше {{count}} строк: не сравнивалось",
+    "error": "Ошибка",
+    "planOnly": "Только план",
+    "pending": "Не сравнивалось"
   },
-  "recommended": "Recommended",
-  "faster": "{{x}}× faster",
-  "slower": "{{x}}× slower",
-  "cheaper": "{{x}}× lower cost",
-  "viewPlan": "View plan",
-  "use": "Use this version",
-  "useNew": "Open in a new query",
-  "useReplace": "Replace the query in its editor",
-  "replaceGone": "The source editor no longer has this query (it was closed or the text changed): it was opened in a new query.",
-  "replaced": "The query was replaced in the editor. It was not run.",
+  "recommended": "Рекомендуется",
+  "faster": "быстрее в {{x}} раз",
+  "slower": "медленнее в {{x}} раз",
+  "cheaper": "стоимость ниже в {{x}} раз",
+  "viewPlan": "Показать план",
+  "use": "Использовать эту версию",
+  "useNew": "Открыть в новом запросе",
+  "useReplace": "Заменить запрос в его редакторе",
+  "replaceGone": "В исходном редакторе этого запроса больше нет (он был закрыт или текст изменился): запрос открыт в новом запросе.",
+  "replaced": "Запрос в редакторе заменён. Он не выполнялся.",
   "confirmUse": {
-    "title": "Use this version",
-    "different": "This version did NOT return the same result as the original. Use it anyway?",
-    "unverified": "This version has not been verified against the original yet. Use it anyway?",
-    "go": "Use anyway"
+    "title": "Использовать эту версию",
+    "different": "Эта версия вернула НЕ тот же результат, что и исходная. Всё равно использовать?",
+    "unverified": "Эта версия ещё не проверена на соответствие исходной. Всё равно использовать?",
+    "go": "Всё равно использовать"
   },
-  "planTitle": "Plan · {{name}}",
-  "hints": "Suggested indexes",
-  "hintsNone": "The plan shows no full scans that an index could avoid.",
-  "hintsNoPlan": "This engine doesn't show execution plans, so there are no index suggestions.",
+  "planTitle": "План · {{name}}",
+  "hints": "Предлагаемые индексы",
+  "hintsNone": "В плане нет полных сканирований, которых мог бы избежать индекс.",
+  "hintsNoPlan": "Этот движок не показывает планы выполнения, поэтому предложений по индексам нет.",
   "hint": {
-    "missing_index": "The engine suggests an index on {{table}} ({{columns}})",
-    "full_scan": "{{table}} is scanned in full; an index on ({{columns}}) can avoid it",
-    "scan": "{{table}} is scanned in full",
-    "impact": "estimated impact {{impact}} %",
-    "rows": "~{{rows}} estimated rows"
+    "missing_index": "Движок предлагает индекс для {{table}} ({{columns}})",
+    "full_scan": "{{table}} сканируется полностью; индекс по ({{columns}}) может этого избежать",
+    "scan": "{{table}} сканируется полностью",
+    "impact": "ожидаемый эффект {{impact}} %",
+    "rows": "~{{rows}} ожидаемых строк"
   },
-  "hintsNote": "The script is only opened in a query: review it and run it yourself if it helps. An index speeds up reads and slows down writes.",
-  "openScript": "Open in a query",
-  "notes": "Observations",
-  "planWarnings": "Plan warnings",
+  "hintsNote": "Скрипт только открывается в запросе: проверьте его и выполните сами, если он полезен. Индекс ускоряет чтение и замедляет запись.",
+  "openScript": "Открыть в запросе",
+  "notes": "Наблюдения",
+  "planWarnings": "Предупреждения плана",
   "rules": {
     "in_to_exists": {
-      "title": "IN (subquery) → EXISTS",
-      "explain": "{{column}} IN (subquery) becomes EXISTS with the condition inside the subquery: the engine can stop at the first match instead of building the full list."
+      "title": "IN (подзапрос) → EXISTS",
+      "explain": "{{column}} IN (подзапрос) превращается в EXISTS с условием внутри подзапроса: движок может остановиться на первом совпадении, а не строить полный список."
     },
     "not_in_to_not_exists": {
       "title": "NOT IN → NOT EXISTS",
-      "explain": "Since {{column}} and the subquery column don't allow NULL, NOT EXISTS returns the same and is usually resolved as a more efficient anti-join."
+      "explain": "Поскольку {{column}} и столбец подзапроса не допускают NULL, NOT EXISTS возвращает то же самое и обычно выполняется как более эффективное анти-соединение."
     },
     "exists_to_in": {
       "title": "EXISTS → IN",
-      "explain": "The correlated subquery with {{column}} becomes an IN list that is computed only once. Some engines resolve it better this way."
+      "explain": "Коррелированный подзапрос с {{column}} превращается в список IN, который вычисляется только один раз. Некоторые движки выполняют его так лучше."
     },
     "scalar_to_join": {
-      "title": "Per-row subquery → grouped LEFT JOIN",
-      "explain": "The SELECT subqueries ({{count}}) were run for every row; they become a LEFT JOIN with a grouped table that is computed only once. A COUNT with no rows still gives 0."
+      "title": "Подзапрос для каждой строки → сгруппированный LEFT JOIN",
+      "explain": "Подзапросы в SELECT ({{count}}) выполнялись для каждой строки; они превращаются в LEFT JOIN со сгруппированной таблицей, которая вычисляется только один раз. COUNT без строк по-прежнему даёт 0."
     },
     "or_to_union": {
-      "title": "OR across different columns → UNION ALL",
-      "explain": "An OR over {{columns}} prevents using an index for each column. Each branch of the UNION ALL can use its own, and each excludes the rows already returned by the previous ones, so none is repeated."
+      "title": "OR по разным столбцам → UNION ALL",
+      "explain": "OR по {{columns}} не позволяет использовать индекс для каждого столбца. Каждая ветка UNION ALL может использовать свой, и каждая исключает строки, уже возвращённые предыдущими, так что повторов нет."
     },
     "redundant_distinct": {
-      "title": "Unnecessary DISTINCT",
-      "explain": "The list includes the key of {{tables}}: the rows are already unique and DISTINCT only adds a sort or a grouping."
+      "title": "Ненужный DISTINCT",
+      "explain": "Список включает ключ {{tables}}: строки и так уникальны, а DISTINCT только добавляет сортировку или группировку."
     },
     "function_to_range": {
-      "title": "Function on an indexed column → range",
-      "explain": "{{function}} applies a function to {{column}}, so its index can't be used. An equivalent date range can use it."
+      "title": "Функция над индексируемым столбцом → диапазон",
+      "explain": "{{function}} применяет функцию к {{column}}, поэтому его индекс использовать нельзя. Равнозначный диапазон дат может его использовать."
     },
     "count_to_exists": {
       "title": "COUNT(*) > 0 → EXISTS",
-      "explain": "To know whether there are rows you don't need to count them all: EXISTS stops at the first one."
+      "explain": "Чтобы узнать, есть ли строки, считать их все не нужно: EXISTS останавливается на первой."
     },
     "mongo_where": {
-      "title": "$where → query operators",
-      "explain": "$where runs JavaScript on every document and doesn't use indexes; the equivalent operators do. With fields that are arrays or mix types the result may change: compare it before using it."
+      "title": "$where → операторы запросов",
+      "explain": "$where выполняет JavaScript для каждого документа и не использует индексы; равнозначные операторы используют. Для полей-массивов или с разными типами результат может измениться: сравните его, прежде чем использовать."
     }
   },
   "notesText": {
-    "select_star": "SELECT * fetches all {{count}} columns of {{table}}. Asking only for the ones you use reads less data and can take advantage of indexes that cover the query.",
-    "select_starOpen": "Open with the columns",
-    "not_in_nullable": "NOT IN with {{column}}: if the subquery returns any NULL, the query returns no rows. If that's not what you want, use NOT EXISTS.",
-    "text_vs_number": "{{column}} is {{type}} and is compared with the number {{value}}: the engine converts the column on every row and can't use its index. If the values are text, compare with '{{value}}' (check that it gives the same result).",
-    "nvarchar_literal": "{{column}} is {{type}} and is compared with an N'…' (Unicode) text: SQL Server converts the column and may not use its index. Drop the N if the value has no characters outside the column's code page."
+    "select_star": "SELECT * извлекает все столбцы {{table}} ({{count}}). Если запрашивать только используемые, читается меньше данных, и можно воспользоваться индексами, покрывающими запрос.",
+    "select_starOpen": "Открыть со столбцами",
+    "not_in_nullable": "NOT IN с {{column}}: если подзапрос вернёт хотя бы один NULL, запрос не вернёт строк. Если это не то, что вам нужно, используйте NOT EXISTS.",
+    "text_vs_number": "{{column}} имеет тип {{type}} и сравнивается с числом {{value}}: движок преобразует столбец в каждой строке и не может использовать его индекс. Если значения текстовые, сравнивайте с '{{value}}' (проверьте, что результат тот же).",
+    "nvarchar_literal": "{{column}} имеет тип {{type}} и сравнивается с текстом N'…' (Unicode): SQL Server преобразует столбец и может не использовать его индекс. Уберите N, если в значении нет символов вне кодовой страницы столбца."
   }
 }

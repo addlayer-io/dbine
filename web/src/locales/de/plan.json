@@ -1,59 +1,59 @@
 {
-  "query": "Query {{n}}",
-  "actualPlan": "Actual plan",
-  "estimatedPlan": "Estimated plan",
-  "diagram": "Diagram",
-  "rawPlan": "Original plan",
-  "statementTitle": "Click to see it all",
-  "hint": "Drag to move around · ⌘/pinch + wheel to zoom · F fits",
+  "query": "Abfrage {{n}}",
+  "actualPlan": "Tatsächlicher Plan",
+  "estimatedPlan": "Geschätzter Plan",
+  "diagram": "Diagramm",
+  "rawPlan": "Originalplan",
+  "statementTitle": "Klicken, um alles zu sehen",
+  "hint": "Ziehen zum Verschieben · ⌘/Pinch + Rad zum Zoomen · F passt an",
   "summary": {
-    "operators": "Operators",
-    "cost": "Cost",
-    "time": "Time",
-    "rows": "Rows",
-    "firstWarning": "Go to the first warning",
-    "warnings_one": "{{count}} warning",
-    "warnings_other": "{{count}} warnings"
+    "operators": "Operatoren",
+    "cost": "Kosten",
+    "time": "Zeit",
+    "rows": "Zeilen",
+    "firstWarning": "Zur ersten Warnung springen",
+    "warnings_one": "{{count}} Warnung",
+    "warnings_other": "{{count}} Warnungen"
   },
   "edge": {
-    "actualRows": "Actual rows: {{rows}}",
-    "estimatedRows": "Estimated rows: {{rows}}"
+    "actualRows": "Tatsächliche Zeilen: {{rows}}",
+    "estimatedRows": "Geschätzte Zeilen: {{rows}}"
   },
   "node": {
-    "operatorCost": "Operator cost: {{pct}}%",
-    "noCost": "No cost",
-    "actualEstimatedRows": "Actual / estimated rows",
-    "estimatedRows": "Estimated rows",
-    "estimatedShort": "{{rows}} est.",
-    "expand_one": "Expand ({{count}} operator)",
-    "expand_other": "Expand ({{count}} operators)",
-    "collapse": "Collapse"
+    "operatorCost": "Operatorkosten: {{pct}}%",
+    "noCost": "Keine Kosten",
+    "actualEstimatedRows": "Tatsächliche / geschätzte Zeilen",
+    "estimatedRows": "Geschätzte Zeilen",
+    "estimatedShort": "{{rows}} gesch.",
+    "expand_one": "Aufklappen ({{count}} Operator)",
+    "expand_other": "Aufklappen ({{count}} Operatoren)",
+    "collapse": "Zuklappen"
   },
   "zoom": {
-    "zoomOut": "Zoom out (−)",
-    "actualSize": "Actual size (0)",
-    "zoomIn": "Zoom in (+)",
-    "fit": "Fit to view (F)",
-    "expandAll": "Expand all",
-    "collapseBelow": "Collapse below level 3",
+    "zoomOut": "Verkleinern (−)",
+    "actualSize": "Originalgröße (0)",
+    "zoomIn": "Vergrößern (+)",
+    "fit": "An Ansicht anpassen (F)",
+    "expandAll": "Alle aufklappen",
+    "collapseBelow": "Unterhalb von Ebene 3 zuklappen",
     "minimap": "Minimap"
   },
   "props": {
-    "close": "Close (Esc)",
+    "close": "Schließen (Esc)",
     "operator": "Operator",
-    "self": "Self",
-    "subtree": "Subtree",
-    "rowsAndTime": "Rows and time",
-    "estimatedPerExecution": "Estimated (per execution)",
-    "actualTotal": "Actual (total)",
-    "executions": "Executions",
-    "actualTime": "Actual time",
-    "object": "Object",
-    "properties": "Properties"
+    "self": "Selbst",
+    "subtree": "Teilbaum",
+    "rowsAndTime": "Zeilen und Zeit",
+    "estimatedPerExecution": "Geschätzt (pro Ausführung)",
+    "actualTotal": "Tatsächlich (gesamt)",
+    "executions": "Ausführungen",
+    "actualTime": "Tatsächliche Zeit",
+    "object": "Objekt",
+    "properties": "Eigenschaften"
   },
   "raw": {
-    "save": "Save…",
-    "sqlServerPlan": "SQL Server plan",
-    "ssmsHint": "Opens in SQL Server Management Studio (.sqlplan)"
+    "save": "Speichern…",
+    "sqlServerPlan": "SQL-Server-Plan",
+    "ssmsHint": "Öffnet sich in SQL Server Management Studio (.sqlplan)"
   }
 }

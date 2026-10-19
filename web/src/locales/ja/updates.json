@@ -1,35 +1,35 @@
 {
   "dialog": {
-    "title": "A new version of DBine is available",
-    "text": "Version {{latest}} is available. You have {{current}}.",
-    "skip": "Skip this version",
-    "later": "Later",
-    "download": "Download",
-    "updateNow": "Update now",
-    "downloading": "Downloading DBine {{latest}}…",
-    "progress": "{{done}} of {{total}}",
-    "progressUnknown": "{{done}} downloaded",
-    "verifying": "Verifying the signature…",
-    "cancel": "Cancel",
-    "readyTitle": "DBine {{latest}} is ready",
-    "ready": "The update has been downloaded and verified. Restart DBine to finish installing it.",
-    "restart": "Restart to finish",
-    "failedTitle": "Could not update DBine",
-    "failed": "You can download the new version from its release page.",
-    "openPage": "Open the download page",
-    "close": "Close"
+    "title": "DBine の新しいバージョンがあります",
+    "text": "バージョン {{latest}} が利用可能です。現在のバージョンは {{current}} です。",
+    "skip": "このバージョンをスキップ",
+    "later": "後で",
+    "download": "ダウンロード",
+    "updateNow": "今すぐ更新",
+    "downloading": "DBine {{latest}} をダウンロードしています…",
+    "progress": "{{total}} 中 {{done}}",
+    "progressUnknown": "{{done}} ダウンロード済み",
+    "verifying": "署名を確認しています…",
+    "cancel": "キャンセル",
+    "readyTitle": "DBine {{latest}} の準備ができました",
+    "ready": "更新のダウンロードと検証が完了しました。インストールを完了するには DBine を再起動してください。",
+    "restart": "再起動して完了",
+    "failedTitle": "DBine を更新できませんでした",
+    "failed": "新しいバージョンはダウンロードページから入手できます。",
+    "openPage": "ダウンロードページを開く",
+    "close": "閉じる"
   },
   "reason": {
-    "package": "You installed DBine with a system package: download the new version from its release page.",
-    "location": "Move DBine to Applications so it can update itself."
+    "package": "DBine はシステムのパッケージでインストールされています。新しいバージョンはダウンロードページから入手してください。",
+    "location": "自動で更新されるように、DBine をアプリケーションフォルダーに移動してください。"
   },
   "settings": {
-    "installed": "Installed version: {{version}}",
-    "help": "DBine checks for a new version when it opens and updates itself from there.",
-    "check": "Check for updates"
+    "installed": "インストール済みのバージョン: {{version}}",
+    "help": "DBine は起動時に新しいバージョンを自動で確認し、そこから更新します。",
+    "check": "更新を確認"
   },
-  "upToDate": "You're on the latest version ({{version}}).",
-  "managedByFlatpak": "You have version {{version}}. This install comes from Flathub: Flatpak updates it (from your software center or with “flatpak update”).",
-  "busyInWindow": "The update is in progress in window {{n}}.",
-  "failed": "Could not check for updates: {{error}}"
+  "upToDate": "最新バージョン({{version}})です。",
+  "managedByFlatpak": "バージョン {{version}} です。このインストールは Flathub 版のため、Flatpak が更新します(ソフトウェアセンターまたは「flatpak update」で)。",
+  "busyInWindow": "更新はウィンドウ {{n}} で進行中です。",
+  "failed": "更新を確認できませんでした: {{error}}"
 }

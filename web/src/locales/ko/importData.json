@@ -1,77 +1,77 @@
 {
-  "title": "Import data",
+  "title": "데이터 가져오기",
   "steps": {
-    "file": "File",
-    "preview": "Preview",
-    "target": "Target",
-    "import": "Import"
+    "file": "파일",
+    "preview": "미리 보기",
+    "target": "대상",
+    "import": "가져오기"
   },
   "formats": {
-    "auto": "Automatic (by extension)",
-    "csv": "CSV (comma)",
-    "csvSemicolon": "CSV (semicolon)",
-    "tsv": "TSV (tab)",
-    "json": "JSON (array of objects)",
-    "jsonLines": "JSON Lines (one object per line)"
+    "auto": "자동(확장자 기준)",
+    "csv": "CSV(쉼표)",
+    "csvSemicolon": "CSV(세미콜론)",
+    "tsv": "TSV(탭)",
+    "json": "JSON(개체 배열)",
+    "jsonLines": "JSON Lines(한 줄에 개체 하나)"
   },
   "types": {
-    "integer": "integer",
-    "number": "number",
-    "boolean": "boolean",
-    "date": "date",
-    "datetime": "date and time",
-    "text": "text"
+    "integer": "정수",
+    "number": "숫자",
+    "boolean": "불리언",
+    "date": "날짜",
+    "datetime": "날짜 및 시간",
+    "text": "텍스트"
   },
   "file": {
-    "filterData": "Data (CSV, TSV, JSON, JSONL, XLSX, XML)",
-    "pickHint": "Choose a CSV, TSV, JSON, JSON Lines, Excel or XML file.",
-    "format": "Format",
-    "delimiter": "Delimiter",
-    "tab": "tab",
-    "commaDefault": ", (or the format's)",
-    "sheet": "Sheet",
-    "firstSheet": "First sheet",
-    "header": "The first row has the column names",
-    "detected_other": "{{count}} columns detected · format {{format}}"
+    "filterData": "데이터(CSV, TSV, JSON, JSONL, XLSX, XML)",
+    "pickHint": "CSV, TSV, JSON, JSON Lines, Excel 또는 XML 파일을 선택하세요.",
+    "format": "형식",
+    "delimiter": "구분자",
+    "tab": "탭",
+    "commaDefault": ", (또는 형식의 구분자)",
+    "sheet": "시트",
+    "firstSheet": "첫 번째 시트",
+    "header": "첫 번째 행에 열 이름이 있음",
+    "detected_other": "열 {{count}}개 감지됨 · {{format}} 형식"
   },
   "preview": {
-    "caption_other": "First {{rows}} rows of {file} · {{count}} columns",
-    "empty": "The file has no data rows."
+    "caption_other": "{file}의 처음 {{rows}}개 행 · 열 {{count}}개",
+    "empty": "파일에 데이터 행이 없습니다."
   },
   "target": {
-    "existing": "Existing table",
-    "new": "New table",
-    "pickTable": "Choose the table",
-    "schema": "schema",
-    "tableName": "table name",
-    "batch": "Rows per batch",
-    "sourceColumn": "File column",
-    "detectedType": "Detected type",
-    "targetColumn": "Target column",
-    "ignore": "(ignore)",
-    "name": "Name",
-    "type": "Type",
-    "nulls": "Nulls",
-    "toImport_other": "{{count}} columns to import",
+    "existing": "기존 테이블",
+    "new": "새 테이블",
+    "pickTable": "테이블을 선택하세요",
+    "schema": "스키마",
+    "tableName": "테이블 이름",
+    "batch": "배치당 행 수",
+    "sourceColumn": "파일의 열",
+    "detectedType": "감지된 유형",
+    "targetColumn": "대상 열",
+    "ignore": "(무시)",
+    "name": "이름",
+    "type": "유형",
+    "nulls": "NULL",
+    "toImport_other": "가져올 열 {{count}}개",
     "errors": {
-      "pickTable": "Choose the target table",
-      "mapOne": "Map at least one column",
-      "mappedTwice": "Some target columns are mapped twice",
-      "newName": "Enter the new table's name",
-      "exists": "A table with that name already exists",
-      "includeOne": "Include at least one column",
-      "nameAndType": "Each column needs a name and a type",
-      "duplicateNames": "There are duplicate column names"
+      "pickTable": "대상 테이블을 선택하세요",
+      "mapOne": "열을 하나 이상 매핑하세요",
+      "mappedTwice": "대상 열이 두 번 매핑되었습니다",
+      "newName": "새 테이블의 이름을 입력하세요",
+      "exists": "같은 이름의 테이블이 이미 있습니다",
+      "includeOne": "열을 하나 이상 포함하세요",
+      "nameAndType": "각 열에는 이름과 유형이 필요합니다",
+      "duplicateNames": "열 이름이 중복되었습니다"
     }
   },
   "run": {
-    "importing": "Importing {{file}}…",
-    "rows_other": "rows",
-    "rowsPerSecond": "rows/s",
-    "done": "Import finished",
-    "doneDetail_other": "{{n}} rows into {table} · {{seconds}} s",
-    "partial_other": "{{n}} rows were imported before it stopped.",
-    "cancelledMessage": "Import cancelled.",
-    "cancelImport": "Cancel import"
+    "importing": "{{file}} 가져오는 중…",
+    "rows_other": "행",
+    "rowsPerSecond": "행/초",
+    "done": "가져오기 완료",
+    "doneDetail_other": "{table}에 행 {{n}}개 · {{seconds}}초",
+    "partial_other": "중지되기 전에 행 {{n}}개를 가져왔습니다.",
+    "cancelledMessage": "가져오기가 취소되었습니다.",
+    "cancelImport": "가져오기 취소"
   }
 }

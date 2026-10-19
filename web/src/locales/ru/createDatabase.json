@@ -1,10 +1,10 @@
 {
-  "name": "Name",
-  "advanced": "Advanced options",
-  "default": "Server default",
-  "serverDefault": "Default: {{value}}",
-  "showScript": "Show script",
-  "script": "Script",
-  "openInQuery": "Open in a query",
-  "scriptName": "Create {{name}}"
+  "name": "Имя",
+  "advanced": "Дополнительные параметры",
+  "default": "По умолчанию на сервере",
+  "serverDefault": "По умолчанию: {{value}}",
+  "showScript": "Показать скрипт",
+  "script": "Скрипт",
+  "openInQuery": "Открыть в запросе",
+  "scriptName": "Создание {{name}}"
 }

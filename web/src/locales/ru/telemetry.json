@@ -1,14 +1,14 @@
 {
   "consent": {
-    "title": "Anonymous usage data",
-    "text": "DBine sends anonymous usage data. It helps us know how much it's used and what to work on.",
-    "sent": "What's sent: the DBine version, the operating system, the language, which database engines and which DBine modules and features you use (for example PostgreSQL, the monitor or the AI assistant, and whether it's a local or external model) and the approximate country.",
-    "notSent": "Never sent: server names, users, databases, queries or data. There's no identifier of you.",
-    "change": "If you want to turn it off, go to Settings › General › Share anonymous usage data.",
-    "ok": "Got it"
+    "title": "Анонимные данные об использовании",
+    "text": "DBine отправляет анонимные данные об использовании. Они помогают нам понять, насколько он используется и над чем работать.",
+    "sent": "Что отправляется: версия DBine, операционная система, язык, какие движки баз данных и какие модули и функции DBine вы используете (например, PostgreSQL, монитор или ИИ-ассистент, и локальная это модель или внешняя) и примерная страна.",
+    "notSent": "Никогда не отправляется: имена серверов, пользователи, базы данных, запросы или данные. Идентификатора вас нет.",
+    "change": "Если хотите отключить, перейдите в Настройки › Основные › Отправлять анонимные данные об использовании.",
+    "ok": "Понятно"
   },
   "settings": {
-    "label": "Share anonymous usage data",
-    "help": "Version, operating system, language, engines, modules and features you use, and approximate country. Never servers, queries or data."
+    "label": "Отправлять анонимные данные об использовании",
+    "help": "Версия, операционная система, язык, движки, модули и функции, которые вы используете, и примерная страна. Никогда не серверы, запросы или данные."
   }
 }

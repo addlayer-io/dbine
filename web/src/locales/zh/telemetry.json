@@ -1,14 +1,14 @@
 {
   "consent": {
-    "title": "Anonymous usage data",
-    "text": "DBine sends anonymous usage data. It helps us know how much it's used and what to work on.",
-    "sent": "What's sent: the DBine version, the operating system, the language, which database engines and which DBine modules and features you use (for example PostgreSQL, the monitor or the AI assistant, and whether it's a local or external model) and the approximate country.",
-    "notSent": "Never sent: server names, users, databases, queries or data. There's no identifier of you.",
-    "change": "If you want to turn it off, go to Settings › General › Share anonymous usage data.",
-    "ok": "Got it"
+    "title": "匿名使用数据",
+    "text": "DBine 会发送匿名使用数据。这有助于我们了解它的使用情况以及该把精力放在哪里。",
+    "sent": "发送的内容：DBine 版本、操作系统、语言、你使用的数据库引擎以及 DBine 的模块和功能（例如 PostgreSQL、监视器或 AI 助手，以及使用的是本地还是外部模型），还有大致的国家/地区。",
+    "notSent": "绝不发送：服务器名称、用户、数据库、查询或数据。也没有任何能识别你的标识符。",
+    "change": "如果想关闭，请前往设置 › 常规 › 共享匿名使用数据。",
+    "ok": "知道了"
   },
   "settings": {
-    "label": "Share anonymous usage data",
-    "help": "Version, operating system, language, engines, modules and features you use, and approximate country. Never servers, queries or data."
+    "label": "共享匿名使用数据",
+    "help": "版本、操作系统、语言、你使用的引擎、模块和功能，以及大致的国家/地区。绝不包含服务器、查询或数据。"
   }
 }

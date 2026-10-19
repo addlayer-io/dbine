@@ -1,52 +1,52 @@
 {
   "app": {
-    "about": "About DBine",
-    "settings": "Settings…",
-    "services": "Services",
-    "hide": "Hide DBine",
-    "hideOthers": "Hide others",
-    "showAll": "Show all",
-    "quit": "Quit DBine"
+    "about": "О программе DBine",
+    "settings": "Настройки…",
+    "services": "Службы",
+    "hide": "Скрыть DBine",
+    "hideOthers": "Скрыть остальные",
+    "showAll": "Показать все",
+    "quit": "Завершить DBine"
   },
   "file": {
-    "title": "File",
-    "newConnection": "New connection",
-    "newQuery": "New query",
-    "newNotebook": "New notebook",
-    "newWindow": "New window",
-    "closeTab": "Close tab",
-    "open": "Open File…"
+    "title": "Файл",
+    "newConnection": "Новое подключение",
+    "newQuery": "Новый запрос",
+    "newNotebook": "Новый блокнот",
+    "newWindow": "Новое окно",
+    "closeTab": "Закрыть вкладку",
+    "open": "Открыть файл…"
   },
   "edit": {
-    "title": "Edit",
-    "undo": "Undo",
-    "redo": "Redo",
-    "cut": "Cut",
-    "copy": "Copy",
-    "paste": "Paste",
-    "selectAll": "Select all"
+    "title": "Правка",
+    "undo": "Отменить",
+    "redo": "Повторить",
+    "cut": "Вырезать",
+    "copy": "Копировать",
+    "paste": "Вставить",
+    "selectAll": "Выделить всё"
   },
   "view": {
-    "title": "View",
-    "explorer": "Explorer",
-    "output": "Output",
-    "ai": "AI assistant",
-    "fullscreen": "Full screen"
+    "title": "Вид",
+    "explorer": "Обозреватель",
+    "output": "Вывод",
+    "ai": "ИИ-ассистент",
+    "fullscreen": "Полноэкранный режим"
   },
   "window": {
-    "title": "Window",
-    "minimize": "Minimize",
-    "zoom": "Zoom"
+    "title": "Окно",
+    "minimize": "Свернуть",
+    "zoom": "Масштаб"
   },
   "help": {
-    "title": "Help",
-    "checkUpdates": "Check for updates…",
-    "support": "Support the project"
+    "title": "Справка",
+    "checkUpdates": "Проверить обновления…",
+    "support": "Поддержать проект"
   },
   "palette": {
-    "open": "Command palette…"
+    "open": "Палитра команд…"
   },
   "goto": {
-    "open": "Go to…"
+    "open": "Перейти к…"
   }
 }

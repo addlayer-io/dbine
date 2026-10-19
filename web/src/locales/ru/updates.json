@@ -1,35 +1,35 @@
 {
   "dialog": {
-    "title": "A new version of DBine is available",
-    "text": "Version {{latest}} is available. You have {{current}}.",
-    "skip": "Skip this version",
-    "later": "Later",
-    "download": "Download",
-    "updateNow": "Update now",
-    "downloading": "Downloading DBine {{latest}}…",
-    "progress": "{{done}} of {{total}}",
-    "progressUnknown": "{{done}} downloaded",
-    "verifying": "Verifying the signature…",
-    "cancel": "Cancel",
-    "readyTitle": "DBine {{latest}} is ready",
-    "ready": "The update has been downloaded and verified. Restart DBine to finish installing it.",
-    "restart": "Restart to finish",
-    "failedTitle": "Could not update DBine",
-    "failed": "You can download the new version from its release page.",
-    "openPage": "Open the download page",
-    "close": "Close"
+    "title": "Доступна новая версия DBine",
+    "text": "Доступна версия {{latest}}. У вас {{current}}.",
+    "skip": "Пропустить эту версию",
+    "later": "Позже",
+    "download": "Скачать",
+    "updateNow": "Обновить сейчас",
+    "downloading": "Загрузка DBine {{latest}}…",
+    "progress": "{{done}} из {{total}}",
+    "progressUnknown": "Загружено: {{done}}",
+    "verifying": "Проверка подписи…",
+    "cancel": "Отмена",
+    "readyTitle": "DBine {{latest}} готов",
+    "ready": "Обновление загружено и проверено. Перезапустите DBine, чтобы завершить установку.",
+    "restart": "Перезапустить для завершения",
+    "failedTitle": "Не удалось обновить DBine",
+    "failed": "Новую версию можно скачать со страницы релиза.",
+    "openPage": "Открыть страницу загрузки",
+    "close": "Закрыть"
   },
   "reason": {
-    "package": "You installed DBine with a system package: download the new version from its release page.",
-    "location": "Move DBine to Applications so it can update itself."
+    "package": "Вы установили DBine системным пакетом: скачайте новую версию со страницы релиза.",
+    "location": "Переместите DBine в «Программы», чтобы он мог обновляться сам."
   },
   "settings": {
-    "installed": "Installed version: {{version}}",
-    "help": "DBine checks for a new version when it opens and updates itself from there.",
-    "check": "Check for updates"
+    "installed": "Установленная версия: {{version}}",
+    "help": "DBine проверяет наличие новой версии при открытии и обновляется сам.",
+    "check": "Проверить обновления"
   },
-  "upToDate": "You're on the latest version ({{version}}).",
-  "managedByFlatpak": "You have version {{version}}. This install comes from Flathub: Flatpak updates it (from your software center or with “flatpak update”).",
-  "busyInWindow": "The update is in progress in window {{n}}.",
-  "failed": "Could not check for updates: {{error}}"
+  "upToDate": "У вас последняя версия ({{version}}).",
+  "managedByFlatpak": "У вас версия {{version}}. Эта установка из Flathub: обновляет её Flatpak (из вашего центра приложений или командой «flatpak update»).",
+  "busyInWindow": "Обновление выполняется в окне {{n}}.",
+  "failed": "Не удалось проверить обновления: {{error}}"
 }

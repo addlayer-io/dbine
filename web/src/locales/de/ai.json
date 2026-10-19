@@ -1,116 +1,116 @@
 {
-  "title": "Assistant",
-  "defaultModel": "default",
-  "reasoning": "Reasoning",
+  "title": "Assistent",
+  "defaultModel": "Standard",
+  "reasoning": "Überlegungen",
   "head": {
-    "setup": "Models and providers",
-    "newChat": "New conversation",
-    "close": "Close (⌘I)",
-    "history": "History"
+    "setup": "Modelle und Anbieter",
+    "newChat": "Neue Unterhaltung",
+    "close": "Schließen (⌘I)",
+    "history": "Verlauf"
   },
   "context": {
-    "noDatabase": "No database selected",
-    "openQuery": "open query",
-    "sent": "context: {{context}}",
-    "objects_one": "{{count}} object",
-    "objects_other": "{{count}} objects",
-    "tables_one": "{{count}} table",
-    "tables_other": "{{count}} tables",
-    "tablesOf_one": "{{shown}} of {{count}} table",
-    "tablesOf_other": "{{shown}} of {{count}} tables",
-    "editor": "editor",
-    "selection": "selection",
-    "lastError": "last error"
+    "noDatabase": "Keine Datenbank ausgewählt",
+    "openQuery": "offene Abfrage",
+    "sent": "Kontext: {{context}}",
+    "objects_one": "{{count}} Objekt",
+    "objects_other": "{{count}} Objekte",
+    "tables_one": "{{count}} Tabelle",
+    "tables_other": "{{count}} Tabellen",
+    "tablesOf_one": "{{shown}} von {{count}} Tabelle",
+    "tablesOf_other": "{{shown}} von {{count}} Tabellen",
+    "editor": "Editor",
+    "selection": "Auswahl",
+    "lastError": "letzter Fehler"
   },
   "suggest": {
-    "whyFails": "Why does the last run fail? Fix it.",
-    "explain": "Explain the query in the editor",
-    "optimize": "Review and optimize the query in the editor",
-    "largestTables": "Write a query that lists the largest tables",
-    "relatedTables": "Which tables are related to customers?",
-    "joinAggregate": "How do I write a JOIN with aggregation?"
+    "whyFails": "Warum schlägt die letzte Ausführung fehl? Beheben Sie es.",
+    "explain": "Erklären Sie die Abfrage im Editor",
+    "optimize": "Prüfen und optimieren Sie die Abfrage im Editor",
+    "largestTables": "Schreiben Sie eine Abfrage, die die größten Tabellen auflistet",
+    "relatedTables": "Welche Tabellen stehen in Beziehung zu Kunden?",
+    "joinAggregate": "Wie schreibe ich einen JOIN mit Aggregation?"
   },
   "code": {
-    "appended": "Appended to the end of the query. Review it and run it whenever you want.",
-    "newQueryTitle": "From the assistant",
-    "replaced": "Query replaced (⌘Z to undo).",
-    "code": "code",
-    "appendHint": "Append to the end of the open query",
-    "newQueryHint": "Open in a new query",
-    "append": "Add to query",
-    "newQuery": "New query",
-    "replaceHint": "Replace the whole editor content (⌘Z undoes)",
-    "replace": "Replace",
-    "destructive": "Changes data or structure. Nothing was run: review it before you run it yourself.",
-    "asText": "Insert as text",
-    "asTextHint": "Add the answer as a text cell of the notebook (runs nothing)",
-    "textAdded": "Added as a text cell.",
-    "cellAdded": "Added as a new cell, not run. Check it and run it when you want."
+    "appended": "Am Ende der Abfrage angehängt. Prüfen Sie sie und führen Sie sie aus, wann Sie möchten.",
+    "newQueryTitle": "Vom Assistenten",
+    "replaced": "Abfrage ersetzt (⌘Z zum Widerrufen).",
+    "code": "Code",
+    "appendHint": "An das Ende der geöffneten Abfrage anhängen",
+    "newQueryHint": "In neuer Abfrage öffnen",
+    "append": "Zur Abfrage hinzufügen",
+    "newQuery": "Neue Abfrage",
+    "replaceHint": "Den gesamten Editorinhalt ersetzen (⌘Z macht es rückgängig)",
+    "replace": "Ersetzen",
+    "destructive": "Ändert Daten oder Struktur. Es wurde nichts ausgeführt: Prüfen Sie es, bevor Sie es selbst ausführen.",
+    "asText": "Als Text einfügen",
+    "asTextHint": "Die Antwort als Textzelle des Notebooks hinzufügen (führt nichts aus)",
+    "textAdded": "Als Textzelle hinzugefügt.",
+    "cellAdded": "Als neue Zelle hinzugefügt, nicht ausgeführt. Prüfen Sie sie und führen Sie sie aus, wann Sie möchten."
   },
   "phase": {
-    "schema": "Reading the database structure…",
-    "engine": "Downloading the AI engine, just this once…",
-    "thinking": "Thinking…",
-    "retry": "Asking again…",
-    "tool": "Querying the connection:"
+    "schema": "Datenbankstruktur wird gelesen…",
+    "engine": "KI-Engine wird heruntergeladen, nur dieses eine Mal…",
+    "thinking": "Denkt nach…",
+    "retry": "Fragt erneut…",
+    "tool": "Abfrage der Verbindung:"
   },
   "setup": {
-    "detecting": "Looking for AI tools on this machine…",
-    "lead": "The assistant needs a model. The simplest option: download the {model}. It runs on this machine, with nothing to install and nothing leaving it.",
-    "leadModel": "built-in model",
-    "embedded": "Built into DBine",
-    "embeddedUnavailable": "The built-in model isn't available on this platform.",
-    "recommended": "recommended for this machine",
-    "use": "Use",
-    "pause": "Pause",
-    "pauseHint": "Resumes where it left off",
-    "download": "Download ({{size}})",
-    "detected": "Detected on this machine",
-    "pull": "Download {{model}}",
-    "cliNote": "Claude Code and Codex use your own account (subscription or API). They run without tools: they can't read files, run commands or connect to your databases.",
-    "redetect": "Detect again"
+    "detecting": "Suche nach KI-Tools auf diesem Rechner…",
+    "lead": "Der Assistent braucht ein Modell. Am einfachsten: das Modell {model} herunterladen. Es läuft auf diesem Rechner, ohne Installation und ohne dass etwas den Rechner verlässt.",
+    "leadModel": "integriertes Modell",
+    "embedded": "In DBine integriert",
+    "embeddedUnavailable": "Das integrierte Modell ist auf dieser Plattform nicht verfügbar.",
+    "recommended": "für diesen Rechner empfohlen",
+    "use": "Verwenden",
+    "pause": "Pausieren",
+    "pauseHint": "Setzt dort fort, wo es aufgehört hat",
+    "download": "Herunterladen ({{size}})",
+    "detected": "Auf diesem Rechner erkannt",
+    "pull": "{{model}} herunterladen",
+    "cliNote": "Claude Code und Codex verwenden Ihr eigenes Konto (Abonnement oder API). Sie laufen ohne Tools: Sie können weder Dateien lesen noch Befehle ausführen oder sich mit Ihren Datenbanken verbinden.",
+    "redetect": "Erneut erkennen"
   },
   "privacy": {
-    "local": "Local: nothing leaves this machine.",
-    "remote": "Goes to {{vendor}} with your account: the question, the structure and the editor, never the data."
+    "local": "Lokal: Nichts verlässt diesen Rechner.",
+    "remote": "Geht mit Ihrem Konto an {{vendor}}: die Frage, die Struktur und der Editor, nie die Daten."
   },
   "empty": {
-    "lead": "Ask it for queries, to explain or fix the one in the editor, or ask about the database structure.",
-    "neverRuns": "The assistant never runs anything: what it writes goes into your query and you decide whether to run it."
+    "lead": "Bitten Sie ihn um Abfragen, lassen Sie die Abfrage im Editor erklären oder korrigieren, oder fragen Sie nach der Datenbankstruktur.",
+    "neverRuns": "Der Assistent führt nie etwas aus: Was er schreibt, landet in Ihrer Abfrage, und Sie entscheiden, ob Sie sie ausführen."
   },
   "compose": {
-    "placeholder": "Ask or request a query… (Enter sends, Shift+Enter new line)",
-    "send": "Send"
+    "placeholder": "Fragen oder eine Abfrage anfordern… (Enter sendet, Umschalt+Enter neue Zeile)",
+    "send": "Senden"
   },
   "better": {
-    "text": "Your machine can use a bigger model: {{model}}. It understands hard requests better and makes fewer SQL mistakes.",
-    "dismiss": "Not now"
+    "text": "Ihr Rechner kann ein größeres Modell verwenden: {{model}}. Es versteht schwierige Anfragen besser und macht weniger SQL-Fehler.",
+    "dismiss": "Jetzt nicht"
   },
   "history": {
-    "title": "Previous conversations",
-    "empty": "No previous conversations yet: “New conversation” saves the current one here.",
-    "untitled": "(untitled)",
-    "messages_one": "{{count}} message",
-    "messages_other": "{{count}} messages",
-    "delete": "Delete this conversation",
-    "clear": "Clear history",
-    "clearConfirm": "All previous conversations will be deleted. The current one is not touched."
+    "title": "Frühere Unterhaltungen",
+    "empty": "Noch keine früheren Unterhaltungen: „Neue Unterhaltung“ speichert die aktuelle hier.",
+    "untitled": "(ohne Titel)",
+    "messages_one": "{{count}} Nachricht",
+    "messages_other": "{{count}} Nachrichten",
+    "delete": "Diese Unterhaltung löschen",
+    "clear": "Verlauf leeren",
+    "clearConfirm": "Alle früheren Unterhaltungen werden gelöscht. Die aktuelle bleibt unberührt."
   },
   "tools": {
-    "read_one": "Queried the connection {{count}} time",
-    "read_other": "Queried the connection {{count}} times"
+    "read_one": "Die Verbindung {{count}} Mal abgefragt",
+    "read_other": "Die Verbindung {{count}} Mal abgefragt"
   },
   "approval": {
-    "title": "The model ({{model}}) wants to read data from {{connection}} › {{database}} with this query:",
-    "local": "local",
-    "approve": "Approve",
-    "reject": "Reject",
-    "approveAll": "Approve reads in this conversation",
-    "note": "Read-only: DBine runs it in a session that rejects any change. If you reject it, the model carries on without that data."
+    "title": "Das Modell ({{model}}) möchte mit dieser Abfrage Daten aus {{connection}} › {{database}} lesen:",
+    "local": "lokal",
+    "approve": "Genehmigen",
+    "reject": "Ablehnen",
+    "approveAll": "Lesezugriffe in dieser Unterhaltung genehmigen",
+    "note": "Schreibgeschützt: DBine führt sie in einer Sitzung aus, die jede Änderung ablehnt. Wenn Sie ablehnen, macht das Modell ohne diese Daten weiter."
   },
   "link": {
-    "title": "Open link",
-    "body": "The assistant's answer leads to this address. Open it only if you trust it: a link can send data from the conversation to another site.",
-    "open": "Open in browser"
+    "title": "Link öffnen",
+    "body": "Die Antwort des Assistenten führt zu dieser Adresse. Öffnen Sie sie nur, wenn Sie ihr vertrauen: Ein Link kann Daten aus der Unterhaltung an eine andere Website senden.",
+    "open": "Im Browser öffnen"
   }
 }

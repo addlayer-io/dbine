@@ -1,57 +1,57 @@
 {
-  "query": "Query {{n}}",
-  "actualPlan": "Actual plan",
-  "estimatedPlan": "Estimated plan",
-  "diagram": "Diagram",
-  "rawPlan": "Original plan",
-  "statementTitle": "Click to see it all",
-  "hint": "Drag to move around · ⌘/pinch + wheel to zoom · F fits",
+  "query": "クエリ {{n}}",
+  "actualPlan": "実際のプラン",
+  "estimatedPlan": "推定プラン",
+  "diagram": "ダイアグラム",
+  "rawPlan": "元のプラン",
+  "statementTitle": "クリックで全体を表示",
+  "hint": "ドラッグで移動 · ⌘/ピンチ + ホイールでズーム · F でフィット",
   "summary": {
-    "operators": "Operators",
-    "cost": "Cost",
-    "time": "Time",
-    "rows": "Rows",
-    "firstWarning": "Go to the first warning",
-    "warnings_other": "{{count}} warnings"
+    "operators": "演算子",
+    "cost": "コスト",
+    "time": "時間",
+    "rows": "行",
+    "firstWarning": "最初の警告へ移動",
+    "warnings_other": "{{count}} 件の警告"
   },
   "edge": {
-    "actualRows": "Actual rows: {{rows}}",
-    "estimatedRows": "Estimated rows: {{rows}}"
+    "actualRows": "実際の行数: {{rows}}",
+    "estimatedRows": "推定行数: {{rows}}"
   },
   "node": {
-    "operatorCost": "Operator cost: {{pct}}%",
-    "noCost": "No cost",
-    "actualEstimatedRows": "Actual / estimated rows",
-    "estimatedRows": "Estimated rows",
-    "estimatedShort": "{{rows}} est.",
-    "expand_other": "Expand ({{count}} operators)",
-    "collapse": "Collapse"
+    "operatorCost": "演算子のコスト: {{pct}}%",
+    "noCost": "コストなし",
+    "actualEstimatedRows": "実際の行数 / 推定行数",
+    "estimatedRows": "推定行数",
+    "estimatedShort": "推定 {{rows}}",
+    "expand_other": "展開({{count}} 個の演算子)",
+    "collapse": "折りたたむ"
   },
   "zoom": {
-    "zoomOut": "Zoom out (−)",
-    "actualSize": "Actual size (0)",
-    "zoomIn": "Zoom in (+)",
-    "fit": "Fit to view (F)",
-    "expandAll": "Expand all",
-    "collapseBelow": "Collapse below level 3",
-    "minimap": "Minimap"
+    "zoomOut": "縮小(−)",
+    "actualSize": "実寸(0)",
+    "zoomIn": "拡大(+)",
+    "fit": "ビューに合わせる(F)",
+    "expandAll": "すべて展開",
+    "collapseBelow": "3 階層目以下を折りたたむ",
+    "minimap": "ミニマップ"
   },
   "props": {
-    "close": "Close (Esc)",
-    "operator": "Operator",
-    "self": "Self",
-    "subtree": "Subtree",
-    "rowsAndTime": "Rows and time",
-    "estimatedPerExecution": "Estimated (per execution)",
-    "actualTotal": "Actual (total)",
-    "executions": "Executions",
-    "actualTime": "Actual time",
-    "object": "Object",
-    "properties": "Properties"
+    "close": "閉じる(Esc)",
+    "operator": "演算子のもの",
+    "self": "自身",
+    "subtree": "サブツリー",
+    "rowsAndTime": "行と時間",
+    "estimatedPerExecution": "推定(実行あたり)",
+    "actualTotal": "実際(合計)",
+    "executions": "実行回数",
+    "actualTime": "実際の時間",
+    "object": "オブジェクト",
+    "properties": "プロパティ"
   },
   "raw": {
-    "save": "Save…",
-    "sqlServerPlan": "SQL Server plan",
-    "ssmsHint": "Opens in SQL Server Management Studio (.sqlplan)"
+    "save": "保存…",
+    "sqlServerPlan": "SQL Server のプラン",
+    "ssmsHint": "SQL Server Management Studio(.sqlplan)で開きます"
   }
 }

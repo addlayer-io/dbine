@@ -1,11 +1,11 @@
 {
-  "right": "Split right",
-  "down": "Split down",
-  "moveLeft": "Move to the left group",
-  "moveRight": "Move to the right group",
-  "moveUp": "Move to the group above",
-  "moveDown": "Move to the group below",
-  "button": "Split editor ({{key}}) · {{alt}}+click: down",
-  "closeGroup": "Close group",
-  "empty": "Empty group: the next tab you open goes here. You can also drag a tab onto this area."
+  "right": "右に分割",
+  "down": "下に分割",
+  "moveLeft": "左のグループへ移動",
+  "moveRight": "右のグループへ移動",
+  "moveUp": "上のグループへ移動",
+  "moveDown": "下のグループへ移動",
+  "button": "エディターを分割({{key}}) · {{alt}}+クリック: 下に分割",
+  "closeGroup": "グループを閉じる",
+  "empty": "空のグループです。次に開くタブはここに開きます。タブをここにドラッグすることもできます。"
 }

@@ -1,54 +1,54 @@
 {
   "folder": {
-    "new": "New folder",
-    "edit": "Edit folder · {{name}}",
-    "name": "Name",
-    "namePlaceholder": "Client, environment…",
-    "nameRequired": "Enter a name",
-    "color": "Color",
-    "noColor": "No color",
-    "colorHelp": "Connections without their own color take their folder's (handy to mark production).",
-    "inside": "Inside",
-    "create": "Create",
-    "topLevel": "(Top level)"
+    "new": "新しいフォルダー",
+    "edit": "フォルダーを編集 · {{name}}",
+    "name": "名前",
+    "namePlaceholder": "顧客、環境など…",
+    "nameRequired": "名前を入力してください",
+    "color": "色",
+    "noColor": "色なし",
+    "colorHelp": "独自の色がない接続にはフォルダーの色が使われます(本番環境の目印に便利です)。",
+    "inside": "親フォルダー",
+    "create": "作成",
+    "topLevel": "(最上位)"
   },
   "move": {
-    "title": "Move «{{name}}» to…",
-    "move": "Move"
+    "title": "「{{name}}」の移動先…",
+    "move": "移動"
   },
   "database": {
-    "scriptTitle": "Generate script · {{db}}",
-    "scriptName": "Script of {{db}}",
-    "scriptNameConverted": "Script of {{db}} (converted)",
-    "theDatabase": "the database"
+    "scriptTitle": "スクリプトを生成 · {{db}}",
+    "scriptName": "{{db}} のスクリプト",
+    "scriptNameConverted": "{{db}} のスクリプト(変換済み)",
+    "theDatabase": "データベース"
   },
   "drivers": {
-    "intro": "Each driver downloads by itself the first time you connect to that engine. Here you can download them ahead (for example, if you'll work offline) or delete the ones you don't use.",
-    "search": "Search engine",
-    "diskTitle": "Disk space used by the downloaded drivers",
-    "summary": "{{installed}} of {{total}} downloaded · {{size}} MB",
-    "downloadAll": "Download all ({{size}} MB)",
-    "downloading": "Downloading",
-    "download": "Download",
-    "remove": "Delete",
-    "checkUpdates": "Check for updates",
-    "checking": "Checking…",
-    "upToDateAll": "Drivers are up to date.",
-    "rollback": "Roll back",
-    "rollbackTitle": "Drop version {{version}} and go back to {{previous}}",
-    "rollbackConfirm": "Go back to version {{previous}} of the {{label}} driver? Version {{version}} won't be used again. Open connections keep the current version until you close them.",
-    "statusDownloading": "Downloading version {{available}}…",
-    "statusReady": "Version {{version}} is used from the next connection",
-    "statusNeedsApp": "A newer version needs DBine {{minApp}} or later",
-    "statusRolledBack": "Version {{from}} failed and it went back to {{version}}",
-    "statusRolledBackUser": "Went back to version {{version}}; {{from}} won't be used",
-    "statusRestart": "Restart DBine to see this driver's new options"
+    "intro": "各ドライバーは、そのエンジンに初めて接続するときに自動でダウンロードされます。ここでは事前にダウンロードしたり(オフラインで作業する場合など)、使わないものを削除したりできます。",
+    "search": "エンジンを検索",
+    "diskTitle": "ダウンロード済みドライバーのディスク使用量",
+    "summary": "{{total}} 個中 {{installed}} 個ダウンロード済み · {{size}} MB",
+    "downloadAll": "すべてダウンロード({{size}} MB)",
+    "downloading": "ダウンロード中",
+    "download": "ダウンロード",
+    "remove": "削除",
+    "checkUpdates": "更新を確認",
+    "checking": "確認中…",
+    "upToDateAll": "ドライバーはすべて最新です。",
+    "rollback": "前のバージョンに戻す",
+    "rollbackTitle": "バージョン {{version}} をやめて {{previous}} に戻す",
+    "rollbackConfirm": "{{label}} のドライバーをバージョン {{previous}} に戻しますか？ {{version}} は二度と使用されません。開いている接続は、閉じるまで現在のバージョンのままです。",
+    "statusDownloading": "バージョン {{available}} をダウンロードしています…",
+    "statusReady": "バージョン {{version}} は次回の接続から使用されます",
+    "statusNeedsApp": "DBine {{minApp}} 以降が必要な新しいバージョンがあります",
+    "statusRolledBack": "バージョン {{from}} が失敗したため、{{version}} に戻しました",
+    "statusRolledBackUser": "バージョン {{version}} に戻しました。{{from}} は使用されません",
+    "statusRestart": "このドライバーの新しいオプションを表示するには DBine を再起動してください"
   },
   "support": {
-    "title": "Support DBine",
-    "text": "DBine is free and will stay free. Your support helps us maintain the app and keep adding features.",
-    "notPayment": "It's support, not a payment: the app works the same either way.",
-    "notNow": "Not now",
-    "support": "Support the project"
+    "title": "DBine を応援する",
+    "text": "DBine は無料で、これからも無料です。いただいた支援は、アプリの維持と機能の追加に役立てます。",
+    "notPayment": "これは支払いではなく支援です。支援しなくてもアプリは同じように動作します。",
+    "notNow": "今はしない",
+    "support": "プロジェクトを応援する"
   }
 }

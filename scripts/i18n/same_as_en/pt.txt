@@ -205,3 +205,5 @@ backend:estado
 backend:hilo
 backend:intercalación
 backend:{0} espacios de tablas
+mobile:conn.monitor
+mobile:conn.f.host

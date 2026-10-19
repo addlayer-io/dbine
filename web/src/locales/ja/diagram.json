@@ -1,60 +1,60 @@
 {
-  "primaryKey": "Primary key",
-  "foreignKey": "Foreign key",
-  "unnamedForeignKey": "Unnamed foreign key",
-  "exportFailed": "Couldn't export the image: {{error}}",
-  "busy": "Laying out {{tables}} tables and {{relations}} relationships…",
-  "hint": "Drag to move around · ⌘/pinch + wheel to zoom · double-click opens the table",
+  "primaryKey": "主キー",
+  "foreignKey": "外部キー",
+  "unnamedForeignKey": "名前のない外部キー",
+  "exportFailed": "画像をエクスポートできませんでした: {{error}}",
+  "busy": "{{tables}} 個のテーブルと {{relations}} 個のリレーションを配置しています…",
+  "hint": "ドラッグで移動 · ⌘/ピンチ + ホイールでズーム · ダブルクリックでテーブルを開く",
   "tab": {
-    "connectFailed": "Couldn't connect.",
-    "reading": "Reading the database structure…",
-    "drawFailed": "Couldn't draw the diagram: {{error}}",
+    "connectFailed": "接続できませんでした。",
+    "reading": "データベースの構造を読み込んでいます…",
+    "drawFailed": "ダイアグラムを描画できませんでした: {{error}}",
     "fileName": "diagram-{{name}}",
     "fileNameDefault": "database"
   },
   "toolbar": {
-    "tables": "Tables",
-    "relations": "Relationships",
-    "simplifiedLayout": "simplified layout",
-    "simplifiedLayoutTitle": "The automatic layout failed with this structure: the tables are shown in a grid (you can move them by hand).",
-    "searchPlaceholder": "Search table…",
-    "allSchemas": "All schemas",
-    "allColumns": "All columns",
-    "keysOnly": "Keys only",
-    "relayout": "Rearrange",
-    "relayoutTitle": "Arrange the tables automatically again",
-    "svgImage": "SVG image",
-    "pngImage": "PNG image"
+    "tables": "テーブル",
+    "relations": "リレーション",
+    "simplifiedLayout": "簡易レイアウト",
+    "simplifiedLayoutTitle": "この構造では自動レイアウトに失敗しました。テーブルはグリッドで表示されます(手動で移動できます)。",
+    "searchPlaceholder": "テーブルを検索…",
+    "allSchemas": "すべてのスキーマ",
+    "allColumns": "すべての列",
+    "keysOnly": "キーのみ",
+    "relayout": "再配置",
+    "relayoutTitle": "テーブルを自動的に並べ直す",
+    "svgImage": "SVG 画像",
+    "pngImage": "PNG 画像"
   },
   "card": {
-    "openHint": "Double-click to open",
-    "nullable": "Allows NULL",
-    "noColumns": "no columns",
-    "moreColumns_other": "+{{count}} columns",
-    "showLess": "Show less"
+    "openHint": "ダブルクリックで開く",
+    "nullable": "NULL 可",
+    "noColumns": "列なし",
+    "moreColumns_other": "+{{count}} 列",
+    "showLess": "折りたたむ"
   },
   "empty": {
-    "title": "No tables to show",
-    "text": "The database has no tables or the engine doesn't report its structure.",
-    "noRelations": "No relationships: the database declares no foreign keys (or the engine doesn't report them). Only the tables are shown."
+    "title": "表示するテーブルがありません",
+    "text": "データベースにテーブルがないか、エンジンが構造を報告していません。",
+    "noRelations": "リレーションなし: データベースに外部キーが宣言されていないか、エンジンが報告していません。テーブルのみ表示しています。"
   },
   "zoom": {
-    "zoomOut": "Zoom out (−)",
-    "actualSize": "Actual size (0)",
-    "zoomIn": "Zoom in (+)",
-    "fit": "Fit to view (F)",
-    "minimap": "Minimap"
+    "zoomOut": "縮小(−)",
+    "actualSize": "実寸(0)",
+    "zoomIn": "拡大(+)",
+    "fit": "ビューに合わせる(F)",
+    "minimap": "ミニマップ"
   },
   "props": {
-    "table": "table",
-    "openTable": "Open the table",
-    "close": "Close (Esc)",
-    "columns": "Columns",
-    "unnamed": "(unnamed)",
-    "indexes": "Indexes",
-    "unique": "unique",
-    "references": "References",
-    "referencedBy": "Referenced by",
-    "outside": "outside the diagram"
+    "table": "テーブル",
+    "openTable": "テーブルを開く",
+    "close": "閉じる(Esc)",
+    "columns": "列",
+    "unnamed": "(名前なし)",
+    "indexes": "インデックス",
+    "unique": "一意",
+    "references": "参照先",
+    "referencedBy": "参照元",
+    "outside": "ダイアグラム外"
   }
 }

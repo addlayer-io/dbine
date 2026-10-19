@@ -1,11 +1,11 @@
 {
-  "right": "Split right",
-  "down": "Split down",
-  "moveLeft": "Move to the left group",
-  "moveRight": "Move to the right group",
-  "moveUp": "Move to the group above",
-  "moveDown": "Move to the group below",
-  "button": "Split editor ({{key}}) · {{alt}}+click: down",
-  "closeGroup": "Close group",
-  "empty": "Empty group: the next tab you open goes here. You can also drag a tab onto this area."
+  "right": "向右拆分",
+  "down": "向下拆分",
+  "moveLeft": "移到左侧分组",
+  "moveRight": "移到右侧分组",
+  "moveUp": "移到上方分组",
+  "moveDown": "移到下方分组",
+  "button": "拆分编辑器（{{key}}）· {{alt}}+点击：向下",
+  "closeGroup": "关闭分组",
+  "empty": "空分组：你打开的下一个标签页会放在这里。也可以将标签页拖到此区域。"
 }

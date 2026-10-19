@@ -1,243 +1,243 @@
 {
-  "nav": "Code quality",
+  "nav": "代码质量",
   "settings": {
-    "help": "While you type, the editor flags what usually causes problems: slow queries, unexpected results, or changes that affect more rows than you think. The analysis is done on the text, without querying the database. Turn off the rules that don't help you.",
-    "enabled": "Check the code as I write",
-    "enabledHelp": "Marks the problems in the margin and underlines them; hover to see why and how to fix them.",
-    "rules": "Rules",
-    "engines": "Applies to",
-    "allOn": "Turn all on",
-    "loadError": "Could not load the list of rules."
+    "help": "输入时，编辑器会标出通常引发问题的写法：慢查询、意外结果，或影响行数超出预期的更改。分析基于文本进行，不会查询数据库。请关闭对你没有帮助的规则。",
+    "enabled": "编写时检查代码",
+    "enabledHelp": "在边栏标出问题并加下划线；悬停可查看原因和修复方法。",
+    "rules": "规则",
+    "engines": "适用于",
+    "allOn": "全部开启",
+    "loadError": "无法加载规则列表。"
   },
   "severity": {
-    "error": "Error",
-    "warning": "Warning",
-    "info": "Suggestion"
+    "error": "错误",
+    "warning": "警告",
+    "info": "建议"
   },
   "groups": {
-    "sql": "All SQL engines",
-    "tsql": "SQL Server, Azure SQL, Fabric and Sybase",
-    "postgres": "PostgreSQL family",
-    "mysql": "MySQL family",
+    "sql": "所有 SQL 引擎",
+    "tsql": "SQL Server、Azure SQL、Fabric 和 Sybase",
+    "postgres": "PostgreSQL 系列",
+    "mysql": "MySQL 系列",
     "oracle": "Oracle",
-    "influxql": "InfluxDB (InfluxQL and SQL)",
-    "cql": "Cassandra, ScyllaDB and Amazon Keyspaces",
-    "mongodb": "MongoDB, FerretDB and DocumentDB",
+    "influxql": "InfluxDB（InfluxQL 和 SQL）",
+    "cql": "Cassandra、ScyllaDB 和 Amazon Keyspaces",
+    "mongodb": "MongoDB、FerretDB 和 DocumentDB",
     "couchdb": "CouchDB",
-    "search": "Elasticsearch, OpenSearch and Solr",
-    "redis": "Redis, Valkey and Dragonfly",
+    "search": "Elasticsearch、OpenSearch 和 Solr",
+    "redis": "Redis、Valkey 和 Dragonfly",
     "etcd": "etcd",
-    "cypher": "Neo4j, Memgraph and Neptune"
+    "cypher": "Neo4j、Memgraph 和 Neptune"
   },
   "problems": {
-    "button": "View problems",
-    "count_other": "{{count}} problems",
-    "none": "No problems",
-    "title": "Script problems",
-    "line": "Line {{line}}",
-    "settings": "Configure rules…"
+    "button": "查看问题",
+    "count_other": "{{count}} 个问题",
+    "none": "没有问题",
+    "title": "脚本问题",
+    "line": "第 {{line}} 行",
+    "settings": "配置规则…"
   },
-  "ruleId": "Rule: {{id}}",
+  "ruleId": "规则：{{id}}",
   "rules": {
     "select-star": {
       "title": "SELECT *",
-      "message": "SELECT * fetches all columns",
-      "why": "It fetches columns you don't use, prevents an index from covering the query, and changes shape when someone adds a column. List only the columns you need."
+      "message": "SELECT * 会获取所有列",
+      "why": "它会获取你用不到的列，使索引无法覆盖查询，并且在有人添加列时结果形态会改变。请只列出需要的列。"
     },
     "dml-without-where": {
-      "title": "UPDATE or DELETE without WHERE",
-      "message": "{{keyword}} without WHERE: affects all rows of the table",
-      "why": "Without a condition, the statement changes or deletes the whole table. If that is what you want, use TRUNCATE to empty it; otherwise, add the WHERE that limits the rows."
+      "title": "不带 WHERE 的 UPDATE 或 DELETE",
+      "message": "{{keyword}} 没有 WHERE：会影响表的所有行",
+      "why": "没有条件时，语句会更改或删除整张表。如果这正是你想要的，请用 TRUNCATE 清空；否则请添加限制行的 WHERE。"
     },
     "not-in-subquery": {
-      "title": "NOT IN with a subquery",
-      "message": "NOT IN (subquery): if it returns a NULL, no rows come out",
-      "why": "A single NULL in the subquery is enough for the condition to never be true and the query to return nothing. Use NOT EXISTS, or filter out the NULLs inside the subquery."
+      "title": "带子查询的 NOT IN",
+      "message": "NOT IN（子查询）：如果返回 NULL，则不会返回任何行",
+      "why": "子查询中只要有一个 NULL，条件就永远不为真，查询将不返回任何内容。请使用 NOT EXISTS，或在子查询内过滤掉 NULL。"
     },
     "leading-wildcard": {
-      "title": "Leading wildcard",
-      "message": "The pattern {{pattern}} starts with a wildcard: it can't use an index",
-      "why": "A pattern that starts with % (or * / ?) forces a check of every value. If you can, anchor the start of the text ('abc%') or use a full-text search."
+      "title": "前导通配符",
+      "message": "模式 {{pattern}} 以通配符开头：无法使用索引",
+      "why": "以 %（或 * / ?）开头的模式会强制检查每个值。如有可能，请固定文本的开头（'abc%'）或使用全文搜索。"
     },
     "function-on-column": {
-      "title": "Function on a column in the WHERE",
-      "message": "{{fn}}(…) on the column prevents using its index",
-      "why": "By wrapping the column in a function, the engine has to compute it row by row. Move the transformation to the other side of the comparison (for example, a date range instead of YEAR(col) = 2024) or create an index on the expression."
+      "title": "WHERE 中对列使用函数",
+      "message": "对列使用 {{fn}}(…) 会使其索引失效",
+      "why": "将列包在函数中，引擎必须逐行计算。请把转换移到比较的另一侧（例如用日期范围代替 YEAR(col) = 2024），或在表达式上创建索引。"
     },
     "equals-null": {
-      "title": "= NULL or <> NULL",
-      "message": "Comparing with NULL using = or <> is never true",
-      "why": "NULL is neither equal nor different to anything, not even another NULL: the condition evaluates to unknown and lets no rows through. Use IS NULL or IS NOT NULL."
+      "title": "= NULL 或 <> NULL",
+      "message": "用 = 或 <> 与 NULL 比较永远不为真",
+      "why": "NULL 与任何值都不相等也不不等，甚至与另一个 NULL 也是如此：条件的结果为未知，不会放行任何行。请使用 IS NULL 或 IS NOT NULL。"
     },
     "order-by-ordinal": {
-      "title": "ORDER BY by position",
-      "message": "ORDER BY {{n}} sorts by the column's position",
-      "why": "If someone changes the order of the SELECT columns, the result is sorted by another one without warning. Write the column name or its alias."
+      "title": "按位置 ORDER BY",
+      "message": "ORDER BY {{n}} 按列的位置排序",
+      "why": "如果有人改变了 SELECT 列的顺序，结果会在没有提示的情况下按另一列排序。请写列名或其别名。"
     },
     "order-by-random": {
-      "title": "Random order",
-      "message": "{{call}} sorts the whole table to pick random rows",
-      "why": "It computes a random value for each row and sorts them all, even if you then ask for just one. On large tables use the engine's sampling (TABLESAMPLE, SAMPLE) or pick from a random key range."
+      "title": "随机排序",
+      "message": "{{call}} 会对整张表排序以挑选随机行",
+      "why": "它会为每一行计算一个随机值并全部排序，即使之后只要一行。在大表上请使用引擎的抽样功能（TABLESAMPLE、SAMPLE），或从随机键范围中挑选。"
     },
     "implicit-cross-join": {
-      "title": "Implicit join without a condition",
-      "message": "\"{{table}}\" is joined with a comma and no condition: Cartesian product",
-      "why": "A table in the FROM separated by a comma, with no WHERE condition relating it to the others, combines each row with all the others. Use JOIN … ON with the condition; if the product is intentional, write CROSS JOIN."
+      "title": "无条件的隐式连接",
+      "message": "“{{table}}”用逗号连接且没有条件：笛卡尔积",
+      "why": "FROM 中用逗号分隔的表，如果 WHERE 中没有与其他表相关联的条件，会让每一行与其他所有行组合。请使用带条件的 JOIN … ON；如果笛卡尔积是有意为之，请写 CROSS JOIN。"
     },
     "insert-without-columns": {
-      "title": "INSERT without a column list",
-      "message": "INSERT without a column list",
-      "why": "Values are assigned by the position of the table's columns: if someone adds or reorders columns, the INSERT fails or stores data in the wrong column. Name the columns."
+      "title": "不带列列表的 INSERT",
+      "message": "不带列列表的 INSERT",
+      "why": "值按表中列的位置赋值：如果有人添加或重排了列，INSERT 会失败或把数据存入错误的列。请写明列名。"
     },
     "distinct-group-by": {
-      "title": "DISTINCT together with GROUP BY",
-      "message": "DISTINCT is redundant: GROUP BY already returns unique rows",
-      "why": "Grouping already leaves one row per group; DISTINCT adds work without changing the result (unless the SELECT doesn't include all the grouped columns). Remove one of the two."
+      "title": "DISTINCT 与 GROUP BY 一起使用",
+      "message": "DISTINCT 是多余的：GROUP BY 已返回唯一的行",
+      "why": "分组后每组已只有一行；DISTINCT 增加了工作量却不改变结果（除非 SELECT 没有包含全部分组列）。请去掉其中一个。"
     },
     "union-distinct": {
-      "title": "UNION instead of UNION ALL",
-      "message": "UNION removes duplicates; if there can't be any, UNION ALL is faster",
-      "why": "UNION sorts or builds a hash of the whole result to eliminate repeated rows. If the parts don't overlap or duplicates don't matter, use UNION ALL."
+      "title": "用 UNION 而不是 UNION ALL",
+      "message": "UNION 会去除重复项；如果不可能有重复，UNION ALL 更快",
+      "why": "UNION 会对整个结果排序或建立哈希以消除重复行。如果各部分不重叠或重复无关紧要，请使用 UNION ALL。"
     },
     "nolock": {
       "title": "NOLOCK / READ UNCOMMITTED",
-      "message": "{{hint}} reads uncommitted data",
-      "why": "It can return rows that are later rolled back, duplicated rows, or missing rows if the table is reorganized during the read. If what you want is for reads not to wait, use snapshot isolation (READ_COMMITTED_SNAPSHOT)."
+      "message": "{{hint}} 会读取未提交的数据",
+      "why": "它可能返回之后会被回滚的行、重复的行，或在读取期间表被重组时丢失的行。如果你想要的是读取不等待，请使用快照隔离（READ_COMMITTED_SNAPSHOT）。"
     },
     "cursor": {
-      "title": "Cursors",
-      "message": "Cursor: processes rows one at a time",
-      "why": "A cursor walks row by row through what a set-based statement (UPDATE … FROM, MERGE, a subquery) resolves at once. If you need one, declare it LOCAL FAST_FORWARD."
+      "title": "游标",
+      "message": "游标：逐行处理",
+      "why": "游标会逐行遍历本可由基于集合的语句（UPDATE … FROM、MERGE、子查询）一次完成的工作。如果确实需要，请声明为 LOCAL FAST_FORWARD。"
     },
     "set-rowcount": {
       "title": "SET ROWCOUNT",
-      "message": "SET ROWCOUNT stays active in the session and is deprecated for INSERT, UPDATE and DELETE",
-      "why": "It affects all following statements in the session, including triggers, until someone sets it back to 0. Use TOP (n) in the statement."
+      "message": "SET ROWCOUNT 会在会话中保持生效，且对 INSERT、UPDATE 和 DELETE 已弃用",
+      "why": "它会影响会话中之后的所有语句（包括触发器），直到有人将其重置为 0。请在语句中使用 TOP (n)。"
     },
     "global-identity": {
       "title": "@@IDENTITY",
-      "message": "@@IDENTITY may return the identity generated by a trigger",
-      "why": "It returns the last identity value of the session in any table, even one inserted by a trigger. Use SCOPE_IDENTITY() or the OUTPUT clause."
+      "message": "@@IDENTITY 可能返回由触发器生成的标识值",
+      "why": "它返回会话在任何表中的最后一个标识值，即使是由触发器插入的。请使用 SCOPE_IDENTITY() 或 OUTPUT 子句。"
     },
     "sp-prefix": {
-      "title": "Procedures with the sp_ prefix",
-      "message": "\"{{name}}\": the sp_ prefix is for system procedures",
-      "why": "SQL Server looks for sp_ procedures in master first, which costs an extra lookup on every call and may run a system one with the same name. Use another prefix (usp_) or none."
+      "title": "带 sp_ 前缀的存储过程",
+      "message": "“{{name}}”：sp_ 前缀是留给系统存储过程的",
+      "why": "SQL Server 会先在 master 中查找 sp_ 存储过程，每次调用都会多一次查找，还可能运行同名的系统存储过程。请使用其他前缀（usp_）或不加前缀。"
     },
     "set-nocount": {
-      "title": "Procedure without SET NOCOUNT ON",
-      "message": "\"{{name}}\" has no SET NOCOUNT ON",
-      "why": "Without it, each statement sends the client an \"N rows affected\" message: extra traffic and, for some clients, unexpected results. Add SET NOCOUNT ON at the start of the body."
+      "title": "没有 SET NOCOUNT ON 的存储过程",
+      "message": "“{{name}}”没有 SET NOCOUNT ON",
+      "why": "没有它，每条语句都会向客户端发送“N 行受影响”的消息：产生额外流量，并且对某些客户端会导致意外结果。请在主体开头添加 SET NOCOUNT ON。"
     },
     "for-update-wait": {
-      "title": "FOR UPDATE that waits for the lock",
-      "message": "{{clause}} waits for the lock to be released",
-      "why": "If another transaction holds the row, the query waits. For work queues use SKIP LOCKED; to fail right away, NOWAIT (in Oracle also WAIT n)."
+      "title": "等待锁的 FOR UPDATE",
+      "message": "{{clause}} 会等待锁释放",
+      "why": "如果其他事务持有该行，查询会一直等待。对于工作队列请使用 SKIP LOCKED；要立即失败，请使用 NOWAIT（在 Oracle 中也可用 WAIT n）。"
     },
     "serial-identity": {
-      "title": "serial instead of IDENTITY",
-      "message": "{{type}}: prefer GENERATED … AS IDENTITY",
-      "why": "serial creates a separate sequence that doesn't travel with the permissions or with copies of the table and lets you insert values by hand without control. IDENTITY columns are the SQL standard and the sequence stays bound to the column."
+      "title": "用 serial 而不是 IDENTITY",
+      "message": "{{type}}：建议使用 GENERATED … AS IDENTITY",
+      "why": "serial 会创建一个独立的序列，它不会随权限或表的副本一起迁移，并且允许不受控地手动插入值。IDENTITY 列是 SQL 标准，序列始终与列绑定。"
     },
     "group-by-nonaggregated": {
-      "title": "Columns outside the GROUP BY",
-      "message": "\"{{column}}\" is neither grouped nor inside an aggregate function",
-      "why": "MySQL without ONLY_FULL_GROUP_BY returns the value of an arbitrary row of the group, and with that mode the query fails. Add the column to the GROUP BY or use an aggregate function (MAX, ANY_VALUE…)."
+      "title": "GROUP BY 之外的列",
+      "message": "“{{column}}”既未分组也不在聚合函数中",
+      "why": "未启用 ONLY_FULL_GROUP_BY 的 MySQL 会返回组中任意一行的值，而启用该模式后查询会失败。请把该列加入 GROUP BY，或使用聚合函数（MAX、ANY_VALUE…）。"
     },
     "rownum-order-by": {
-      "title": "ROWNUM with ORDER BY",
-      "message": "ROWNUM is applied before ORDER BY",
-      "why": "In the same block, Oracle numbers and cuts the rows before sorting them: it doesn't return \"the first N\" according to the order. Sort in a subquery and filter ROWNUM outside, or use FETCH FIRST n ROWS ONLY."
+      "title": "ROWNUM 与 ORDER BY 一起使用",
+      "message": "ROWNUM 在 ORDER BY 之前应用",
+      "why": "在同一查询块中，Oracle 会先编号并截取行，然后才排序：它不会按顺序返回“前 N 行”。请在子查询中排序，并在外层过滤 ROWNUM，或使用 FETCH FIRST n ROWS ONLY。"
     },
     "outer-join-plus": {
-      "title": "(+) outer join syntax",
-      "message": "(+) is the old outer join syntax",
-      "why": "It has restrictions that LEFT/RIGHT JOIN doesn't (it doesn't allow OR or FULL OUTER) and it is easy to forget in one of the conditions. Use LEFT JOIN … ON."
+      "title": "(+) 外连接语法",
+      "message": "(+) 是旧的外连接语法",
+      "why": "它有 LEFT/RIGHT JOIN 没有的限制（不允许 OR 或 FULL OUTER），而且很容易在某个条件中遗漏。请使用 LEFT JOIN … ON。"
     },
     "delete-without-time": {
-      "title": "DELETE without a time range",
-      "message": "DELETE without a condition on time: deletes the whole history of the series",
-      "why": "Without a time range, it deletes all the points that meet the condition from the beginning. Add time >= … AND time < … to limit it."
+      "title": "没有时间范围的 DELETE",
+      "message": "DELETE 没有时间条件：会删除该序列的全部历史",
+      "why": "没有时间范围时，它会从一开始删除所有满足条件的点。请添加 time >= … AND time < … 加以限制。"
     },
     "drop-series": {
       "title": "DROP SERIES / MEASUREMENT",
-      "message": "DROP {{what}} deletes the whole history, with no time range",
-      "why": "It doesn't accept a time range: it removes all the points and the series index. If you want to delete a period, use DELETE with a condition on time."
+      "message": "DROP {{what}} 会删除全部历史，不带时间范围",
+      "why": "它不接受时间范围：会移除所有点和序列索引。如果想删除某个时间段，请使用带 time 条件的 DELETE。"
     },
     "allow-filtering": {
       "title": "ALLOW FILTERING",
-      "message": "ALLOW FILTERING scans partitions to filter",
-      "why": "The coordinator reads data from many partitions and discards what doesn't meet the condition: the cost grows with the table. Model a table for that query or filter by the partition key."
+      "message": "ALLOW FILTERING 会扫描分区来过滤",
+      "why": "协调节点会从许多分区读取数据，并丢弃不满足条件的内容：成本会随表增长。请为该查询建模一张表，或按分区键过滤。"
     },
     "no-partition-key": {
-      "title": "SELECT without a partition key",
-      "message": "SELECT on {{table}} without WHERE: reads all partitions",
-      "why": "Without restricting the partition key, the query scans the whole cluster. Filter by the partition key or paginate with token()."
+      "title": "不带分区键的 SELECT",
+      "message": "对 {{table}} 的 SELECT 没有 WHERE：会读取所有分区",
+      "why": "不限制分区键时，查询会扫描整个集群。请按分区键过滤，或使用 token() 分页。"
     },
     "batch-partitions": {
-      "title": "BATCH across partitions",
-      "message": "The BATCH writes to several tables or partitions",
-      "why": "A batch spanning several partitions is not faster: it loads the coordinator and, if LOGGED, also writes the batch log. Use it for atomicity within a partition; to load data, send the statements separately."
+      "title": "跨分区的 BATCH",
+      "message": "该 BATCH 写入多个表或分区",
+      "why": "跨多个分区的批处理并不会更快：它会增加协调节点的负载，如果是 LOGGED，还会写入批处理日志。仅在单个分区内用它保证原子性；加载数据时，请分别发送语句。"
     },
     "write-all": {
-      "title": "Write without a filter",
-      "message": "{{call}} has no filter: it affects everything",
-      "why": "Without a filter, the operation changes or deletes all documents or keys. If that is what you want, write the explicit filter or use the engine's truncate operation; otherwise, add the condition."
+      "title": "无过滤条件的写入",
+      "message": "{{call}} 没有过滤条件：会影响所有内容",
+      "why": "没有过滤条件时，该操作会更改或删除所有文档或键。如果这正是你想要的，请写出明确的过滤条件，或使用引擎的清空操作；否则请添加条件。"
     },
     "where-operator": {
       "title": "$where",
-      "message": "$where runs JavaScript for each document",
-      "why": "It doesn't use indexes, is slow and is disabled on many servers. Replace it with query operators or with $expr."
+      "message": "$where 会对每个文档运行 JavaScript",
+      "why": "它不使用索引，速度慢，并且在许多服务器上被禁用。请用查询运算符或 $expr 代替。"
     },
     "unanchored-regex": {
-      "title": "Unanchored regular expression",
-      "message": "The expression {{pattern}} doesn't start with ^: it scans the whole index",
-      "why": "Only an expression anchored at the start (^abc) and case-sensitive makes good use of an index. If you are searching for loose text, use a text index."
+      "title": "未锚定的正则表达式",
+      "message": "表达式 {{pattern}} 不以 ^ 开头：会扫描整个索引",
+      "why": "只有以开头锚定（^abc）且区分大小写的表达式才能很好地利用索引。如果要搜索不定的文本，请使用文本索引。"
     },
     "read-all": {
-      "title": "Read without a filter",
-      "message": "{{call}} without a filter reads everything",
-      "why": "It fetches all documents or keys. Add a filter, a projection and a limit to fetch only what you need."
+      "title": "无过滤条件的读取",
+      "message": "{{call}} 没有过滤条件，会读取所有内容",
+      "why": "它会获取所有文档或键。请添加过滤条件、投影和限制，只获取所需内容。"
     },
     "keys-command": {
       "title": "KEYS",
-      "message": "KEYS {{pattern}} scans all keys and blocks the server",
-      "why": "Redis serves one command at a time: while KEYS scans the database, it answers no one. Use SCAN with MATCH and COUNT, which advances in parts."
+      "message": "KEYS {{pattern}} 会扫描所有键并阻塞服务器",
+      "why": "Redis 一次只处理一条命令：KEYS 扫描数据库期间，它不会响应任何人。请使用带 MATCH 和 COUNT 的 SCAN，它会分段推进。"
     },
     "flush": {
       "title": "FLUSHALL / FLUSHDB",
-      "message": "{{command}} deletes all keys",
-      "why": "FLUSHDB empties the current database and FLUSHALL all the databases on the server, with no way back. Make sure you are connected to the right server."
+      "message": "{{command}} 会删除所有键",
+      "why": "FLUSHDB 会清空当前数据库，FLUSHALL 会清空服务器上的所有数据库，且无法恢复。请确认你连接的是正确的服务器。"
     },
     "big-read": {
-      "title": "Full read of a key",
-      "message": "{{command}} reads the entire key",
-      "why": "With large keys, the response takes long and blocks the server while it is built. Use HSCAN / SSCAN, or ask for a bounded range."
+      "title": "完整读取一个键",
+      "message": "{{command}} 会读取整个键",
+      "why": "对于大键，响应耗时很长，且在构建期间会阻塞服务器。请使用 HSCAN / SSCAN，或请求有限范围。"
     },
     "match-without-label": {
-      "title": "MATCH without a label",
-      "message": "This pattern has no label or properties: it scans all nodes",
-      "why": "Without a label (:Person) or a property filter, the engine has to check every node in the database. Add the label so it can use its indexes."
+      "title": "没有标签的 MATCH",
+      "message": "此模式没有标签或属性：会扫描所有节点",
+      "why": "没有标签（:Person）或属性过滤时，引擎必须检查数据库中的每个节点。请添加标签以便使用其索引。"
     },
     "cartesian-product": {
-      "title": "Disconnected patterns",
-      "message": "This pattern shares no nodes with the rest: Cartesian product",
-      "why": "Two patterns separated by a comma with no variables in common combine each result of one with all those of the other. Relate them in the same pattern or with a WHERE."
+      "title": "互不相连的模式",
+      "message": "此模式与其余部分没有共享节点：笛卡尔积",
+      "why": "两个用逗号分隔且没有共同变量的模式，会把其中一个的每个结果与另一个的所有结果组合。请把它们关联到同一个模式中，或用 WHERE 关联。"
     },
     "detach-delete-all": {
-      "title": "DETACH DELETE without WHERE",
-      "message": "DETACH DELETE without WHERE deletes all the nodes the MATCH finds",
-      "why": "It deletes the nodes and all their relationships. Without a WHERE or a property filter, it takes all the nodes of the pattern with it. Review the MATCH; to delete many, do it in batches (CALL { … } IN TRANSACTIONS)."
+      "title": "不带 WHERE 的 DETACH DELETE",
+      "message": "不带 WHERE 的 DETACH DELETE 会删除 MATCH 找到的所有节点",
+      "why": "它会删除节点及其所有关系。没有 WHERE 或属性过滤时，会把模式中的所有节点都带走。请检查 MATCH；要删除大量数据，请分批进行（CALL { … } IN TRANSACTIONS）。"
     },
     "unknown-table": {
-      "title": "Unknown table",
-      "message": "“{{name}}” does not exist in this database",
-      "why": "The name is not among the objects of the tab's database (according to the explorer). It may be a typo, an object from another database, or one that doesn't exist yet. Temporary tables, CTEs, aliases and objects the same script creates are not flagged."
+      "title": "未知的表",
+      "message": "“{{name}}”在此数据库中不存在",
+      "why": "该名称不在标签页所属数据库的对象中（依据资源管理器）。可能是拼写错误、来自其他数据库的对象，或尚不存在的对象。临时表、CTE、别名以及同一脚本创建的对象不会被标记。"
     },
     "unknown-column": {
-      "title": "Unknown column",
-      "message": "“{{table}}” has no column “{{column}}”",
-      "why": "The column is not among the table's loaded columns. Only qualified columns (alias.column) or those in an INSERT list are checked, and only when the table exists and its columns have already loaded."
+      "title": "未知的列",
+      "message": "“{{table}}”没有列“{{column}}”",
+      "why": "该列不在表已加载的列中。仅检查带限定的列（别名.列）或 INSERT 列表中的列，且仅当表存在并且其列已加载时才检查。"
     }
   }
 }

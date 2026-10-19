@@ -1,144 +1,144 @@
 {
-  "action": "Optimize",
-  "actionTip": "Optimize query: equivalent rewrites, suggested indexes and timing comparison (the selection or the statement at the cursor)",
-  "tab": "Optimize",
-  "title": "Optimize query · {{name}}",
-  "queryName": "Optimized: {{title}}",
-  "indexQueryName": "Suggested index: {{table}}",
-  "noStatement": "Place the cursor in a query or select it.",
-  "reanalyze": "Analyze again",
-  "analyzing": "Analyzing the query…",
-  "original": "Original query",
-  "writesNote": "This query modifies data: it is never run. \"Compare\" only compares their estimated plans.",
-  "skipped": "Could not be read:",
-  "alternatives": "Alternatives",
-  "noAlternatives": "The rules found no safe rewrites for this query. You can ask the AI for alternatives or add your own.",
-  "noRulesEngine": "The rewrite rules don't apply to this engine's language. You can ask the AI for alternatives or add your own.",
+  "action": "最適化",
+  "actionTip": "クエリを最適化: 同等の書き換え、推奨インデックス、実行時間の比較(選択範囲またはカーソル位置の文)",
+  "tab": "最適化",
+  "title": "クエリを最適化 · {{name}}",
+  "queryName": "最適化済み: {{title}}",
+  "indexQueryName": "推奨インデックス: {{table}}",
+  "noStatement": "クエリにカーソルを置くか、選択してください。",
+  "reanalyze": "再分析",
+  "analyzing": "クエリを分析しています…",
+  "original": "元のクエリ",
+  "writesNote": "このクエリはデータを変更するため、実行されません。「比較」は推定プランのみを比較します。",
+  "skipped": "読み取れませんでした:",
+  "alternatives": "代替案",
+  "noAlternatives": "ルールでは、このクエリの安全な書き換えは見つかりませんでした。AI に代替案を依頼するか、独自のものを追加できます。",
+  "noRulesEngine": "書き換えルールは、このエンジンの言語には適用されません。AI に代替案を依頼するか、独自のものを追加できます。",
   "source": {
-    "rule": "Rule",
+    "rule": "ルール",
     "ai": "AI",
-    "user": "Yours",
-    "original": "Original"
+    "user": "自作",
+    "original": "元"
   },
-  "verify": "It is not proven to be equivalent in every case: compare it before using it.",
-  "showSql": "Show query",
-  "hideSql": "Hide query",
-  "remove": "Remove",
-  "askAi": "Ask the AI for alternatives",
-  "askingAi": "Asking the AI…",
-  "aiMissing": "No AI assistant is configured. Open the assistant to pick one: the model built into DBine, Ollama or LM Studio (they run on this machine), or Claude Code or Codex with your own account.",
-  "openAssistant": "Open the assistant",
-  "aiNone": "The AI found no improvements for this query.",
-  "aiNothing": "The AI's response had no alternatives in the requested format. Try again or with another model.",
-  "aiDiscarded_other": "{{count}} alternatives were left out because they don't compile on the database, even after the AI was asked to fix them.",
-  "aiSent": "The query and {{what}} were sent to {{provider}}. Rows are never sent.",
-  "aiSentOnly": "Only the query was sent to {{provider}}. Rows are never sent.",
-  "aiTables": "{{count}} tables",
-  "aiPlan": "the plan",
-  "addOwn": "Add an alternative",
-  "ownTitle": "Your alternative",
-  "ownHint": "Write an equivalent version of the query: it is compared like the others.",
-  "ownName": "Alternative {{n}}",
-  "add": "Add",
-  "compare": "Compare",
-  "comparing": "Comparing… {{done}} of {{total}}",
-  "compareTip": "Runs the original and each alternative in a read-only session (once to warm up and then the indicated number of times) and compares times, rows and result. What modifies data is not run: their estimated plans are compared.",
-  "runs": "Runs",
-  "runsTip": "How many times each version is run, after a warm-up run",
-  "maxRows": "Max. rows",
-  "maxRowsTip": "Rows read and compared from each version. If one returns more, its result is not verified.",
+  "verify": "すべての場合で同等であることは確認されていません。使用する前に比較してください。",
+  "showSql": "クエリを表示",
+  "hideSql": "クエリを非表示",
+  "remove": "削除",
+  "askAi": "AI に代替案を依頼",
+  "askingAi": "AI に問い合わせ中…",
+  "aiMissing": "AI アシスタントが設定されていません。アシスタントを開いて選択してください。DBine 内蔵モデル、Ollama や LM Studio(このマシンで動作)、または Claude Code や Codex(ご自身のアカウント)が使えます。",
+  "openAssistant": "アシスタントを開く",
+  "aiNone": "AI はこのクエリの改善点を見つけられませんでした。",
+  "aiNothing": "AI の回答に、指定された形式の代替案が含まれていませんでした。もう一度試すか、別のモデルを使ってください。",
+  "aiDiscarded_other": "{{count}} 個の代替案を破棄しました。AI に修正を依頼しても、データベースでコンパイルできなかったためです。",
+  "aiSent": "{{provider}} にクエリと{{what}}を送信しました。行は一切送信されません。",
+  "aiSentOnly": "{{provider}} にクエリのみを送信しました。行は一切送信されません。",
+  "aiTables": "{{count}} 個のテーブル",
+  "aiPlan": "プラン",
+  "addOwn": "代替案を追加",
+  "ownTitle": "独自の代替案",
+  "ownHint": "クエリの同等のバージョンを書いてください。他のものと同じように比較されます。",
+  "ownName": "代替案 {{n}}",
+  "add": "追加",
+  "compare": "比較",
+  "comparing": "比較中… {{total}} 件中 {{done}} 件",
+  "compareTip": "元のクエリと各代替案を読み取り専用のセッションで実行し(ウォームアップ 1 回の後、指定した回数)、時間、行数、結果を比較します。データを変更するものは実行されず、推定プランが比較されます。",
+  "runs": "実行回数",
+  "runsTip": "ウォームアップ実行の後、各バージョンを実行する回数",
+  "maxRows": "最大行数",
+  "maxRowsTip": "各バージョンから読み取って比較する行数です。それを超える行を返すバージョンは、結果が検証されません。",
   "table": {
-    "version": "Version",
-    "min": "Min.",
-    "avg": "Avg.",
-    "rows": "Rows",
-    "cost": "Cost",
-    "result": "Result",
-    "speed": "vs. original"
+    "version": "バージョン",
+    "min": "最小",
+    "avg": "平均",
+    "rows": "行",
+    "cost": "コスト",
+    "result": "結果",
+    "speed": "元との比較"
   },
   "result": {
-    "same": "Same result",
-    "different": "NOT equivalent",
-    "unverified": "Unverified",
-    "truncated": "More than {{count}} rows: not compared",
-    "error": "Error",
-    "planOnly": "Plan only",
-    "pending": "Not compared"
+    "same": "結果は同じ",
+    "different": "同等ではありません",
+    "unverified": "未検証",
+    "truncated": "{{count}} 行を超えるため比較していません",
+    "error": "エラー",
+    "planOnly": "プランのみ",
+    "pending": "未比較"
   },
-  "recommended": "Recommended",
-  "faster": "{{x}}× faster",
-  "slower": "{{x}}× slower",
-  "cheaper": "{{x}}× lower cost",
-  "viewPlan": "View plan",
-  "use": "Use this version",
-  "useNew": "Open in a new query",
-  "useReplace": "Replace the query in its editor",
-  "replaceGone": "The source editor no longer has this query (it was closed or the text changed): it was opened in a new query.",
-  "replaced": "The query was replaced in the editor. It was not run.",
+  "recommended": "おすすめ",
+  "faster": "{{x}} 倍速い",
+  "slower": "{{x}} 倍遅い",
+  "cheaper": "コストが {{x}} 分の 1",
+  "viewPlan": "プランを表示",
+  "use": "このバージョンを使用",
+  "useNew": "新しいクエリで開く",
+  "useReplace": "元のエディターのクエリを置き換える",
+  "replaceGone": "元のエディターにこのクエリはもうありません(閉じられたか、テキストが変更されました)。新しいクエリで開きました。",
+  "replaced": "エディターのクエリを置き換えました。実行はしていません。",
   "confirmUse": {
-    "title": "Use this version",
-    "different": "This version did NOT return the same result as the original. Use it anyway?",
-    "unverified": "This version has not been verified against the original yet. Use it anyway?",
-    "go": "Use anyway"
+    "title": "このバージョンを使用",
+    "different": "このバージョンは元のクエリと同じ結果を返しませんでした。それでも使用しますか？",
+    "unverified": "このバージョンはまだ元のクエリとの検証が済んでいません。それでも使用しますか？",
+    "go": "それでも使用"
   },
-  "planTitle": "Plan · {{name}}",
-  "hints": "Suggested indexes",
-  "hintsNone": "The plan shows no full scans that an index could avoid.",
-  "hintsNoPlan": "This engine doesn't show execution plans, so there are no index suggestions.",
+  "planTitle": "プラン · {{name}}",
+  "hints": "推奨インデックス",
+  "hintsNone": "インデックスで回避できる全体走査はプランに見当たりません。",
+  "hintsNoPlan": "このエンジンは実行プランを表示しないため、インデックスの提案はありません。",
   "hint": {
-    "missing_index": "The engine suggests an index on {{table}} ({{columns}})",
-    "full_scan": "{{table}} is scanned in full; an index on ({{columns}}) can avoid it",
-    "scan": "{{table}} is scanned in full",
-    "impact": "estimated impact {{impact}} %",
-    "rows": "~{{rows}} estimated rows"
+    "missing_index": "エンジンが {{table}}({{columns}})のインデックスを推奨しています",
+    "full_scan": "{{table}} が全体走査されています。({{columns}})のインデックスで回避できる可能性があります",
+    "scan": "{{table}} が全体走査されています",
+    "impact": "推定効果 {{impact}} %",
+    "rows": "推定約 {{rows}} 行"
   },
-  "hintsNote": "The script is only opened in a query: review it and run it yourself if it helps. An index speeds up reads and slows down writes.",
-  "openScript": "Open in a query",
-  "notes": "Observations",
-  "planWarnings": "Plan warnings",
+  "hintsNote": "スクリプトはクエリで開くだけです。確認して、必要なら自分で実行してください。インデックスは読み取りを速くしますが、書き込みは遅くなります。",
+  "openScript": "クエリで開く",
+  "notes": "メモ",
+  "planWarnings": "プランの警告",
   "rules": {
     "in_to_exists": {
-      "title": "IN (subquery) → EXISTS",
-      "explain": "{{column}} IN (subquery) becomes EXISTS with the condition inside the subquery: the engine can stop at the first match instead of building the full list."
+      "title": "IN (サブクエリ) → EXISTS",
+      "explain": "{{column}} IN (サブクエリ) を、サブクエリ内に条件を持つ EXISTS に変更します。エンジンはリスト全体を作らず、最初の一致で打ち切ることができます。"
     },
     "not_in_to_not_exists": {
       "title": "NOT IN → NOT EXISTS",
-      "explain": "Since {{column}} and the subquery column don't allow NULL, NOT EXISTS returns the same and is usually resolved as a more efficient anti-join."
+      "explain": "{{column}} とサブクエリの列が NULL を許可しないため、NOT EXISTS は同じ結果を返し、通常はより効率的なアンチ結合として処理されます。"
     },
     "exists_to_in": {
       "title": "EXISTS → IN",
-      "explain": "The correlated subquery with {{column}} becomes an IN list that is computed only once. Some engines resolve it better this way."
+      "explain": "{{column}} との相関サブクエリを、1 回だけ計算される IN リストに変更します。エンジンによってはこの方が効率的に処理されます。"
     },
     "scalar_to_join": {
-      "title": "Per-row subquery → grouped LEFT JOIN",
-      "explain": "The SELECT subqueries ({{count}}) were run for every row; they become a LEFT JOIN with a grouped table that is computed only once. A COUNT with no rows still gives 0."
+      "title": "行ごとのサブクエリ → グループ化した LEFT JOIN",
+      "explain": "SELECT 内のサブクエリ({{count}} 個)は行ごとに実行されていました。1 回だけ計算されるグループ化済みテーブルとの LEFT JOIN に変更します。行がない場合の COUNT は 0 のままです。"
     },
     "or_to_union": {
-      "title": "OR across different columns → UNION ALL",
-      "explain": "An OR over {{columns}} prevents using an index for each column. Each branch of the UNION ALL can use its own, and each excludes the rows already returned by the previous ones, so none is repeated."
+      "title": "異なる列間の OR → UNION ALL",
+      "explain": "{{columns}} に対する OR は、列ごとのインデックスの利用を妨げます。UNION ALL の各ブランチはそれぞれのインデックスを使え、各ブランチは前のブランチが返した行を除外するため、重複しません。"
     },
     "redundant_distinct": {
-      "title": "Unnecessary DISTINCT",
-      "explain": "The list includes the key of {{tables}}: the rows are already unique and DISTINCT only adds a sort or a grouping."
+      "title": "不要な DISTINCT",
+      "explain": "リストに {{tables}} のキーが含まれています。行は既に一意で、DISTINCT は並べ替えやグループ化を追加するだけです。"
     },
     "function_to_range": {
-      "title": "Function on an indexed column → range",
-      "explain": "{{function}} applies a function to {{column}}, so its index can't be used. An equivalent date range can use it."
+      "title": "インデックス付き列への関数 → 範囲",
+      "explain": "{{function}} が {{column}} に関数を適用しているため、そのインデックスを使えません。同等の日付範囲ならインデックスを使えます。"
     },
     "count_to_exists": {
       "title": "COUNT(*) > 0 → EXISTS",
-      "explain": "To know whether there are rows you don't need to count them all: EXISTS stops at the first one."
+      "explain": "行の有無を調べるのに、すべてを数える必要はありません。EXISTS は最初の行で終了します。"
     },
     "mongo_where": {
-      "title": "$where → query operators",
-      "explain": "$where runs JavaScript on every document and doesn't use indexes; the equivalent operators do. With fields that are arrays or mix types the result may change: compare it before using it."
+      "title": "$where → クエリ演算子",
+      "explain": "$where はドキュメントごとに JavaScript を実行し、インデックスを使いません。同等の演算子ならインデックスを使えます。配列のフィールドや型が混在するフィールドでは結果が変わる場合があるため、使用する前に比較してください。"
     }
   },
   "notesText": {
-    "select_star": "SELECT * fetches all {{count}} columns of {{table}}. Asking only for the ones you use reads less data and can take advantage of indexes that cover the query.",
-    "select_starOpen": "Open with the columns",
-    "not_in_nullable": "NOT IN with {{column}}: if the subquery returns any NULL, the query returns no rows. If that's not what you want, use NOT EXISTS.",
-    "text_vs_number": "{{column}} is {{type}} and is compared with the number {{value}}: the engine converts the column on every row and can't use its index. If the values are text, compare with '{{value}}' (check that it gives the same result).",
-    "nvarchar_literal": "{{column}} is {{type}} and is compared with an N'…' (Unicode) text: SQL Server converts the column and may not use its index. Drop the N if the value has no characters outside the column's code page."
+    "select_star": "SELECT * は {{table}} の {{count}} 個の列をすべて取得します。使う列だけを指定すると、読み取るデータが減り、クエリをカバーするインデックスを活用できる可能性があります。",
+    "select_starOpen": "列を指定して開く",
+    "not_in_nullable": "{{column}} の NOT IN: サブクエリが NULL を返すと、クエリは行を 1 件も返しません。意図したものでなければ NOT EXISTS を使ってください。",
+    "text_vs_number": "{{column}} は {{type}} ですが、数値 {{value}} と比較されています。エンジンが行ごとに列を変換するため、インデックスを使えません。値がテキストなら '{{value}}' と比較してください(同じ結果になることを確認してください)。",
+    "nvarchar_literal": "{{column}} は {{type}} ですが、テキスト N'…'(Unicode)と比較されています。SQL Server が列を変換し、インデックスを使えない場合があります。値に列の照合順序のコードページ外の文字が含まれない場合は、N を外してください。"
   }
 }

@@ -1,203 +1,203 @@
 {
   "status": {
-    "running_other": "{{count}} tasks running",
-    "title": "View running tasks",
-    "many": "{{count}} tasks",
+    "running_other": "진행 중인 작업 {{count}}개",
+    "title": "진행 중인 작업 보기",
+    "many": "작업 {{count}}개",
     "line": "{{title}}: {{elapsed}}",
     "lineEta": "{{title}}: {{elapsed}} · {{eta}}"
   },
   "panel": {
-    "title": "Tasks",
-    "empty": "There are no tasks.",
-    "clearFinished": "Remove finished",
-    "cancel": "Cancel",
-    "cancelling": "Cancelling…",
-    "detail": "View details",
-    "remove": "Remove",
-    "background": "Keep running in the background"
+    "title": "작업",
+    "empty": "작업이 없습니다.",
+    "clearFinished": "완료된 항목 제거",
+    "cancel": "취소",
+    "cancelling": "취소하는 중…",
+    "detail": "세부 정보 보기",
+    "remove": "제거",
+    "background": "백그라운드에서 계속"
   },
   "state": {
-    "running": "Running",
-    "done": "Finished",
-    "error": "With errors",
-    "cancelled": "Cancelled"
+    "running": "진행 중",
+    "done": "완료됨",
+    "error": "오류 있음",
+    "cancelled": "취소됨"
   },
   "progress": {
-    "of": "{{done}} of {{total}} {{unit}}",
+    "of": "{{unit}} {{total}}개 중 {{done}}개",
     "count": "{{done}} {{unit}}"
   },
   "unit": {
-    "statements": "statements",
-    "rows": "rows",
-    "bytes": "bytes",
-    "tables": "tables",
-    "objects": "objects"
+    "statements": "문",
+    "rows": "행",
+    "bytes": "바이트",
+    "tables": "테이블",
+    "objects": "개체"
   },
   "elapsed": {
-    "seconds": "{{n}} s",
-    "minutes": "{{n}} min {{s}} s",
-    "hours": "{{n}} h {{m}} min",
-    "days": "{{n}} d {{h}} h"
+    "seconds": "{{n}}초",
+    "minutes": "{{n}}분 {{s}}초",
+    "hours": "{{n}}시간 {{m}}분",
+    "days": "{{n}}일 {{h}}시간"
   },
   "eta": {
-    "calculating": "calculating…",
-    "lessThanMinute": "less than 1 min",
-    "minutes": "≈ {{n}} min",
-    "hours": "≈ {{h}} h {{m}} min",
-    "hoursExact": "≈ {{h}} h",
-    "days": "≈ {{d}} d {{h}} h",
-    "remaining": "{{eta}} remaining",
-    "phase": "{{eta}} for this stage",
-    "none": "no estimate",
-    "low": "initial estimate, may change"
+    "calculating": "계산하는 중…",
+    "lessThanMinute": "1분 미만",
+    "minutes": "≈ {{n}}분",
+    "hours": "≈ {{h}}시간 {{m}}분",
+    "hoursExact": "≈ {{h}}시간",
+    "days": "≈ {{d}}일 {{h}}시간",
+    "remaining": "{{eta}} 남음",
+    "phase": "이 단계까지 {{eta}}",
+    "none": "예상 없음",
+    "low": "초기 예상치이며 변경될 수 있습니다"
   },
   "detail": {
-    "title": "Task details",
-    "messages": "Messages",
-    "noMessages": "No messages.",
-    "result": "Result",
-    "error": "Error",
-    "started": "Start",
-    "elapsed": "Elapsed",
-    "remaining": "Estimated remaining",
-    "ended": "End",
-    "duration": "Total duration"
+    "title": "작업 세부 정보",
+    "messages": "메시지",
+    "noMessages": "메시지가 없습니다.",
+    "result": "결과",
+    "error": "오류",
+    "started": "시작",
+    "elapsed": "경과 시간",
+    "remaining": "예상 남은 시간",
+    "ended": "종료",
+    "duration": "총 소요 시간"
   },
   "notify": {
     "title": {
-      "done": "Task finished",
-      "error": "Task with errors",
-      "cancelled": "Task cancelled"
+      "done": "작업 완료",
+      "error": "오류가 있는 작업",
+      "cancelled": "작업 취소됨"
     },
-    "done": "{{title}}: finished in {{elapsed}}.",
-    "error": "{{title}}: finished with errors in {{elapsed}}.",
-    "cancelled": "{{title}}: cancelled after {{elapsed}}.",
+    "done": "{{title}}: {{elapsed}}에 완료되었습니다.",
+    "error": "{{title}}: {{elapsed}}에 오류와 함께 완료되었습니다.",
+    "cancelled": "{{title}}: {{elapsed}} 후 취소되었습니다.",
     "withSummary": "{{title}}: {{summary}}, {{elapsed}}.",
-    "failed": "{{title}}: failed after {{elapsed}}. {{error}}"
+    "failed": "{{title}}: {{elapsed}} 후 실패했습니다. {{error}}"
   },
   "quit": {
-    "title": "Background runs",
-    "message_other": "There are {{count}} background runs: {{list}}. If you close the application they will be cancelled. Close it anyway?",
-    "confirm": "Cancel and close",
-    "stay": "Keep working",
-    "window": "{{title}} (window {{n}})"
+    "title": "백그라운드 실행",
+    "message_other": "백그라운드 실행이 {{count}}개 있습니다: {{list}}. 앱을 닫으면 취소됩니다. 그래도 닫을까요?",
+    "confirm": "취소하고 닫기",
+    "stay": "계속 작업",
+    "window": "{{title}}(창 {{n}})"
   },
   "update": {
-    "title": "Background runs",
-    "message_other": "There are {{count}} background runs: {{list}}. To finish the update DBine restarts, and they will be cancelled. Restart anyway?",
-    "confirm": "Cancel and restart",
-    "stay": "Keep working"
+    "title": "백그라운드 실행",
+    "message_other": "백그라운드 실행이 {{count}}개 있습니다: {{list}}. 업데이트를 마치려면 DBine이 다시 시작되며 실행이 취소됩니다. 그래도 다시 시작할까요?",
+    "confirm": "취소하고 다시 시작",
+    "stay": "계속 작업"
   },
   "closeWindow": {
-    "title": "Runs in this window",
-    "message_other": "There are {{count}} background runs in this window: {{list}}. If you close the window they will be cancelled. Close it anyway?",
-    "confirm": "Cancel and close the window",
-    "stay": "Keep working"
+    "title": "이 창의 실행",
+    "message_other": "이 창에 백그라운드 실행이 {{count}}개 있습니다: {{list}}. 창을 닫으면 취소됩니다. 그래도 닫을까요?",
+    "confirm": "취소하고 창 닫기",
+    "stay": "계속 작업"
   },
   "dataSync": {
-    "title": "Data sync of {{table}} ({{where}})",
-    "unit": "statements",
-    "phase": "Applying on {{side}}: {{parts}}",
-    "applied": "Already applied on {{sides}}",
-    "nothingApplied": "No complete script was applied",
-    "stoppedOn": "{{side}} stopped halfway: it may have partially applied changes",
-    "lateCancel": "The cancellation arrived when the scripts had already finished: the changes were applied.",
-    "stale": "The run stopped halfway and the data may have changed: these scripts can no longer be run. The comparison was reloaded.",
-    "regenerate": "Regenerate the scripts"
+    "title": "{{table}} 데이터 동기화({{where}})",
+    "unit": "문",
+    "phase": "{{side}}에 적용하는 중: {{parts}}",
+    "applied": "{{sides}}에 이미 적용됨",
+    "nothingApplied": "완전히 적용된 스크립트가 없습니다",
+    "stoppedOn": "{{side}}이(가) 중간에 중단되었습니다. 일부 변경 사항만 적용되었을 수 있습니다",
+    "lateCancel": "스크립트가 이미 끝난 후에 취소가 도착했습니다. 변경 사항이 적용되었습니다.",
+    "stale": "실행이 중간에 중단되었고 데이터가 변경되었을 수 있어 이 스크립트들은 더 이상 실행할 수 없습니다. 비교를 다시 불러왔습니다.",
+    "regenerate": "스크립트 다시 생성"
   },
   "compareSync": {
-    "title": "Sync of {{target}}",
-    "sideStart_other": "{{side}}: {{count}} statements",
-    "summary": "{{count}} of {{total}} statements",
-    "summaryAll_other": "{{count}} statements"
+    "title": "{{target}} 동기화",
+    "sideStart_other": "{{side}}: 문 {{count}}개",
+    "summary": "문 {{total}}개 중 {{count}}개",
+    "summaryAll_other": "문 {{count}}개"
   },
   "backups": {
-    "copy": "Copy of {{where}}",
-    "copyDone": "{{size}} at {{path}}",
-    "restoreCopy": "Restore copy to {{where}}",
-    "statements": "{{n}} statements",
-    "statementsWithErrors": "{{n}} statements, {{errors}} with errors",
+    "copy": "{{where}} 사본",
+    "copyDone": "{{path}}에 {{size}}",
+    "restoreCopy": "{{where}}에 사본 복원",
+    "statements": "문 {{n}}개",
+    "statementsWithErrors": "문 {{n}}개, 오류 {{errors}}개",
     "native": {
-      "backup": "Backup of {{where}}",
-      "restore": "Restore to {{where}}",
-      "delete": "Delete backup at {{where}}"
+      "backup": "{{where}} 백업",
+      "restore": "{{where}}에 복원",
+      "delete": "{{where}}의 백업 삭제"
     }
   },
   "dialogs": {
-    "schemaCreate": "Create schema {{name}} in {{db}}",
-    "schemaDrop": "Drop schema {{name}} in {{db}}",
-    "dropIndex": "Drop index {{name}} from {{table}}",
-    "cloneTable": "Clone {{table}} as {{name}}",
-    "runScriptFile": "Run {{file}} in {{db}}",
-    "applyEdits": "Save changes in {{table}}",
-    "saving": "Saving…",
-    "rows_other": "{{n}} rows",
-    "statements_other": "{{n}} statements",
-    "statementsWithErrors_other": "{{n}} statements, {{errors}} with errors"
+    "schemaCreate": "{{db}}에 스키마 {{name}} 만들기",
+    "schemaDrop": "{{db}}에서 스키마 {{name}} 삭제",
+    "dropIndex": "{{table}}의 인덱스 {{name}} 삭제",
+    "cloneTable": "{{table}}을(를) {{name}}(으)로 복제",
+    "runScriptFile": "{{db}}에서 {{file}} 실행",
+    "applyEdits": "{{table}}에 변경 사항 저장",
+    "saving": "저장하는 중…",
+    "rows_other": "{{n}}개 행",
+    "statements_other": "문 {{n}}개",
+    "statementsWithErrors_other": "문 {{n}}개, 오류 {{errors}}개"
   },
   "backupsSecurity": {
-    "run": "Change of users and permissions in {{where}}"
+    "run": "{{where}}의 사용자 및 권한 변경"
   },
   "actions": {
-    "createDatabase": "Create database {{name}} on {{server}}",
-    "dropDatabase": "Drop database {{name}} from {{server}}",
-    "dropOne": "Drop {{name}} in {{db}}",
-    "dropMany": "Drop {{count}} objects in {{db}}",
-    "dropped_other": "{{count}} objects dropped",
-    "dropFailed": "{{failed}} of {{total}} could not be dropped (the detail says why)"
+    "createDatabase": "{{server}}에 데이터베이스 {{name}} 만들기",
+    "dropDatabase": "{{server}}에서 데이터베이스 {{name}} 삭제",
+    "dropOne": "{{db}}에서 {{name}} 삭제",
+    "dropMany": "{{db}}에서 개체 {{count}}개 삭제",
+    "dropped_other": "개체 {{count}}개를 삭제했습니다",
+    "dropFailed": "{{total}}개 중 {{failed}}개를 삭제하지 못했습니다(이유는 세부 정보를 확인하세요)"
   },
   "dataCompare": {
-    "buildTitle": "Data sync scripts of {{table}}",
-    "buildPhase": "Generating the scripts",
-    "applied": "These scripts were already run and the comparison was reloaded: they cannot be run again. For another sync, generate them again."
+    "buildTitle": "{{table}} 데이터 동기화 스크립트",
+    "buildPhase": "스크립트를 생성하는 중",
+    "applied": "이 스크립트들은 이미 실행되었고 비교를 다시 불러왔으므로 다시 실행할 수 없습니다. 다시 동기화하려면 스크립트를 다시 생성하세요."
   },
   "settingsGit": {
     "git": {
-      "link": "Link the library to the repo",
-      "commit": "Library commit",
-      "pull": "Library pull",
-      "push": "Library push",
-      "sync": "Sync the library with the repo",
-      "resolve": "Resolve the library conflicts",
-      "unlink": "Unlink the library from the repo",
-      "conflicts_other": "{{count}} scripts with conflicts: open «Library in git» to resolve them"
+      "link": "라이브러리를 저장소에 연결",
+      "commit": "라이브러리 커밋",
+      "pull": "라이브러리 Pull",
+      "push": "라이브러리 Push",
+      "sync": "라이브러리를 저장소와 동기화",
+      "resolve": "라이브러리 충돌 해결",
+      "unlink": "라이브러리를 저장소에서 연결 해제",
+      "conflicts_other": "충돌한 스크립트 {{count}}개: 「Git 라이브러리」를 열어 해결하세요"
     },
     "sync": {
-      "setupUpload": "Enable sync and upload the backup",
-      "setupRestore": "Restore the backup on this machine",
-      "now": "Sync with the cloud",
-      "upload": "Upload the backup to the cloud",
-      "restore": "Restore from the cloud",
-      "change": "Change the passphrase and re-encrypt the backup",
-      "disconnect": "Stop syncing and delete the backup in the cloud",
-      "local": "Restore local copy"
+      "setupUpload": "동기화를 켜고 백업 업로드",
+      "setupRestore": "이 컴퓨터에 백업 복원",
+      "now": "클라우드와 동기화",
+      "upload": "클라우드에 백업 업로드",
+      "restore": "클라우드에서 복원",
+      "change": "암호 문구를 변경하고 백업 다시 암호화",
+      "disconnect": "동기화를 중단하고 클라우드 백업 삭제",
+      "local": "로컬 사본 복원"
     },
     "drivers": {
-      "install": "Download the {{label}} driver"
+      "install": "{{label}} 드라이버 다운로드"
     }
   },
   "genImportExport": {
-    "script": "Script of {{db}}",
-    "scriptToFile": "Script of {{db}} in {{file}}",
+    "script": "{{db}} 스크립트",
+    "scriptToFile": "{{file}}에 {{db}} 스크립트",
     "withRows": "{{objects}}, {{rows}}",
-    "import": "Import {{file}} into {{table}}",
-    "export": "Export {{file}}"
+    "import": "{{file}}을(를) {{table}}에 가져오기",
+    "export": "{{file}} 내보내기"
   },
   "nativeBackup": {
     "phase": {
-      "backup": "Copying the data",
-      "restore": "Restoring the data",
-      "verify": "Verifying the backup",
-      "export": "Exporting with Data Pump",
-      "import": "Importing with Data Pump"
+      "backup": "데이터를 복사하는 중",
+      "restore": "데이터를 복원하는 중",
+      "verify": "백업을 확인하는 중",
+      "export": "Data Pump로 내보내는 중",
+      "import": "Data Pump로 가져오는 중"
     }
   },
   "importExport": {
     "phase": {
-      "reading": "Reading the file",
-      "inserting": "Inserting rows"
+      "reading": "파일을 읽는 중",
+      "inserting": "행을 삽입하는 중"
     },
-    "ofTotal": "of {{total}}",
-    "estimated": "of ~{{total}} estimated"
+    "ofTotal": "/ 전체 {{total}}",
+    "estimated": "/ 예상 ~{{total}}"
   }
 }

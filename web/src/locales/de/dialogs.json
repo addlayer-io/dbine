@@ -1,54 +1,54 @@
 {
   "folder": {
-    "new": "New folder",
-    "edit": "Edit folder · {{name}}",
+    "new": "Neuer Ordner",
+    "edit": "Ordner bearbeiten · {{name}}",
     "name": "Name",
-    "namePlaceholder": "Client, environment…",
-    "nameRequired": "Enter a name",
-    "color": "Color",
-    "noColor": "No color",
-    "colorHelp": "Connections without their own color take their folder's (handy to mark production).",
-    "inside": "Inside",
-    "create": "Create",
-    "topLevel": "(Top level)"
+    "namePlaceholder": "Kunde, Umgebung…",
+    "nameRequired": "Geben Sie einen Namen ein",
+    "color": "Farbe",
+    "noColor": "Keine Farbe",
+    "colorHelp": "Verbindungen ohne eigene Farbe übernehmen die ihres Ordners (praktisch, um Produktion zu markieren).",
+    "inside": "Darin",
+    "create": "Erstellen",
+    "topLevel": "(Oberste Ebene)"
   },
   "move": {
-    "title": "Move «{{name}}» to…",
-    "move": "Move"
+    "title": "«{{name}}» verschieben nach…",
+    "move": "Verschieben"
   },
   "database": {
-    "scriptTitle": "Generate script · {{db}}",
-    "scriptName": "Script of {{db}}",
-    "scriptNameConverted": "Script of {{db}} (converted)",
-    "theDatabase": "the database"
+    "scriptTitle": "Skript generieren · {{db}}",
+    "scriptName": "Skript von {{db}}",
+    "scriptNameConverted": "Skript von {{db}} (konvertiert)",
+    "theDatabase": "die Datenbank"
   },
   "drivers": {
-    "intro": "Each driver downloads by itself the first time you connect to that engine. Here you can download them ahead (for example, if you'll work offline) or delete the ones you don't use.",
-    "search": "Search engine",
-    "diskTitle": "Disk space used by the downloaded drivers",
-    "summary": "{{installed}} of {{total}} downloaded · {{size}} MB",
-    "downloadAll": "Download all ({{size}} MB)",
-    "downloading": "Downloading",
-    "download": "Download",
-    "remove": "Delete",
-    "checkUpdates": "Check for updates",
-    "checking": "Checking…",
-    "upToDateAll": "Drivers are up to date.",
-    "rollback": "Roll back",
-    "rollbackTitle": "Drop version {{version}} and go back to {{previous}}",
-    "rollbackConfirm": "Go back to version {{previous}} of the {{label}} driver? Version {{version}} won't be used again. Open connections keep the current version until you close them.",
-    "statusDownloading": "Downloading version {{available}}…",
-    "statusReady": "Version {{version}} is used from the next connection",
-    "statusNeedsApp": "A newer version needs DBine {{minApp}} or later",
-    "statusRolledBack": "Version {{from}} failed and it went back to {{version}}",
-    "statusRolledBackUser": "Went back to version {{version}}; {{from}} won't be used",
-    "statusRestart": "Restart DBine to see this driver's new options"
+    "intro": "Jeder Treiber wird beim ersten Verbinden mit dieser Engine automatisch heruntergeladen. Hier können Sie sie vorab herunterladen (zum Beispiel, um offline zu arbeiten) oder nicht genutzte löschen.",
+    "search": "Engine suchen",
+    "diskTitle": "Von den heruntergeladenen Treibern belegter Speicherplatz",
+    "summary": "{{installed}} von {{total}} heruntergeladen · {{size}} MB",
+    "downloadAll": "Alle herunterladen ({{size}} MB)",
+    "downloading": "Wird heruntergeladen",
+    "download": "Herunterladen",
+    "remove": "Löschen",
+    "checkUpdates": "Nach Updates suchen",
+    "checking": "Wird geprüft…",
+    "upToDateAll": "Treiber sind auf dem neuesten Stand.",
+    "rollback": "Zurücksetzen",
+    "rollbackTitle": "Version {{version}} verwerfen und zu {{previous}} zurückkehren",
+    "rollbackConfirm": "Zu Version {{previous}} des Treibers {{label}} zurückkehren? Version {{version}} wird nicht mehr verwendet. Geöffnete Verbindungen behalten die aktuelle Version, bis Sie sie schließen.",
+    "statusDownloading": "Version {{available}} wird heruntergeladen…",
+    "statusReady": "Version {{version}} wird ab der nächsten Verbindung verwendet",
+    "statusNeedsApp": "Eine neuere Version erfordert DBine {{minApp}} oder höher",
+    "statusRolledBack": "Version {{from}} ist fehlgeschlagen, es wurde auf {{version}} zurückgegangen",
+    "statusRolledBackUser": "Zu Version {{version}} zurückgekehrt; {{from}} wird nicht verwendet",
+    "statusRestart": "Starten Sie DBine neu, um die neuen Optionen dieses Treibers zu sehen"
   },
   "support": {
-    "title": "Support DBine",
-    "text": "DBine is free and will stay free. Your support helps us maintain the app and keep adding features.",
-    "notPayment": "It's support, not a payment: the app works the same either way.",
-    "notNow": "Not now",
-    "support": "Support the project"
+    "title": "DBine unterstützen",
+    "text": "DBine ist kostenlos und bleibt es. Ihre Unterstützung hilft uns, die App zu pflegen und weitere Funktionen zu ergänzen.",
+    "notPayment": "Es ist Unterstützung, keine Zahlung: Die App funktioniert in beiden Fällen gleich.",
+    "notNow": "Jetzt nicht",
+    "support": "Projekt unterstützen"
   }
 }

@@ -1,2 +1,76 @@
 # Values of the zh translation that are legitimately the same as English (see scripts/i18n/check.py):
 # terms the translator kept on purpose, one per line.
+connection.json:source.kind.vault
+connection.json:source.kind.aws
+connection.json:source.kind.azure
+connection.json:source.kind.gcp
+connection.json:source.kind.zoho
+connection.json:source.kind.conjur
+connection.json:source.kind.ccp
+connection.json:source.kind.delinea
+connection.json:source.kind.bitwarden
+connection.json:source.kind.bitwarden_sm
+connection.json:source.kind.ssm
+connection.json:source.input.vault_url
+connection.json:source.input.role_id
+connection.json:source.input.approle_secret_id
+connection.json:source.input.secret_uuid
+connection.json:source.placeholder.command
+core.json:actions.newObjectPrefix
+dbDocs.json:formats.markdown
+diagram.json:tab.fileName
+explorer.json:menu.profiler
+lint.json:groups.oracle
+lint.json:groups.etcd
+lint.json:rules.select-star.title
+lint.json:rules.global-identity.title
+lint.json:rules.where-operator.title
+mcp.json:forClaude
+mcp.json:forCodex
+migration.json:script.fileName
+notebook.json:toolbar.exportMarkdown
+optimizer.json:rules.not_in_to_not_exists.title
+optimizer.json:rules.exists_to_in.title
+optimizer.json:rules.count_to_exists.title
+palette.json:cmd.database.profiler
+processes.json:own
+profiler.json:hint.duration
+projects.json:link.folderPlaceholder
+projects.json:operation.cherry-pick
+results.json:export.format.json_lines
+results.json:export.format.xlsx
+results.json:grid.copyFormat.json_lines.name
+scheduled.json:formats.xlsx
+scheduled.json:formats.json_lines
+scheduled.json:notebook.formats.markdown
+secretAccounts.json:kind.zoho
+secretAccounts.json:wizard.client_id
+secretAccounts.json:wizard.client_secret
+secretAccounts.json:acct.input.client_id
+secretAccounts.json:acct.input.client_secret
+secretAccounts.json:acct.input.role_id
+secretAccounts.json:acct.input.secret_id
+secretAccounts.json:acct.input.url_delinea
+secretAccounts.json:acct.input.url_conjur
+secretAccounts.json:acct.input.url_ccp
+secretAccounts.json:acct.input.platform_url
+secretAccounts.json:acct.placeholder.url_delinea
+secretAccounts.json:acct.placeholder.url_conjur
+secretAccounts.json:acct.placeholder.url_ccp
+snippets.json:bodyPlaceholder
+snippets.json:families.oracle
+snippets.json:families.db2
+snippets.json:families.flux
+snippets.json:families.etcd
+tunnel.json:jumpPlaceholder
+backend:AlloyDB para PostgreSQL
+backend:CPU de SQL Server
+backend:CPU de los workers
+backend:CPU de taosd
+backend:CPU del drillbit
+backend:Cloud SQL para MySQL
+backend:Cloud SQL para PostgreSQL
+backend:Costa
+backend:Master de HBase
+backend:RegionServers de HBase
+backend:numérico
