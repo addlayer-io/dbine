@@ -191,10 +191,11 @@ onBeforeUnmount(() => {
   window.removeEventListener('keydown', onKey);
   unregister.forEach((f) => f());
 });
+// The command palette (⌘⇧P) and "Ir a…" (⌘P): defined before the menu is
+// built, so their items carry their keys.
+useWorkbenchCommands({ showView: (v) => { ui.sidebarView = v; sidebarOpen.value = true; }, feedback: () => { feedbackOpen.value = true; } });
 // macOS menu bar; it runs the shortcuts above while it's there.
 useAppMenu({ newQuery: newQueryHere, toggleExplorer: () => { sidebarOpen.value = !sidebarOpen.value; }, toggleOutput: () => { panelOpen.value = !panelOpen.value; } });
-// The command palette (⌘⇧P) and "Ir a…" (⌘P).
-useWorkbenchCommands({ showView: (v) => { ui.sidebarView = v; sidebarOpen.value = true; }, feedback: () => { feedbackOpen.value = true; } });
 
 // Element Plus's own texts (date pickers, "no data"…) in the app's language;
 // the synced preference wins over this machine's once settings load.

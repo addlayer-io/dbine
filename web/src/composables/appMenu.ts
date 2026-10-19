@@ -84,6 +84,9 @@ function menus() {
 const menuCommands = ['palette.open', 'goto.open', 'app.settings', 'app.quit', 'file.newQuery', 'file.newWindow', 'file.closeTab', 'view.explorer', 'view.output', 'view.ai'];
 
 let installed = false;
+/** The keys the installed menu actually carries as accelerators: only those
+ *  are the menu's (a command defined after the menu was built has none yet). */
+let menuKeys = new Set<string>();
 
 /** ⌘⇧N on macOS, Ctrl+Shift+N on Windows / Linux (or the user's keys): a new window. */
 function isNewWindowKey(e: KeyboardEvent): boolean {
@@ -96,7 +99,7 @@ export function ownsShortcut(e: KeyboardEvent): boolean {
   if (isNewWindowKey(e)) return true;
   if (!installed) return false;
   const k = keyOfEvent(e);
-  return !!k && menuCommands.some((id) => bindingOf(id) === k);
+  return !!k && menuKeys.has(k);
 }
 
 /** Install the menu and run its items. Call from App.vue's setup. */
@@ -122,9 +125,17 @@ export function useAppMenu(actions: AppMenuActions) {
   };
 
   const send = () => {
-    invoke<boolean>('app_menu_set', { args: { menus: menus(), dockNewWindow: t('menu:file.newWindow') } })
-      .then((ok) => { installed = ok === true; })
-      .catch(() => { installed = false; });
+    const built = menus();
+    const keys = new Set<string>();
+    for (const m of built) {
+      for (const e of m.items) {
+        const k = e.kind === 'item' && e.accelerator ? bindingOf(e.id) : null;
+        if (k) keys.add(k);
+      }
+    }
+    invoke<boolean>('app_menu_set', { args: { menus: built, dockNewWindow: t('menu:file.newWindow') } })
+      .then((ok) => { installed = ok === true; menuKeys = installed ? keys : new Set(); })
+      .catch(() => { installed = false; menuKeys = new Set(); });
   };
   if (!('__TAURI_INTERNALS__' in window)) return;
   send();
