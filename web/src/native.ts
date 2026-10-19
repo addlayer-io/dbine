@@ -2,6 +2,7 @@ import { ElMessageBox } from 'element-plus';
 import { getCurrentWindow } from '@tauri-apps/api/window';
 import { ask } from '@tauri-apps/plugin-dialog';
 import { t } from './i18n';
+import { COMMANDS, bindingOf, keyOfEvent } from './composables/commands';
 
 // What makes the webview behave like a desktop app instead of a web page:
 // no browser shortcuts or context menu, the OS's own confirm dialogs.
@@ -45,6 +46,12 @@ function reportErrors() {
   });
 }
 
+/** The event is the keys of one of the app's commands (the user's or the default). */
+function boundToCommand(e: KeyboardEvent): boolean {
+  const k = keyOfEvent(e);
+  return !!k && COMMANDS.some((c) => bindingOf(c.id) === k);
+}
+
 /** Turn off what only makes sense in a browser. */
 export function installNativeBehavior() {
   reportErrors();
@@ -68,7 +75,9 @@ export function installNativeBehavior() {
       (mod && (k === 'f' || k === 's') && !inEditor) ||
       (e.altKey && (e.key === 'ArrowLeft' || e.key === 'ArrowRight') && !inEditor) ||
       e.key === 'BrowserBack' || e.key === 'BrowserForward' || e.key === 'BrowserRefresh';
-    if (blocked) e.preventDefault();
+    // Keys an app command uses (⌘⇧P, ⌘P…) go on to it: on macOS a key the
+    // page cancels never reaches the menu bar's accelerators.
+    if (blocked && !boundToCommand(e)) e.preventDefault();
   }, { capture: true });
 
   // Mouse back / forward buttons navigate the webview's history.
