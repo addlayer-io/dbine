@@ -238,20 +238,23 @@ pub async fn list(src: &SecretSource, slots: &Secrets, at: At<'_>) -> Result<Lis
 /// error asks to confirm it), and neither may anything while the edited
 /// connection's own definition for the field is such a one (its kept
 /// tokens would go along).
-pub fn may_browse(store: &StateStore, saved: Option<&dbine_core::SavedConnection>, info: Option<&DriverInfo>, field: &str, src: &SecretSource) -> CommandResult<()> {
+pub fn may_browse(store: &StateStore, saved: Option<&dbine_core::SavedConnection>, duplicate_of: Option<&str>, info: Option<&DriverInfo>, field: &str, src: &SecretSource) -> CommandResult<()> {
     let name = saved.map(|c| c.name.as_str()).unwrap_or("");
     if let Some(c) = saved {
         if let Some(stored) = defs::read(&c.config).ok().and_then(|s| s.get(field).cloned()) {
             check_trust(store, Origin::Saved { id: &c.id, name }, info, field, &stored)?;
         }
     }
-    check_trust(store, Origin::Form { id: saved.map(|c| c.id.as_str()), name }, info, field, src)
+    check_trust(store, Origin::Form { id: saved.map(|c| c.id.as_str()), duplicate_of, name }, info, field, src)
 }
 
 #[derive(Deserialize)]
 pub struct BrowseSecretSourceArgs {
     /// The connection being edited, if it's saved.
     pub connection_id: Option<String>,
+    /// The connection a new form was copied from ("Duplicar conexión").
+    #[serde(default)]
+    pub duplicate_of: Option<String>,
     /// The form's engine, for the field's name in messages.
     #[serde(default)]
     pub driver: Option<String>,
@@ -281,8 +284,9 @@ pub async fn browse_secret_source(state: State<'_, AppState>, args: BrowseSecret
     let name = saved.as_ref().map(|c| c.name.clone()).unwrap_or_default();
     let driver = args.driver.clone().or_else(|| saved.as_ref().map(|c| c.config.driver.clone()));
     let info = driver.as_deref().and_then(|d| driver_info(d).ok());
-    let origin = Origin::Form { id, name: &name };
-    may_browse(&state.store, saved.as_ref(), info, &args.field, &src)?;
+    let duplicate_of = args.duplicate_of.as_deref().filter(|i| !i.is_empty());
+    let origin = Origin::Form { id, duplicate_of, name: &name };
+    may_browse(&state.store, saved.as_ref(), duplicate_of, info, &args.field, &src)?;
     let slots = form_slots(&state, id, &args.field, &src, args.tokens.unwrap_or_default(), None);
     let at = At { path: args.path.as_deref().unwrap_or("").trim(), item: args.item.as_deref().map(str::trim).filter(|i| !i.is_empty()), query: args.query.as_deref().unwrap_or("").trim() };
     // A definition naming an account browses with the account's sign-in.

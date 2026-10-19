@@ -31,6 +31,8 @@ defineProps<{
   /** The form's sources, by field (`ssh.password`, `ssh.passphrase`). */
   drafts: Record<string, SourceDraft>;
   connectionId: string | null;
+  /** The connection a new form was copied from ("Duplicar conexión"). */
+  duplicateOf?: string | null;
   driver: string;
 }>();
 
@@ -87,7 +89,7 @@ function forget(i: number) {
       <SecretSourcePicker
         v-if="model.auth === 'password' && drafts['ssh.password']"
         v-model="drafts['ssh.password']" mode="field" :label="$t('tunnel:password')" field="ssh.password" :allow-ask="false"
-        :connection-id="connectionId" :driver="driver" :editing="editing"
+        :connection-id="connectionId" :duplicate-of="duplicateOf ?? null" :driver="driver" :editing="editing"
       >
         <template #local>
           <el-input v-model="model.password" type="password" show-password autocomplete="new-password" :placeholder="editing ? $t('tunnel:secretKept') : ''" />
@@ -104,7 +106,7 @@ function forget(i: number) {
         <SecretSourcePicker
           v-if="drafts['ssh.passphrase']"
           v-model="drafts['ssh.passphrase']" mode="field" :label="$t('tunnel:passphrase')" field="ssh.passphrase" :allow-ask="false"
-          :connection-id="connectionId" :driver="driver" :editing="editing"
+          :connection-id="connectionId" :duplicate-of="duplicateOf ?? null" :driver="driver" :editing="editing"
         >
           <template #local>
             <el-input v-model="model.passphrase" type="password" show-password autocomplete="new-password" :placeholder="editing ? $t('tunnel:secretKept') : $t('tunnel:passphrasePlaceholder')" />

@@ -1429,7 +1429,7 @@ esac
                 eprintln!("{what}: connected as {}, {}", cfg.username.as_deref().unwrap_or(""), sess.server_version().await.unwrap());
             }
         };
-        let form = super::super::Origin::Form { id: None, name: "" };
+        let form = super::super::Origin::Form { id: None, duplicate_of: None, name: "" };
         if let Ok(addr) = std::env::var("DBINE_TEST_VAULT") {
             // The wizard's check, with a token and with AppRole.
             let token = AccountConfig::Vault { address: addr.clone(), namespace: String::new(), ca_file: String::new(), auth: VaultAuth::Token, approle_mount: String::new(), role_id: String::new() };

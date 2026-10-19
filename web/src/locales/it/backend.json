@@ -11120,5 +11120,6 @@
   "el texto tiene un carácter nulo (\\0)": "il testo contiene un carattere nullo (\\0)",
   "Fila {0}, columna «{1}»: la clave tiene un campo que empieza con «$», que MongoDB leería como operador.": "Riga {0}, colonna «{1}»: la chiave ha un campo che inizia con «$», che MongoDB leggerebbe come operatore.",
   "La columna «{0}» no se puede usar para actualizar en MongoDB: un nombre que empieza con «$» o tiene «.» se leería como operador o como ruta.": "La colonna «{0}» non può essere usata per aggiornare in MongoDB: un nome che inizia con «$» o contiene «.» verrebbe letto come operatore o come percorso.",
-  "lo que la tarea cambia ya no es lo que se aprobó (un archivo cambió mientras tanto): hay que revisarlo y aprobarlo de nuevo": "ciò che l'attività modifica non è più quello che è stato approvato (un file è cambiato nel frattempo): bisogna controllarlo e approvarlo di nuovo"
+  "lo que la tarea cambia ya no es lo que se aprobó (un archivo cambió mientras tanto): hay que revisarlo y aprobarlo de nuevo": "ciò che l'attività modifica non è più quello che è stato approvato (un file è cambiato nel frattempo): bisogna controllarlo e approvarlo di nuovo",
+  "el origen tiene caracteres invisibles (de formato, de ancho cero o de dirección del texto): escribilo de nuevo sin ellos": "l'origine contiene caratteri invisibili (di formattazione, a larghezza zero o di direzione del testo): riscrivila senza di essi"
 }

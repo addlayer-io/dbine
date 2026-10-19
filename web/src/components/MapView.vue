@@ -5,7 +5,7 @@ import * as L from 'leaflet';
 import 'leaflet/dist/leaflet.css';
 import type { Cell, ResultColumn } from '../api/types';
 import { locale } from '../i18n';
-import { FEATURE_CAP, detectSpatial, toFeatures, type Geometry, type MapSource, type SpatialColumns } from '../composables/geo';
+import { detectSpatial, toFeatures, type Geometry, type MapSource, type SpatialColumns } from '../composables/geo';
 import { loadBasemap, type Basemap, type Place } from '../composables/basemap';
 import { DEFAULT_TILES, TILE_SETTINGS, tileLayerSpec, type TileSettings } from '../composables/mapTiles';
 import { useSettingsStore } from '../stores/settings';
@@ -63,7 +63,7 @@ const notices = computed(() => {
   const r = result.value;
   if (!r) return [];
   const out: string[] = [];
-  if (r.overCap) out.push(t('map:notice.cap', { cap: n(FEATURE_CAP), rest: n(r.overCap) }));
+  if (r.overCap) out.push(t('map:notice.cap', { cap: n(r.features.length), rest: n(r.overCap) }));
   for (const [srid, count] of r.skippedSrid) out.push(t('map:notice.srid', { count, rows: n(count), srid: srid ?? '?' }));
   if (r.outOfRange) out.push(t('map:notice.range', { count: r.outOfRange, rows: n(r.outOfRange) }));
   if (r.unreadable) out.push(t('map:notice.unreadable', { count: r.unreadable, rows: n(r.unreadable) }));

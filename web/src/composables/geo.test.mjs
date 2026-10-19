@@ -7,8 +7,8 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import {
-  detectSpatial, hexBytes, parseBinary, parseCell, parseMysql, parseSpatiaLite, parseSqlServer, parseWkb, parseWkt,
-  toFeatures, toWgs84,
+  RESULT_POINT_CAP, VALUE_POINT_CAP, detectSpatial, hexBytes, parseBinary, parseCell, parseGeoPackage, parseMysql,
+  parseSpatiaLite, parseSqlServer, parseWkb, parseWkt, toFeatures, toWgs84,
 } from './geo.ts';
 
 const near = (a, b, eps = 1e-9) => assert.ok(Math.abs(a - b) < eps, `${a} ≉ ${b}`);
@@ -287,4 +287,105 @@ test('the cap and the skipped SRIDs are counted', () => {
   const all = toFeatures(cols, rows, { kind: 'geometry', column: 0 });
   assert.equal(all.features.length, 25);
   assert.equal(all.skippedSrid.get(22185), 5);
+});
+
+// -- untrusted counts and offsets -------------------------------------------------------
+
+const timed = (f, ms) => {
+  const t0 = performance.now();
+  const v = f();
+  const dt = performance.now() - t0;
+  assert.ok(dt < ms, `took ${dt.toFixed(0)} ms`);
+  return v;
+};
+
+test('SQL Server shape figure offset past the figures (72 hex chars) is not a geometry, quickly', () => {
+  // SRID 4326, v1, no points, no figures; shape 0 a LineString at figure 0,
+  // shape 1 at figure 0x7FFFFFFF: the range in between used to be pushed whole.
+  const hex = 'E6100000' + '01' + '00' + '00000000' + '00000000' + '02000000'
+    + 'FFFFFFFF' + '00000000' + '02' + '00000000' + 'FFFFFF7F' + '01';
+  assert.equal(hex.length, 72);
+  assert.equal(timed(() => parseCell(hex), 200), null);
+  assert.equal(timed(() => parseCell('0x' + hex, 'geometry'), 200), null);
+  const cols = [{ name: 'comment', type_name: 'nvarchar' }];
+  assert.deepEqual(timed(() => detectSpatial(cols, Array.from({ length: 50 }, () => [hex])), 1000).geometry, []);
+});
+
+test('SQL Server offsets out of order or out of range are refused', () => {
+  const head = 'E6100000' + '01' + '00';
+  const pts = '02000000' + '0000000000000000'.repeat(4); // 2 points
+  // Figure offset past the points.
+  assert.equal(parseSqlServer(hexBytes(head + pts + '01000000' + '01' + '03000000' + '01000000' + 'FFFFFFFF0000000002'), false), null);
+  // Figure offsets descending.
+  assert.equal(parseSqlServer(hexBytes(head + pts + '02000000' + '01' + '01000000' + '01' + '00000000' + '01000000' + 'FFFFFFFF0000000002'), false), null);
+  // Shape figure past the figures.
+  assert.equal(parseSqlServer(hexBytes(head + pts + '01000000' + '01' + '00000000' + '01000000' + 'FFFFFFFF0500000002'), false), null);
+  // Parent after the child, and a first shape with a parent.
+  assert.equal(parseSqlServer(hexBytes(head + pts + '01000000' + '01' + '00000000' + '02000000' + 'FFFFFFFF0000000007' + '01000000' + '00000000' + '02'), false), null);
+  assert.equal(parseSqlServer(hexBytes(head + pts + '01000000' + '01' + '00000000' + '01000000' + '000000000000000002'), false), null);
+  // The same value, valid: LINESTRING(0 0,0 0).
+  assert.deepEqual(parseSqlServer(hexBytes(head + pts + '01000000' + '01' + '00000000' + '01000000' + 'FFFFFFFF0000000002'), false).geometry,
+    { type: 'LineString', coordinates: [[0, 0], [0, 0]] });
+});
+
+test('deeply nested collections are not read', () => {
+  const n = 5000;
+  // WKB: n GEOMETRYCOLLECTIONs of one, then a point.
+  const wkb = '010700000001000000'.repeat(n) + '0101000000000000000000F03F0000000000000040';
+  assert.equal(timed(() => parseCell(wkb), 1000), null);
+  const wkt = 'GEOMETRYCOLLECTION('.repeat(n) + 'POINT(1 2)' + ')'.repeat(n);
+  assert.equal(timed(() => parseCell(wkt), 1000), null);
+  const json = '{"type":"GeometryCollection","geometries":['.repeat(n) + '{"type":"Point","coordinates":[1,2]}' + ']}'.repeat(n);
+  assert.equal(timed(() => parseCell(json), 1000), null);
+  // A few levels still read.
+  assert.equal(parseCell('GEOMETRYCOLLECTION(GEOMETRYCOLLECTION(POINT(1 2)))').geometry.type, 'GeometryCollection');
+});
+
+test('a value with more positions than the cap is unreadable', () => {
+  const n = VALUE_POINT_CAP + 1;
+  const big = { type: 'MultiPoint', coordinates: Array.from({ length: n }, () => [1, 2]) };
+  assert.equal(parseCell(big), null);
+  const ok = { type: 'MultiPoint', coordinates: Array.from({ length: 1000 }, () => [1, 2]) };
+  assert.equal(parseCell(ok).geometry.coordinates.length, 1000);
+});
+
+test('a result stops drawing past the positions cap', () => {
+  const per = VALUE_POINT_CAP;
+  const line = { type: 'LineString', coordinates: Array.from({ length: per }, (_, i) => [i % 180, 0]) };
+  const rows = Array.from({ length: RESULT_POINT_CAP / per + 3 }, () => [line]);
+  const f = toFeatures([{ name: 'g', type_name: 'geometry' }], rows, { kind: 'geometry', column: 0 });
+  assert.equal(f.features.length, RESULT_POINT_CAP / per);
+  assert.equal(f.overCap, 3);
+});
+
+test('random hex buffers finish quickly in every parser', () => {
+  // A small deterministic PRNG, so a failure can be replayed.
+  let seed = 0x9e3779b9;
+  const rnd = () => { seed ^= seed << 13; seed ^= seed >>> 17; seed ^= seed << 5; return (seed >>> 0) / 2 ** 32; };
+  const parsers = [
+    (b) => parseWkb(b), (b) => parseMysql(b), (b) => parseGeoPackage(b), (b) => parseSpatiaLite(b),
+    (b) => parseSqlServer(b, false), (b) => parseSqlServer(b, true), (b) => parseBinary(b),
+  ];
+  // Headers the parsers accept, so the random part reaches the counts and offsets.
+  const prefixes = [[], [0xe6, 0x10, 0, 0, 1, 0], [0xe6, 0x10, 0, 0, 2, 0], [1, 7, 0, 0, 0], [0, 0, 0, 0, 1, 7, 0, 0, 0], [0x47, 0x50, 0, 1, 0, 0, 0, 0]];
+  const t0 = performance.now();
+  for (let i = 0; i < 3000; i++) {
+    const pre = prefixes[i % prefixes.length];
+    const len = 9 + Math.floor(rnd() * 120);
+    const b = new Uint8Array(len);
+    for (let k = 0; k < len; k++) {
+      // Mostly small numbers and 0xFF runs: the values that make counts and offsets.
+      const x = rnd();
+      b[k] = x < 0.4 ? 0 : x < 0.55 ? 0xff : x < 0.7 ? Math.floor(rnd() * 4) : x < 0.75 ? 0x7f : Math.floor(rnd() * 256);
+    }
+    b.set(pre.slice(0, len));
+    for (const p of parsers) {
+      const s = performance.now();
+      p(b);
+      assert.ok(performance.now() - s < 100, `slow on ${Buffer.from(b).toString('hex')}`);
+    }
+    const hex = Buffer.from(b).toString('hex');
+    parseCell(hex);
+  }
+  assert.ok(performance.now() - t0 < 10_000);
 });

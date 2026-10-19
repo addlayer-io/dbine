@@ -310,7 +310,7 @@ mod tests {
         };
         let mut cfg = dbine_driver::ConnectionConfig { driver: "postgres".into(), host: "127.0.0.1".into(), port: 25010, database: "postgres".into(), username: Some("someone-else".into()), ..Default::default() };
         let sources: SecretSources = [("password".to_string(), src)].into();
-        super::super::fill(&store, &mut cfg, &sources, &Default::default(), super::super::Origin::Form { id: None, name: "" }).await.unwrap();
+        super::super::fill(&store, &mut cfg, &sources, &Default::default(), super::super::Origin::Form { id: None, duplicate_of: None, name: "" }).await.unwrap();
         assert_eq!((cfg.password.as_deref(), cfg.username.as_deref()), (Some("pw"), Some("postgres")));
         let listed = SecretSource::Ssm { parameter: "/dbine/list".into(), version: String::new(), region: "us-east-1".into(), profile: String::new(), list_index: "2".into(), json_key: String::new(), fill_username: false, secret_account: String::new() };
         assert_eq!(super::super::fetch(&listed, &Default::default()).await.unwrap().value, "pw");

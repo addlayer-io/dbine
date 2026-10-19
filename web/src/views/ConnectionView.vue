@@ -120,6 +120,10 @@ function sectionOn(s: Section): boolean {
   if (s === 'general') return false;
   return fieldsIn(s).some((f) => (f.kind.type === 'bool' ? values[f.key] === true : String(values[f.key] ?? '') !== '' && String(values[f.key]) !== f.default));
 }
+/** The connection this new form is a copy of ("Duplicar conexión"): the
+ *  backend asks before running a secret source the original has
+ *  unconfirmed, whatever the copy's text became. */
+const duplicateOf = computed(() => (editing.value ? null : props.tab.duplicateOf || null));
 const testing = ref(false);
 const saving = ref(false);
 const testResult = ref<{ ok: boolean; message: string } | null>(null);
@@ -313,7 +317,7 @@ async function test() {
     for (const [field, v] of Object.entries(askedMasters)) {
       if (drafts[field]?.master === 'ask' && isExternal(drafts[field])) cfg.options[tokenKey(field)] = v;
     }
-    const r = await api.testConnection(cfg, editing.value?.id ?? null);
+    const r = await api.testConnection(cfg, editing.value?.id ?? null, duplicateOf.value);
     testResult.value = { ...r, message: tb(r.message) };
   } catch (e) {
     // A field's source came from outside and isn't confirmed: show it, and
@@ -367,7 +371,7 @@ async function save() {
       tags: tags.value.map((t) => t.trim()).filter(Boolean),
       mcp_level: mcpLevel.value || null,
       updated_at: '',
-    });
+    }, duplicateOf.value);
     close();
     conns.connect(saved.id);
   } catch (e) {
@@ -526,7 +530,7 @@ function selectOptions(f: Field): [string, string][] {
             </div>
           </el-form-item>
         </template>
-        <SshTunnelSection v-if="section === 'ssh'" v-model="ssh" :editing="!!editing" :drafts="drafts" :connection-id="editing?.id ?? null" :driver="driver?.id ?? ''" />
+        <SshTunnelSection v-if="section === 'ssh'" v-model="ssh" :editing="!!editing" :drafts="drafts" :connection-id="editing?.id ?? null" :duplicate-of="duplicateOf" :driver="driver?.id ?? ''" />
         <template v-else>
           <div class="cd-fields">
             <template v-for="f in fieldsIn(section)" :key="f.key">
@@ -539,7 +543,7 @@ function selectOptions(f: Field): [string, string][] {
                 mode="credentials"
                 field="password"
                 :allow-ask="true"
-                :connection-id="editing?.id ?? null"
+                :connection-id="editing?.id ?? null" :duplicate-of="duplicateOf"
                 :driver="driver.id"
                 :editing="!!editing"
               >
@@ -576,7 +580,7 @@ function selectOptions(f: Field): [string, string][] {
                 :required="f.required && !editing && drafts[f.key]?.kind === 'saved'"
                 :field="f.key"
                 :allow-ask="false"
-                :connection-id="editing?.id ?? null"
+                :connection-id="editing?.id ?? null" :duplicate-of="duplicateOf"
                 :driver="driver.id"
                 :editing="!!editing"
               >
