@@ -3,7 +3,7 @@ import { computed, defineAsyncComponent, nextTick, onBeforeUnmount, onMounted, r
 import { invoke } from '@tauri-apps/api/core';
 import { ElMessage } from 'element-plus';
 import { useTranslation } from 'i18next-vue';
-import { locale } from '../i18n';
+import { listOf, locale } from '../i18n';
 import { tb } from '../i18n/backend';
 import { save } from '@tauri-apps/plugin-dialog';
 import { api, errorMessage } from '../api/client';
@@ -531,26 +531,20 @@ async function generate() {
     codeError.value = errorMessage(e);
   }
 }
-/** "2 celdas modificadas en 1 fila, 3 filas para eliminar": what's pending. */
+/** "2 celdas modificadas en 1 fila y 3 filas para eliminar": what's pending.
+ *  Each part is a whole phrase (its two counts in one message), joined as a list. */
 function pendingText(key: 'summary' | 'hint') {
-  if (newCount.value) {
-    const parts = [
-      editCount.value ? t('results:edit.cellsInRows', { cells: t('results:edit.cells', { count: editCount.value }), rows: t('results:edit.rows', { count: editRows.value }) }) : null,
-      deleteCount.value ? t('results:edit.deletes', { count: deleteCount.value }) : null,
-      currentAdded.value.length ? t('results:edit.newRows', { count: currentAdded.value.length }) : null,
-      docs.value.length ? t(props.editSource?.language === 'json' ? 'results:edit.newDocs' : 'results:edit.newRows', { count: docs.value.length }) : null,
-    ].filter(Boolean).join(', ');
-    return key === 'summary' ? t('results:edit.pending', { list: parts }) : t('applyEdits:hintInserts', { list: parts });
-  }
-  const cells = t('results:edit.cells', { count: editCount.value });
-  const rows = t('results:edit.rows', { count: editRows.value });
-  const dels = t('results:edit.deletes', { count: deleteCount.value });
-  if (key === 'summary') {
-    if (!deleteCount.value) return t('results:edit.summary', { cells, rows });
-    return editCount.value ? t('results:edit.summaryBoth', { cells, rows, deletes: dels }) : t('results:edit.summaryDeletes', { deletes: dels });
-  }
-  if (!deleteCount.value) return t('applyEdits:hint', { cells, rows });
-  return editCount.value ? t('applyEdits:hintBoth', { cells, rows, deletes: dels }) : t('applyEdits:hintDeletes', { deletes: dels });
+  const parts = [
+    editCount.value ? t('results:edit.changed', { count: editCount.value, rows: editRows.value }) : null,
+    deleteCount.value ? t('results:edit.deletes', { count: deleteCount.value }) : null,
+    currentAdded.value.length ? t('results:edit.newRows', { count: currentAdded.value.length }) : null,
+    docs.value.length ? t(props.editSource?.language === 'json' ? 'results:edit.newDocs' : 'results:edit.newRows', { count: docs.value.length }) : null,
+  ].filter((p): p is string => !!p);
+  const list = listOf(parts);
+  if (key === 'summary') return t('results:edit.pending', { list });
+  // The hint explains the order the statements run in when there's more than one kind.
+  if (newCount.value) return t('applyEdits:hintInserts', { list });
+  return editCount.value && deleteCount.value ? t('applyEdits:hintBoth', { list }) : t('applyEdits:hint', { list });
 }
 const summary = computed(() => pendingText('summary'));
 const applyHint = computed(() => pendingText('hint'));
@@ -762,13 +756,20 @@ interface Entry {
   offset?: number | null;
 }
 
+/** "120 filas" or "5.000 filas (se muestran 1.000)": one message each, not glued pieces. */
+function rowsText(r: StatementResult) {
+  const rows = r.total_rows.toLocaleString(locale());
+  return r.truncated
+    ? t('results:messages.rowsShown', { count: r.total_rows, rows, shown: r.rows.length.toLocaleString(locale()) })
+    : t('results:messages.rows', { count: r.total_rows, rows });
+}
+
 /** "INSERT 0 3 · 3 filas afectadas · 12 ms": a statement of a run statement by statement. */
 function statementEntry(r: StatementResult): Entry {
   const parts: string[] = [];
   if (r.tag) parts.push(r.tag);
   if (r.columns.length) {
-    const rows = t('results:messages.rows', { count: r.total_rows, rows: r.total_rows.toLocaleString(locale()) });
-    parts.push(r.truncated ? `${rows}${t('results:messages.shown', { rows: r.rows.length.toLocaleString(locale()) })}` : rows);
+    parts.push(rowsText(r));
   } else if (r.rows_affected != null) {
     parts.push(t('results:messages.affected', { count: r.rows_affected, rows: r.rows_affected.toLocaleString(locale()) }));
   } else if (!r.tag) {
@@ -815,9 +816,7 @@ const messages = computed<Entry[]>(() => {
   const out: Entry[] = [];
   o.results.forEach((r, i) => {
     if (r.columns.length) {
-      const rows = t('results:messages.rows', { count: r.total_rows, rows: r.total_rows.toLocaleString(locale()) });
-      const shown = r.truncated ? t('results:messages.shown', { rows: r.rows.length.toLocaleString(locale()) }) : '';
-      out.push({ level: 'info', text: t('results:messages.statement', { n: i + 1, text: `${rows}${shown}` }) });
+      out.push({ level: 'info', text: t('results:messages.statement', { n: i + 1, text: rowsText(r) }) });
     } else if (r.rows_affected !== null) {
       out.push({ level: 'info', text: t('results:messages.statement', { n: i + 1, text: t('results:messages.affected', { count: r.rows_affected, rows: r.rows_affected.toLocaleString(locale()) }) }) });
     } else {

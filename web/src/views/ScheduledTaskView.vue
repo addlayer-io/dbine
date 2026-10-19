@@ -2,7 +2,7 @@
 import { computed, onMounted, onUnmounted, ref, watch } from 'vue';
 import { ElMessage } from 'element-plus';
 import { listen, type UnlistenFn } from '@tauri-apps/api/event';
-import { useTranslation } from 'i18next-vue';
+import { TranslationComponent as I18nT, useTranslation } from 'i18next-vue';
 import { errorMessage } from '../api/client';
 import { newStep, newTask, scheduledApi, type Saved, type ScheduledTask, type StepKind, type TaskRun, type WriteScope } from '../api/scheduled';
 import { tb } from '../i18n/backend';
@@ -180,19 +180,17 @@ const stepLabel = (id: string) => {
               <el-checkbox-button v-for="d in DAYS" :key="d" :value="d">{{ $t(`scheduled:days.${d}`) }}</el-checkbox-button>
             </el-checkbox-group>
           </template>
-          <template v-if="task.schedule.type === 'monthly'">
-            <span>{{ $t('scheduled:when.onDay') }}</span>
-            <el-input-number v-model="task.schedule.day" :min="1" :max="28" size="small" controls-position="right" class="st-num" />
-          </template>
-          <template v-if="task.schedule.type !== 'interval'">
-            <span>{{ $t('scheduled:when.at') }}</span>
-            <el-time-select v-model="task.schedule.time" start="00:00" end="23:45" step="00:15" size="small" class="st-time" :clearable="false" />
-          </template>
-          <template v-else>
-            <span>{{ $t('scheduled:when.every') }}</span>
-            <el-input-number v-model="task.schedule.minutes" :min="5" :step="5" size="small" controls-position="right" class="st-num" />
-            <span>{{ $t('scheduled:when.minutes') }}</span>
-          </template>
+          <!-- One sentence per schedule, with its inputs in place (the word order changes by language). -->
+          <span v-if="task.schedule.type === 'monthly'" class="st-phrase"><I18nT :translation="$t('scheduled:when.monthlyInput')">
+            <template #day><el-input-number v-model="task.schedule.day" :min="1" :max="28" size="small" controls-position="right" class="st-num" /></template>
+            <template #time><el-time-select v-model="task.schedule.time" start="00:00" end="23:45" step="00:15" size="small" class="st-time" :clearable="false" /></template>
+          </I18nT></span>
+          <span v-else-if="task.schedule.type !== 'interval'" class="st-phrase"><I18nT :translation="$t('scheduled:when.atInput')">
+            <template #time><el-time-select v-model="task.schedule.time" start="00:00" end="23:45" step="00:15" size="small" class="st-time" :clearable="false" /></template>
+          </I18nT></span>
+          <span v-else class="st-phrase"><I18nT :translation="$t('scheduled:when.intervalInput', { count: task.schedule.minutes })">
+            <template #minutes><el-input-number v-model="task.schedule.minutes" :min="5" :step="5" size="small" controls-position="right" class="st-num" /></template>
+          </I18nT></span>
         </div>
         <p class="st-hint">{{ $t('scheduled:when.hint') }}<template v-if="item?.next_run"> {{ $t('scheduled:nextRunAt', { at: item.next_run }) }}</template></p>
       </section>
@@ -280,6 +278,7 @@ const stepLabel = (id: string) => {
 .st-sec h3 { margin: 6px 0 10px; }
 .st-when { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; font-size: 13px; }
 .st-type { width: 170px; }
+.st-phrase { display: inline-flex; align-items: center; gap: 8px; flex-wrap: wrap; }
 .st-time { width: 110px; }
 .st-num { width: 110px; }
 .st-hint { margin: 8px 0 0; font-size: 11.5px; color: var(--nm-text-dim); line-height: 1.5; }

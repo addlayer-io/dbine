@@ -36,12 +36,12 @@
   "messages": {
     "statement": "文 {{n}}: {{text}}。",
     "rows_other": "{{rows}} 行",
-    "shown": "(表示: {{rows}} 行)",
     "affected_other": "{{rows}} 行に影響",
     "completed": "完了",
     "elapsed": "{{ms}} ms",
     "line": "{{line}} 行目",
-    "goToLine": "エディターのこの行へ移動"
+    "goToLine": "エディターのこの行へ移動",
+    "rowsShown_other": "{{rows}} 行({{shown}} 行を表示)"
   },
   "status": {
     "done": "完了",
@@ -50,19 +50,15 @@
   "edit": {
     "lookingUpTable": "テーブルとそのキーを検索中…",
     "codeCopied": "コードをコピーしました",
-    "summary": "{{cells}}({{rows}})、未保存です。",
-    "cells_other": "{{count}} 個のセルを変更",
-    "rows_other": "{{count}} 行",
     "addToQuery": "クエリに追加",
     "discard": "破棄",
-    "summaryDeletes": "{{deletes}}、未保存です。",
-    "summaryBoth": "{{cells}}({{rows}})、{{deletes}}、未保存です。",
     "deletes_other": "削除する {{count}} 行",
     "pending": "{{list}}、未保存です。",
-    "cellsInRows": "{{cells}}({{rows}})",
     "newRows_other": "新しい {{count}} 行",
     "newDocs_other": "新しい {{count}} 個のドキュメント",
-    "convertedSpatial": "{{column}} は SDO_GEOMETRY を表示用にテキスト(WKT)へ変換したものです。変更は SQL で行います"
+    "convertedSpatial": "{{column}} は SDO_GEOMETRY を表示用にテキスト(WKT)へ変換したものです。変更は SQL で行います",
+    "changed_other": "$t(results:edit.inRows, {\"count\": {{rows}} })の {{count}} 個のセルを変更",
+    "inRows_other": "{{count}} 行"
   },
   "exportDialog": {
     "title": "結果をエクスポート",

@@ -32,15 +32,14 @@
       "monthly": "每月一次",
       "interval": "每隔几分钟"
     },
-    "at": "在",
-    "onDay": "每月",
-    "every": "每隔",
-    "minutes": "分钟",
     "daily": "每天 {{time}}",
     "weekly": "{{days}} {{time}}",
     "monthly": "每月 {{day}} 日 {{time}}",
     "interval_other": "每 {{count}} 分钟",
-    "hint": "在 DBine 关闭时也会运行，只要你的用户已登录。如果电脑处于关机状态，开机后会运行。"
+    "hint": "在 DBine 关闭时也会运行，只要你的用户已登录。如果电脑处于关机状态，开机后会运行。",
+    "atInput": "于 {time}",
+    "monthlyInput": "每月 {day} 日 {time}",
+    "intervalInput_other": "每 {minutes} 分钟"
   },
   "days": {
     "1": "周一",

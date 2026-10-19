@@ -14,14 +14,6 @@
     "info": "Info",
     "infoHint": "Cambio fiel que conviene saber"
   },
-  "confirm": {
-    "message": "Se van a crear {{count}} tabla(s) en {{where}} ({{engine}}){{data}}{{drop}}. ¿Continuar?",
-    "data": " y copiar todos sus datos",
-    "drop": ", borrando antes las que existan con el mismo nombre",
-    "clone": "Se van a clonar {{count}} tabla(s) en {{where}} ({{engine}}) con su estructura completa{{data}}. ¿Continuar?",
-    "cloneData": " y todos sus datos",
-    "sync": "Se van a sincronizar {{count}} tabla(s) en {{where}} ({{engine}}): se insertan, actualizan y borran las filas que difieren del origen. ¿Continuar?"
-  },
   "run": {
     "cancelled": "Migración cancelada",
     "finishedWithErrors": "Migración terminada con {{count}} error(es): revisá el resumen",
@@ -157,8 +149,9 @@
     "largestFirst": "Las más grandes primero",
     "smallestFirst": "Las más chicas primero",
     "alphabetical": "Alfabético",
-    "commitRows": "Confirmar cada",
-    "commitRowsHint": "(filas)"
+    "commitEvery_one": "Confirmar cada {rows} fila",
+    "commitEvery_many": "Confirmar cada {rows} filas",
+    "commitEvery_other": "Confirmar cada {rows} filas"
   },
   "interrupted": {
     "title": "Interrumpidas",
@@ -258,5 +251,28 @@
       "interrupted": "Interrumpida",
       "cancelled": "Cancelada"
     }
+  },
+  "confirm": {
+    "create_one": "Se va a crear {{count}} tabla en {{where}} ({{engine}}). ¿Continuar?",
+    "create_many": "Se van a crear {{count}} tablas en {{where}} ({{engine}}). ¿Continuar?",
+    "create_other": "Se van a crear {{count}} tablas en {{where}} ({{engine}}). ¿Continuar?",
+    "createData_one": "Se va a crear {{count}} tabla en {{where}} ({{engine}}) y copiar todos sus datos. ¿Continuar?",
+    "createData_many": "Se van a crear {{count}} tablas en {{where}} ({{engine}}) y copiar todos sus datos. ¿Continuar?",
+    "createData_other": "Se van a crear {{count}} tablas en {{where}} ({{engine}}) y copiar todos sus datos. ¿Continuar?",
+    "createDrop_one": "Se va a crear {{count}} tabla en {{where}} ({{engine}}), borrando antes la que exista con el mismo nombre. ¿Continuar?",
+    "createDrop_many": "Se van a crear {{count}} tablas en {{where}} ({{engine}}), borrando antes las que existan con el mismo nombre. ¿Continuar?",
+    "createDrop_other": "Se van a crear {{count}} tablas en {{where}} ({{engine}}), borrando antes las que existan con el mismo nombre. ¿Continuar?",
+    "createDataDrop_one": "Se va a crear {{count}} tabla en {{where}} ({{engine}}) y copiar todos sus datos, borrando antes la que exista con el mismo nombre. ¿Continuar?",
+    "createDataDrop_many": "Se van a crear {{count}} tablas en {{where}} ({{engine}}) y copiar todos sus datos, borrando antes las que existan con el mismo nombre. ¿Continuar?",
+    "createDataDrop_other": "Se van a crear {{count}} tablas en {{where}} ({{engine}}) y copiar todos sus datos, borrando antes las que existan con el mismo nombre. ¿Continuar?",
+    "clone_one": "Se va a clonar {{count}} tabla en {{where}} ({{engine}}) con su estructura completa. ¿Continuar?",
+    "clone_many": "Se van a clonar {{count}} tablas en {{where}} ({{engine}}) con su estructura completa. ¿Continuar?",
+    "clone_other": "Se van a clonar {{count}} tablas en {{where}} ({{engine}}) con su estructura completa. ¿Continuar?",
+    "cloneWithData_one": "Se va a clonar {{count}} tabla en {{where}} ({{engine}}) con su estructura completa y todos sus datos. ¿Continuar?",
+    "cloneWithData_many": "Se van a clonar {{count}} tablas en {{where}} ({{engine}}) con su estructura completa y todos sus datos. ¿Continuar?",
+    "cloneWithData_other": "Se van a clonar {{count}} tablas en {{where}} ({{engine}}) con su estructura completa y todos sus datos. ¿Continuar?",
+    "sync_one": "Se va a sincronizar {{count}} tabla en {{where}} ({{engine}}): se insertan, actualizan y borran las filas que difieren del origen. ¿Continuar?",
+    "sync_many": "Se van a sincronizar {{count}} tablas en {{where}} ({{engine}}): se insertan, actualizan y borran las filas que difieren del origen. ¿Continuar?",
+    "sync_other": "Se van a sincronizar {{count}} tablas en {{where}} ({{engine}}): se insertan, actualizan y borran las filas que difieren del origen. ¿Continuar?"
   }
 }

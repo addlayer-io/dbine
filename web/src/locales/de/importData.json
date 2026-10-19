@@ -78,6 +78,8 @@
     "partial_one": "{{n}} Zeile wurde importiert, bevor gestoppt wurde.",
     "partial_other": "{{n}} Zeilen wurden importiert, bevor gestoppt wurde.",
     "cancelledMessage": "Import abgebrochen.",
-    "cancelImport": "Import abbrechen"
+    "cancelImport": "Import abbrechen",
+    "ofRows_one": "von {{total}} Zeile",
+    "ofRows_other": "von {{total}} Zeilen"
   }
 }

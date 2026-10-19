@@ -59,7 +59,6 @@
   "count": {
     "insert_other": "삽입 {{n}}건",
     "update_other": "업데이트 {{n}}건",
-    "delete_other": "삭제 {{n}}건",
-    "and": "및"
+    "delete_other": "삭제 {{n}}건"
   }
 }

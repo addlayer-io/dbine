@@ -84,6 +84,8 @@
     "cancelImport": "Cancel import",
     "rows_many": "rows",
     "doneDetail_many": "{{n}} rows into {table} · {{seconds}} s",
-    "partial_many": "{{n}} rows were imported before it stopped."
+    "partial_many": "{{n}} rows were imported before it stopped.",
+    "ofRows_one": "of {{total}} row",
+    "ofRows_other": "of {{total}} rows"
   }
 }

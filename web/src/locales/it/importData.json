@@ -84,6 +84,9 @@
     "cancelImport": "Annulla importazione",
     "rows_many": "righe",
     "doneDetail_many": "{{n}} righe in {table} · {{seconds}} s",
-    "partial_many": "{{n}} righe sono state importate prima dell'interruzione."
+    "partial_many": "{{n}} righe sono state importate prima dell'interruzione.",
+    "ofRows_one": "su {{total}} riga",
+    "ofRows_many": "su {{total}} righe",
+    "ofRows_other": "su {{total}} righe"
   }
 }

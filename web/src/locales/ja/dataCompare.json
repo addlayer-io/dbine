@@ -59,7 +59,6 @@
   "count": {
     "insert_other": "{{n}} 件の挿入",
     "update_other": "{{n}} 件の更新",
-    "delete_other": "{{n}} 件の削除",
-    "and": "と"
+    "delete_other": "{{n}} 件の削除"
   }
 }

@@ -32,16 +32,16 @@
       "monthly": "Einmal im Monat",
       "interval": "Alle paar Minuten"
     },
-    "at": "um",
-    "onDay": "am Tag",
-    "every": "alle",
-    "minutes": "Minuten",
     "daily": "Jeden Tag um {{time}}",
     "weekly": "{{days}} um {{time}}",
     "monthly": "Am Tag {{day}} um {{time}}",
     "interval_one": "Jede {{count}} Minute",
     "interval_other": "Alle {{count}} Minuten",
-    "hint": "Läuft bei geschlossenem DBine, solange Ihr Benutzer angemeldet ist. War der Computer ausgeschaltet, läuft sie beim erneuten Einschalten."
+    "hint": "Läuft bei geschlossenem DBine, solange Ihr Benutzer angemeldet ist. War der Computer ausgeschaltet, läuft sie beim erneuten Einschalten.",
+    "atInput": "um {time}",
+    "monthlyInput": "am {day}. um {time}",
+    "intervalInput_one": "alle {minutes} Minute",
+    "intervalInput_other": "alle {minutes} Minuten"
   },
   "days": {
     "1": "Mo",

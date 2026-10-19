@@ -7,7 +7,7 @@ import { api, errorMessage } from '../api/client';
 import { dataCompareApi, type DataCompareResult, type DataScript, type DataSide, type Dir } from '../api/dataCompare';
 import type { Cell, ObjectRef, QueryProgress } from '../api/types';
 import { newQuery } from '../composables/actions';
-import { locale } from '../i18n';
+import { listOf, locale } from '../i18n';
 import { tb } from '../i18n/backend';
 import { dbKey, objKey, useConnectionsStore } from '../stores/connections';
 import { useTabsStore, type DataCompareTab } from '../stores/tabs';
@@ -289,7 +289,7 @@ function summaryOf(sc: DataScript) {
   const parts = ([['insert', sc.inserts], ['update', sc.updates], ['delete', sc.deletes]] as const)
     .filter(([, n]) => n > 0)
     .map(([k, n]) => t(`dataCompare:count.${k}`, { count: n, n: fmtN(n) }));
-  return parts.length > 1 ? `${parts.slice(0, -1).join(', ')} ${t('dataCompare:count.and')} ${parts[parts.length - 1]}` : parts[0] ?? '';
+  return listOf(parts);
 }
 const currentScript = computed(() => scripts.value.find((s) => s.side === sync.tab) ?? null);
 async function copyScript() {

@@ -230,7 +230,6 @@
       "reading": "Чтение файла",
       "inserting": "Вставка строк"
     },
-    "ofTotal": "из {{total}}",
     "estimated": "из ~{{total}} по оценке"
   }
 }

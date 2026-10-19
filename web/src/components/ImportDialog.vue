@@ -570,7 +570,7 @@ defineExpose({ step, targetMode });
           <div class="im-stats">
             <div>
               <span class="im-stat">{{ progressRows.toLocaleString(locale()) }}</span>
-              <span v-if="percent != null" class="nm-muted">{{ $t('tasks:importExport.ofTotal', { total: progressTotal!.toLocaleString(locale()) }) }} {{ $t('importData:run.rows', { count: progressTotal! }) }}</span>
+              <span v-if="percent != null" class="nm-muted">{{ $t('importData:run.ofRows', { count: progressTotal!, total: progressTotal!.toLocaleString(locale()) }) }}</span>
               <span v-else class="nm-muted">{{ $t('importData:run.rows', { count: progressRows }) }}</span>
             </div>
             <div><span class="im-stat">{{ rate.toLocaleString(locale()) }}</span><span class="nm-muted">{{ $t('importData:run.rowsPerSecond') }}</span></div>

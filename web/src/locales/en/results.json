@@ -41,7 +41,6 @@
     "statement": "Statement {{n}}: {{text}}.",
     "rows_one": "{{rows}} row",
     "rows_other": "{{rows}} rows",
-    "shown": " ({{rows}} shown)",
     "affected_one": "{{rows}} row affected",
     "affected_other": "{{rows}} rows affected",
     "completed": "completed",
@@ -49,7 +48,9 @@
     "affected_many": "{{rows}} rows affected",
     "elapsed": "{{ms}} ms",
     "line": "Line {{line}}",
-    "goToLine": "Go to this line in the editor"
+    "goToLine": "Go to this line in the editor",
+    "rowsShown_one": "{{rows}} row ({{shown}} shown)",
+    "rowsShown_other": "{{rows}} rows ({{shown}} shown)"
   },
   "status": {
     "done": "Completed",
@@ -58,29 +59,23 @@
   "edit": {
     "lookingUpTable": "looking up the table and its key…",
     "codeCopied": "Code copied",
-    "summary": "{{cells}} in {{rows}}, not saved yet.",
-    "cells_one": "{{count}} cell changed",
-    "cells_other": "{{count}} cells changed",
-    "rows_one": "{{count}} row",
-    "rows_other": "{{count}} rows",
     "addToQuery": "Add to the query",
     "discard": "Discard",
-    "cells_many": "{{count}} cells changed",
-    "rows_many": "{{count}} rows",
-    "summaryDeletes": "{{deletes}}, not saved.",
-    "summaryBoth": "{{cells}} in {{rows}}, {{deletes}}, not saved.",
     "deletes_one": "{{count}} row to delete",
     "deletes_many": "{{count}} rows to delete",
     "deletes_other": "{{count}} rows to delete",
     "pending": "{{list}}, unsaved.",
-    "cellsInRows": "{{cells}} in {{rows}}",
     "newRows_one": "{{count}} new row",
     "newRows_many": "{{count}} new rows",
     "newRows_other": "{{count}} new rows",
     "newDocs_one": "{{count}} new document",
     "newDocs_many": "{{count}} new documents",
     "newDocs_other": "{{count}} new documents",
-    "convertedSpatial": "{{column}} is SDO_GEOMETRY converted to text (WKT) to show it; change it with SQL"
+    "convertedSpatial": "{{column}} is SDO_GEOMETRY converted to text (WKT) to show it; change it with SQL",
+    "changed_one": "{{count}} cell changed in $t(results:edit.inRows, {\"count\": {{rows}} })",
+    "changed_other": "{{count}} cells changed in $t(results:edit.inRows, {\"count\": {{rows}} })",
+    "inRows_one": "{{count}} row",
+    "inRows_other": "{{count}} rows"
   },
   "exportDialog": {
     "title": "Export result",

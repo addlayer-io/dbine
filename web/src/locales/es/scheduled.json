@@ -32,16 +32,17 @@
       "monthly": "Una vez al mes",
       "interval": "Cada tantos minutos"
     },
-    "at": "a las",
-    "onDay": "el día",
-    "every": "cada",
-    "minutes": "minutos",
     "daily": "Todos los días a las {{time}}",
     "weekly": "{{days}} a las {{time}}",
     "monthly": "El día {{day}} a las {{time}}",
     "interval_one": "Cada {{count}} minuto",
     "interval_other": "Cada {{count}} minutos",
-    "hint": "Corre con DBine cerrado, mientras tu usuario tenga la sesión iniciada. Si la computadora estaba apagada, corre al volver a encenderla."
+    "hint": "Corre con DBine cerrado, mientras tu usuario tenga la sesión iniciada. Si la computadora estaba apagada, corre al volver a encenderla.",
+    "atInput": "a las {time}",
+    "monthlyInput": "el día {day} a las {time}",
+    "intervalInput_one": "cada {minutes} minuto",
+    "intervalInput_many": "cada {minutes} minutos",
+    "intervalInput_other": "cada {minutes} minutos"
   },
   "days": {
     "1": "Lun",

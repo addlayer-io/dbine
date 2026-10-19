@@ -28,7 +28,6 @@
   "passwords": "パスワードをインポート(システムのキーチェーンに保存されます)",
   "importN": "{{n}} 件をインポート",
   "imported_other": "{{count}} 件の接続をインポートしました",
-  "andFolders_other": "、{{count}} 個のフォルダー",
   "failedTitle": "インポートされませんでした",
   "gotIt": "了解",
   "suggestion": {
@@ -39,5 +38,7 @@
     "hintAfter": "ボタンからいつでもインポートできます。",
     "notNow": "今はしない",
     "viewAndImport": "確認してインポート…"
-  }
+  },
+  "importedWithFolders_other": "接続 {{count}} 件と $t(importConnections:folders, {\"count\": {{folders}} })をインポートしました",
+  "folders_other": "{{count}} 個のフォルダー"
 }

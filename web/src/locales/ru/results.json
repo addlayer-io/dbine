@@ -20,10 +20,8 @@
     "title": "Экспорт результата",
     "advanced": "Расширенный экспорт…",
     "done_one": "Экспортирована {{rows}} строка",
-    "done_few": "Экспортировано {{rows}} строки",
     "done_other": "Экспортировано {{rows}} строки",
     "doneLoaded_one": "Экспортирована {{rows}} строка (загруженные). Для всех: расширенный экспорт (⌘E).",
-    "doneLoaded_few": "Экспортировано {{rows}} строки (загруженные). Для всех: расширенный экспорт (⌘E).",
     "doneLoaded_other": "Экспортировано {{rows}} строки (загруженные). Для всех: расширенный экспорт (⌘E).",
     "format": {
       "json": "JSON",
@@ -37,23 +35,28 @@
       "xml": "XML"
     },
     "done_many": "Экспортировано {{rows}} строк",
-    "doneLoaded_many": "Экспортировано {{rows}} строк (загруженные). Для всех: расширенный экспорт (⌘E)."
+    "doneLoaded_many": "Экспортировано {{rows}} строк (загруженные). Для всех: расширенный экспорт (⌘E).",
+    "done_few": "Экспортировано {{rows}} строки",
+    "doneLoaded_few": "Экспортировано {{rows}} строки (загруженные). Для всех: расширенный экспорт (⌘E)."
   },
   "messages": {
     "statement": "Инструкция {{n}}: {{text}}.",
     "rows_one": "{{rows}} строка",
-    "rows_few": "{{rows}} строки",
     "rows_other": "{{rows}} строки",
-    "shown": " (показано: {{rows}})",
     "affected_one": "Затронута {{rows}} строка",
-    "affected_few": "Затронуто {{rows}} строки",
     "affected_other": "Затронуто {{rows}} строки",
     "completed": "выполнено",
     "rows_many": "{{rows}} строк",
     "affected_many": "Затронуто {{rows}} строк",
     "elapsed": "{{ms}} мс",
     "line": "Строка {{line}}",
-    "goToLine": "Перейти к этой строке в редакторе"
+    "goToLine": "Перейти к этой строке в редакторе",
+    "rowsShown_one": "{{rows}} строка (показано {{shown}})",
+    "rowsShown_many": "{{rows}} строк (показано {{shown}})",
+    "rowsShown_other": "{{rows}} строки (показано {{shown}})",
+    "rows_few": "{{rows}} строки",
+    "affected_few": "Затронуто {{rows}} строки",
+    "rowsShown_few": "{{rows}} строки (показано {{shown}})"
   },
   "status": {
     "done": "Выполнено",
@@ -62,34 +65,30 @@
   "edit": {
     "lookingUpTable": "поиск таблицы и её ключа…",
     "codeCopied": "Код скопирован",
-    "summary": "{{cells}} в {{rows}}, ещё не сохранено.",
-    "cells_one": "Изменена {{count}} ячейка",
-    "cells_few": "Изменено {{count}} ячейки",
-    "cells_other": "Изменено {{count}} ячейки",
-    "rows_one": "{{count}} строке",
-    "rows_few": "{{count}} строках",
-    "rows_other": "{{count}} строках",
     "addToQuery": "Добавить в запрос",
     "discard": "Отменить",
-    "cells_many": "Изменено {{count}} ячеек",
-    "rows_many": "{{count}} строках",
-    "summaryDeletes": "{{deletes}}, не сохранено.",
-    "summaryBoth": "{{cells}} в {{rows}}, {{deletes}}, не сохранено.",
     "deletes_one": "{{count}} строка для удаления",
     "deletes_many": "{{count}} строк для удаления",
-    "deletes_few": "{{count}} строки для удаления",
     "deletes_other": "{{count}} строки для удаления",
     "pending": "{{list}}, не сохранено.",
-    "cellsInRows": "{{cells}} в {{rows}}",
     "newRows_one": "{{count}} новая строка",
     "newRows_many": "{{count}} новых строк",
-    "newRows_few": "{{count}} новые строки",
     "newRows_other": "{{count}} новые строки",
     "newDocs_one": "{{count}} новый документ",
     "newDocs_many": "{{count}} новых документов",
-    "newDocs_few": "{{count}} новых документа",
     "newDocs_other": "{{count}} новых документа",
-    "convertedSpatial": "{{column}} — SDO_GEOMETRY, преобразованный в текст (WKT) для показа; изменяйте его через SQL"
+    "convertedSpatial": "{{column}} — SDO_GEOMETRY, преобразованный в текст (WKT) для показа; изменяйте его через SQL",
+    "changed_one": "Изменена {{count}} ячейка в $t(results:edit.inRows, {\"count\": {{rows}} })",
+    "changed_many": "Изменено {{count}} ячеек в $t(results:edit.inRows, {\"count\": {{rows}} })",
+    "changed_other": "Изменено {{count}} ячейки в $t(results:edit.inRows, {\"count\": {{rows}} })",
+    "inRows_one": "{{count}} строке",
+    "inRows_many": "{{count}} строках",
+    "inRows_other": "{{count}} строках",
+    "deletes_few": "{{count}} строки для удаления",
+    "newRows_few": "{{count}} новые строки",
+    "newDocs_few": "{{count}} новых документа",
+    "changed_few": "Изменены {{count}} ячейки в $t(results:edit.inRows, {\"count\": {{rows}} })",
+    "inRows_few": "{{count}} строках"
   },
   "exportDialog": {
     "title": "Экспорт результата",
@@ -122,15 +121,15 @@
     "xmlRow": "Элемент на строку",
     "progress": "Экспорт…",
     "progressRows_one": "Экспорт… {{rows}} строка",
-    "progressRows_few": "Экспорт… {{rows}} строки",
     "progressRows_other": "Экспорт… {{rows}} строки",
     "cancelExport": "Отменить экспорт",
     "submit": "Экспортировать…",
     "done_one": "Экспортирована {{rows}} строка за {{seconds}} с",
-    "done_few": "Экспортировано {{rows}} строки за {{seconds}} с",
     "done_other": "Экспортировано {{rows}} строки за {{seconds}} с",
     "progressRows_many": "Экспорт… {{rows}} строк",
-    "done_many": "Экспортировано {{rows}} строк за {{seconds}} с"
+    "done_many": "Экспортировано {{rows}} строк за {{seconds}} с",
+    "progressRows_few": "Экспорт… {{rows}} строки",
+    "done_few": "Экспортировано {{rows}} строки за {{seconds}} с"
   },
   "grid": {
     "cantEdit": "Нельзя изменить: {{reason}}",
@@ -283,7 +282,6 @@
     "binsAuto": "Автоматически",
     "pickYAxis": "Выберите столбец для «Оси Y».",
     "kpiRows_one": "по {{rows}} строке",
-    "kpiRows_few": "по {{rows}} строкам",
     "kpiRows_other": "по {{rows}} строкам",
     "kpiRows_many": "по {{rows}} строкам",
     "whole": {
@@ -298,20 +296,21 @@
       "refresh": "Вычислить заново",
       "server": "Агрегировано на сервере",
       "duckdb_one": "Агрегировано в DuckDB по {{rows}} строке",
-      "duckdb_few": "Агрегировано в DuckDB по {{rows}} строкам",
       "duckdb_other": "Агрегировано в DuckDB по {{rows}} строкам",
       "duckdb_many": "Агрегировано в DuckDB по {{rows}} строкам",
       "duckdbNoCount": "Агрегировано в DuckDB",
       "client_one": "Агрегировано в DBine по {{rows}} строке",
-      "client_few": "Агрегировано в DBine по {{rows}} строкам",
       "client_other": "Агрегировано в DBine по {{rows}} строкам",
       "client_many": "Агрегировано в DBine по {{rows}} строкам",
       "clientNoCount": "Агрегировано в DBine",
       "capped": "Агрегировано в DBine по первым {{rows}} строкам (максимум, который читается)",
       "truncated": "только первые группы",
       "stored": "сохранено вместе с блокнотом",
-      "cancelled": "Вычисление отменено: показаны загруженные строки."
-    }
+      "cancelled": "Вычисление отменено: показаны загруженные строки.",
+      "duckdb_few": "Агрегировано в DuckDB по {{rows}} строкам",
+      "client_few": "Агрегировано в DBine по {{rows}} строкам"
+    },
+    "kpiRows_few": "по {{rows}} строкам"
   },
   "insert": {
     "addRow": "Добавить строку",
@@ -338,7 +337,6 @@
     "expand": "Развернуть:",
     "levels_one": "Развернуть {{count}} уровень",
     "levels_many": "Развернуть уровней: {{count}}",
-    "levels_few": "Развернуть {{count}} уровня",
     "levels_other": "Развернуть {{count}} уровня",
     "expandAll": "Развернуть все",
     "collapseAll": "Свернуть все",
@@ -359,6 +357,7 @@
     "editJsonTitle": "Изменение {{path}}",
     "removeField": "Удалить это поле",
     "edited": "Изменено: сохраняется кнопкой «Сохранить»",
-    "apply": "Применить"
+    "apply": "Применить",
+    "levels_few": "Развернуть {{count}} уровня"
   }
 }

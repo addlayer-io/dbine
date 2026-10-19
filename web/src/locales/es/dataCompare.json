@@ -69,7 +69,6 @@
     "update_other": "{{n}} actualizaciones",
     "delete_one": "{{n}} borrado",
     "delete_many": "{{n}} borrados",
-    "delete_other": "{{n}} borrados",
-    "and": "y"
+    "delete_other": "{{n}} borrados"
   }
 }

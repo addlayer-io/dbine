@@ -72,6 +72,7 @@
     "doneDetail_other": "{{n}} 行已导入 {table} · {{seconds}} 秒",
     "partial_other": "停止前已导入 {{n}} 行。",
     "cancelledMessage": "导入已取消。",
-    "cancelImport": "取消导入"
+    "cancelImport": "取消导入",
+    "ofRows_other": "/ {{total}} 行"
   }
 }

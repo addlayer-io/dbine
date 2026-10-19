@@ -64,7 +64,6 @@
     "update_one": "{{n}} Aktualisierung",
     "update_other": "{{n}} Aktualisierungen",
     "delete_one": "{{n}} Löschung",
-    "delete_other": "{{n}} Löschungen",
-    "and": "und"
+    "delete_other": "{{n}} Löschungen"
   }
 }

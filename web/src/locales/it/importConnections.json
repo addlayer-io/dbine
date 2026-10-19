@@ -29,8 +29,6 @@
   "importN": "Importa {{n}}",
   "imported_one": "{{count}} connessione importata",
   "imported_other": "{{count}} connessioni importate",
-  "andFolders_one": " e {{count}} cartella",
-  "andFolders_other": " e {{count}} cartelle",
   "failedTitle": "Non importate",
   "gotIt": "Ho capito",
   "suggestion": {
@@ -45,5 +43,10 @@
     "count_many": "{{count}} connessioni"
   },
   "imported_many": "{{count}} connessioni importate",
-  "andFolders_many": " e {{count}} cartelle"
+  "importedWithFolders_one": "{{count}} connessione importata e $t(importConnections:folders, {\"count\": {{folders}} })",
+  "importedWithFolders_many": "{{count}} connessioni importate e $t(importConnections:folders, {\"count\": {{folders}} })",
+  "importedWithFolders_other": "{{count}} connessioni importate e $t(importConnections:folders, {\"count\": {{folders}} })",
+  "folders_one": "{{count}} cartella",
+  "folders_many": "{{count}} cartelle",
+  "folders_other": "{{count}} cartelle"
 }

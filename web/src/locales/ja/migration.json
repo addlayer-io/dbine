@@ -14,14 +14,6 @@
     "info": "情報",
     "infoHint": "忠実な変更ですが、知っておくとよい内容です"
   },
-  "confirm": {
-    "message": "{{where}}({{engine}})に {{count}} 個のテーブルを作成します{{data}}{{drop}}。続行しますか？",
-    "data": "。すべてのデータもコピーします",
-    "drop": "。同名のテーブルが存在する場合は先に削除します",
-    "clone": "{{where}}({{engine}})に {{count}} 個のテーブルを完全な構造でクローンします{{data}}。続行しますか？",
-    "cloneData": "。すべてのデータも含みます",
-    "sync": "{{where}}({{engine}})の {{count}} 個のテーブルを同期します。コピー元と異なる行は挿入、更新、削除されます。続行しますか？"
-  },
   "run": {
     "cancelled": "移行をキャンセルしました",
     "finishedWithErrors": "移行は {{count}} 件のエラーで終了しました。サマリーを確認してください",
@@ -157,8 +149,7 @@
     "largestFirst": "大きいものから",
     "smallestFirst": "小さいものから",
     "alphabetical": "アルファベット順",
-    "commitRows": "コミット間隔",
-    "commitRowsHint": "(行)"
+    "commitEvery_other": "{rows} 行ごとにコミット"
   },
   "interrupted": {
     "title": "中断",
@@ -258,5 +249,14 @@
       "interrupted": "中断",
       "cancelled": "キャンセル済み"
     }
+  },
+  "confirm": {
+    "create_other": "{{where}}({{engine}})に {{count}} 個のテーブルを作成します。続行しますか？",
+    "createData_other": "{{where}}({{engine}})に {{count}} 個のテーブルを作成し、すべてのデータもコピーします。続行しますか？",
+    "createDrop_other": "{{where}}({{engine}})に {{count}} 個のテーブルを作成します。同名のテーブルが存在する場合は先に削除します。続行しますか？",
+    "createDataDrop_other": "{{where}}({{engine}})に {{count}} 個のテーブルを作成し、すべてのデータもコピーします。同名のテーブルが存在する場合は先に削除します。続行しますか？",
+    "clone_other": "{{where}}({{engine}})に {{count}} 個のテーブルを完全な構造でクローンします。続行しますか？",
+    "cloneWithData_other": "{{where}}({{engine}})に {{count}} 個のテーブルを完全な構造とすべてのデータでクローンします。続行しますか？",
+    "sync_other": "{{where}}({{engine}})の {{count}} 個のテーブルを同期します。コピー元と異なる行は挿入、更新、削除されます。続行しますか？"
   }
 }

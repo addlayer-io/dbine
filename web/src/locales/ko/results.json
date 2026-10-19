@@ -36,12 +36,12 @@
   "messages": {
     "statement": "문 {{n}}: {{text}}.",
     "rows_other": "{{rows}}개 행",
-    "shown": " ({{rows}}개 표시)",
     "affected_other": "{{rows}}개 행 영향받음",
     "completed": "완료됨",
     "elapsed": "{{ms}}ms",
     "line": "{{line}}번째 줄",
-    "goToLine": "편집기에서 이 줄로 이동"
+    "goToLine": "편집기에서 이 줄로 이동",
+    "rowsShown_other": "{{rows}}행({{shown}}행 표시)"
   },
   "status": {
     "done": "완료됨",
@@ -50,19 +50,15 @@
   "edit": {
     "lookingUpTable": "테이블과 키를 찾는 중…",
     "codeCopied": "코드를 복사했습니다",
-    "summary": "{{rows}}의 {{cells}}, 저장되지 않음.",
-    "cells_other": "수정된 셀 {{count}}개",
-    "rows_other": "{{count}}개 행",
     "addToQuery": "쿼리에 추가",
     "discard": "취소",
-    "summaryDeletes": "{{deletes}}, 저장되지 않음.",
-    "summaryBoth": "{{rows}}의 {{cells}}, {{deletes}}, 저장되지 않음.",
     "deletes_other": "삭제할 행 {{count}}개",
     "pending": "{{list}}, 저장되지 않음.",
-    "cellsInRows": "{{rows}}의 {{cells}}",
     "newRows_other": "새 행 {{count}}개",
     "newDocs_other": "새 문서 {{count}}개",
-    "convertedSpatial": "{{column}}은(는) 표시를 위해 텍스트(WKT)로 변환된 SDO_GEOMETRY입니다. SQL로 수정하세요"
+    "convertedSpatial": "{{column}}은(는) 표시를 위해 텍스트(WKT)로 변환된 SDO_GEOMETRY입니다. SQL로 수정하세요",
+    "changed_other": "$t(results:edit.inRows, {\"count\": {{rows}} })에서 셀 {{count}}개 변경됨",
+    "inRows_other": "{{count}}행"
   },
   "exportDialog": {
     "title": "결과 내보내기",

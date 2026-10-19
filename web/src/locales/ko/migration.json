@@ -14,14 +14,6 @@
     "info": "정보",
     "infoHint": "충실한 변경이지만 알아 두면 좋습니다"
   },
-  "confirm": {
-    "message": "{{where}}({{engine}})에 테이블 {{count}}개를 만듭니다{{data}}{{drop}}. 계속할까요?",
-    "data": " (모든 데이터도 복사)",
-    "drop": " (같은 이름의 기존 테이블은 먼저 삭제)",
-    "clone": "{{where}}({{engine}})에 테이블 {{count}}개를 전체 구조로 복제합니다{{data}}. 계속할까요?",
-    "cloneData": " (모든 데이터 포함)",
-    "sync": "{{where}}({{engine}})의 테이블 {{count}}개가 동기화됩니다. 원본과 다른 행이 삽입, 업데이트, 삭제됩니다. 계속할까요?"
-  },
   "run": {
     "cancelled": "마이그레이션이 취소되었습니다",
     "finishedWithErrors": "마이그레이션이 오류 {{count}}개와 함께 완료되었습니다. 요약을 확인하세요",
@@ -157,8 +149,7 @@
     "largestFirst": "큰 것부터",
     "smallestFirst": "작은 것부터",
     "alphabetical": "가나다순",
-    "commitRows": "커밋 단위",
-    "commitRowsHint": "(행)"
+    "commitEvery_other": "{rows}행마다 커밋"
   },
   "interrupted": {
     "title": "중단됨",
@@ -258,5 +249,14 @@
       "interrupted": "중단됨",
       "cancelled": "취소됨"
     }
+  },
+  "confirm": {
+    "create_other": "{{where}}({{engine}})에 테이블 {{count}}개를 만듭니다. 계속할까요?",
+    "createData_other": "{{where}}({{engine}})에 테이블 {{count}}개를 만들고 모든 데이터를 복사합니다. 계속할까요?",
+    "createDrop_other": "{{where}}({{engine}})에 테이블 {{count}}개를 만듭니다. 같은 이름의 기존 테이블은 먼저 삭제합니다. 계속할까요?",
+    "createDataDrop_other": "{{where}}({{engine}})에 테이블 {{count}}개를 만들고 모든 데이터를 복사합니다. 같은 이름의 기존 테이블은 먼저 삭제합니다. 계속할까요?",
+    "clone_other": "{{where}}({{engine}})에 테이블 {{count}}개를 전체 구조로 복제합니다. 계속할까요?",
+    "cloneWithData_other": "{{where}}({{engine}})에 테이블 {{count}}개를 전체 구조와 모든 데이터로 복제합니다. 계속할까요?",
+    "sync_other": "{{where}}({{engine}})의 테이블 {{count}}개를 동기화합니다. 원본과 다른 행이 삽입, 업데이트, 삭제됩니다. 계속할까요?"
   }
 }

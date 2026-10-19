@@ -197,7 +197,6 @@
       "reading": "파일을 읽는 중",
       "inserting": "행을 삽입하는 중"
     },
-    "ofTotal": "/ 전체 {{total}}",
     "estimated": "/ 예상 ~{{total}}"
   }
 }

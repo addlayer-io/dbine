@@ -84,6 +84,9 @@
     "cancelImport": "Cancelar importación",
     "rows_many": "filas",
     "doneDetail_many": "{{n}} filas en {table} · {{seconds}} s",
-    "partial_many": "Se llegaron a importar {{n}} filas antes de detenerse."
+    "partial_many": "Se llegaron a importar {{n}} filas antes de detenerse.",
+    "ofRows_one": "de {{total}} fila",
+    "ofRows_many": "de {{total}} filas",
+    "ofRows_other": "de {{total}} filas"
   }
 }

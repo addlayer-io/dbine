@@ -84,6 +84,9 @@
     "cancelImport": "Annuler l'importation",
     "rows_many": "lignes",
     "doneDetail_many": "{{n}} lignes dans {table} · {{seconds}} s",
-    "partial_many": "{{n}} lignes ont été importées avant l'arrêt."
+    "partial_many": "{{n}} lignes ont été importées avant l'arrêt.",
+    "ofRows_one": "sur {{total}} ligne",
+    "ofRows_many": "sur {{total}} lignes",
+    "ofRows_other": "sur {{total}} lignes"
   }
 }

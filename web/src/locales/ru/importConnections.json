@@ -28,25 +28,29 @@
   "passwords": "Импортировать пароли (сохраняются в системной связке ключей)",
   "importN": "Импортировать: {{n}}",
   "imported_one": "Импортировано {{count}} подключение",
-  "imported_few": "Импортировано {{count}} подключения",
   "imported_other": "Импортировано {{count}} подключения",
-  "andFolders_one": " и {{count}} папка",
-  "andFolders_few": " и {{count}} папки",
-  "andFolders_other": " и {{count}} папки",
   "failedTitle": "Не импортировано",
   "gotIt": "Понятно",
   "suggestion": {
     "title": "Перенести ваши подключения?",
     "found": "На этом компьютере найдены подключения из других инструментов:",
     "count_one": "{{count}} подключение",
-    "count_few": "{{count}} подключения",
     "count_other": "{{count}} подключения",
     "hintBefore": "Они импортируются вместе с папками и паролями, которые попадают в системную связку ключей. Или вы можете сделать это в любой момент кнопкой",
     "hintAfter": "в обозревателе.",
     "notNow": "Не сейчас",
     "viewAndImport": "Просмотреть и импортировать…",
-    "count_many": "{{count}} подключений"
+    "count_many": "{{count}} подключений",
+    "count_few": "{{count}} подключения"
   },
   "imported_many": "Импортировано подключений: {{count}}",
-  "andFolders_many": " и папок: {{count}}"
+  "importedWithFolders_one": "Импортировано {{count}} подключение и $t(importConnections:folders, {\"count\": {{folders}} })",
+  "importedWithFolders_many": "Импортировано {{count}} подключений и $t(importConnections:folders, {\"count\": {{folders}} })",
+  "importedWithFolders_other": "Импортировано {{count}} подключения и $t(importConnections:folders, {\"count\": {{folders}} })",
+  "folders_one": "{{count}} папку",
+  "folders_many": "{{count}} папок",
+  "folders_other": "{{count}} папки",
+  "imported_few": "Импортировано {{count}} подключения",
+  "importedWithFolders_few": "Импортировано {{count}} подключения и $t(importConnections:folders, {\"count\": {{folders}} })",
+  "folders_few": "{{count}} папки"
 }

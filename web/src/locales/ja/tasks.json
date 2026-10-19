@@ -197,7 +197,6 @@
       "reading": "ファイルを読み込み中",
       "inserting": "行を挿入中"
     },
-    "ofTotal": "/ {{total}}",
     "estimated": "/ 推定約 {{total}}"
   }
 }

@@ -14,14 +14,6 @@
     "info": "Info",
     "infoHint": "Alteração fiel que convém saber"
   },
-  "confirm": {
-    "message": "Serão criadas {{count}} tabela(s) em {{where}} ({{engine}}){{data}}{{drop}}. Continuar?",
-    "data": " e copiados todos os seus dados",
-    "drop": ", excluindo antes as que existirem com o mesmo nome",
-    "clone": "Serão clonadas {{count}} tabela(s) em {{where}} ({{engine}}) com a estrutura completa{{data}}. Continuar?",
-    "cloneData": " e todos os seus dados",
-    "sync": "Serão sincronizadas {{count}} tabela(s) em {{where}} ({{engine}}): as linhas que diferem da origem são inseridas, atualizadas e excluídas. Continuar?"
-  },
   "run": {
     "cancelled": "Migração cancelada",
     "finishedWithErrors": "Migração concluída com {{count}} erro(s): confira o resumo",
@@ -157,8 +149,9 @@
     "largestFirst": "As maiores primeiro",
     "smallestFirst": "As menores primeiro",
     "alphabetical": "Alfabética",
-    "commitRows": "Confirmar a cada",
-    "commitRowsHint": "(linhas)"
+    "commitEvery_one": "Confirmar a cada {rows} linha",
+    "commitEvery_many": "Confirmar a cada {rows} linhas",
+    "commitEvery_other": "Confirmar a cada {rows} linhas"
   },
   "interrupted": {
     "title": "Interrompidas",
@@ -258,5 +251,28 @@
       "interrupted": "Interrompida",
       "cancelled": "Cancelada"
     }
+  },
+  "confirm": {
+    "create_one": "Será criada {{count}} tabela em {{where}} ({{engine}}). Continuar?",
+    "create_many": "Serão criadas {{count}} tabelas em {{where}} ({{engine}}). Continuar?",
+    "create_other": "Serão criadas {{count}} tabelas em {{where}} ({{engine}}). Continuar?",
+    "createData_one": "Será criada {{count}} tabela em {{where}} ({{engine}}) e todos os seus dados serão copiados. Continuar?",
+    "createData_many": "Serão criadas {{count}} tabelas em {{where}} ({{engine}}) e todos os seus dados serão copiados. Continuar?",
+    "createData_other": "Serão criadas {{count}} tabelas em {{where}} ({{engine}}) e todos os seus dados serão copiados. Continuar?",
+    "createDrop_one": "Será criada {{count}} tabela em {{where}} ({{engine}}), excluindo antes a que existir com o mesmo nome. Continuar?",
+    "createDrop_many": "Serão criadas {{count}} tabelas em {{where}} ({{engine}}), excluindo antes as que existirem com o mesmo nome. Continuar?",
+    "createDrop_other": "Serão criadas {{count}} tabelas em {{where}} ({{engine}}), excluindo antes as que existirem com o mesmo nome. Continuar?",
+    "createDataDrop_one": "Será criada {{count}} tabela em {{where}} ({{engine}}) e todos os seus dados serão copiados, excluindo antes a que existir com o mesmo nome. Continuar?",
+    "createDataDrop_many": "Serão criadas {{count}} tabelas em {{where}} ({{engine}}) e todos os seus dados serão copiados, excluindo antes as que existirem com o mesmo nome. Continuar?",
+    "createDataDrop_other": "Serão criadas {{count}} tabelas em {{where}} ({{engine}}) e todos os seus dados serão copiados, excluindo antes as que existirem com o mesmo nome. Continuar?",
+    "clone_one": "Será clonada {{count}} tabela em {{where}} ({{engine}}) com a estrutura completa. Continuar?",
+    "clone_many": "Serão clonadas {{count}} tabelas em {{where}} ({{engine}}) com a estrutura completa. Continuar?",
+    "clone_other": "Serão clonadas {{count}} tabelas em {{where}} ({{engine}}) com a estrutura completa. Continuar?",
+    "cloneWithData_one": "Será clonada {{count}} tabela em {{where}} ({{engine}}) com a estrutura completa e todos os seus dados. Continuar?",
+    "cloneWithData_many": "Serão clonadas {{count}} tabelas em {{where}} ({{engine}}) com a estrutura completa e todos os seus dados. Continuar?",
+    "cloneWithData_other": "Serão clonadas {{count}} tabelas em {{where}} ({{engine}}) com a estrutura completa e todos os seus dados. Continuar?",
+    "sync_one": "Será sincronizada {{count}} tabela em {{where}} ({{engine}}): as linhas que diferem da origem são inseridas, atualizadas e excluídas. Continuar?",
+    "sync_many": "Serão sincronizadas {{count}} tabelas em {{where}} ({{engine}}): as linhas que diferem da origem são inseridas, atualizadas e excluídas. Continuar?",
+    "sync_other": "Serão sincronizadas {{count}} tabelas em {{where}} ({{engine}}): as linhas que diferem da origem são inseridas, atualizadas e excluídas. Continuar?"
   }
 }

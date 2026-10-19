@@ -14,14 +14,6 @@
     "info": "Info",
     "infoHint": "Faithful change worth knowing"
   },
-  "confirm": {
-    "message": "{{count}} table(s) will be created in {{where}} ({{engine}}){{data}}{{drop}}. Continue?",
-    "data": " and all their data copied",
-    "drop": ", first dropping any existing ones with the same name",
-    "clone": "{{count}} table(s) will be cloned into {{where}} ({{engine}}) with their full structure{{data}}. Continue?",
-    "cloneData": " and all their data",
-    "sync": "{{count}} table(s) will be synced in {{where}} ({{engine}}): the rows that differ from the source are inserted, updated and deleted. Continue?"
-  },
   "run": {
     "cancelled": "Migration cancelled",
     "finishedWithErrors": "Migration finished with {{count}} error(s): check the summary",
@@ -157,8 +149,8 @@
     "largestFirst": "Largest first",
     "smallestFirst": "Smallest first",
     "alphabetical": "Alphabetical",
-    "commitRows": "Commit every",
-    "commitRowsHint": "(rows)"
+    "commitEvery_one": "Commit every {rows} row",
+    "commitEvery_other": "Commit every {rows} rows"
   },
   "interrupted": {
     "title": "Interrupted",
@@ -258,5 +250,21 @@
       "interrupted": "Interrupted",
       "cancelled": "Cancelled"
     }
+  },
+  "confirm": {
+    "create_one": "{{count}} table will be created in {{where}} ({{engine}}). Continue?",
+    "create_other": "{{count}} tables will be created in {{where}} ({{engine}}). Continue?",
+    "createData_one": "{{count}} table will be created in {{where}} ({{engine}}) and all its data copied. Continue?",
+    "createData_other": "{{count}} tables will be created in {{where}} ({{engine}}) and all their data copied. Continue?",
+    "createDrop_one": "{{count}} table will be created in {{where}} ({{engine}}), first dropping any existing table with the same name. Continue?",
+    "createDrop_other": "{{count}} tables will be created in {{where}} ({{engine}}), first dropping any existing tables with the same names. Continue?",
+    "createDataDrop_one": "{{count}} table will be created in {{where}} ({{engine}}) and all its data copied, first dropping any existing table with the same name. Continue?",
+    "createDataDrop_other": "{{count}} tables will be created in {{where}} ({{engine}}) and all their data copied, first dropping any existing tables with the same names. Continue?",
+    "clone_one": "{{count}} table will be cloned in {{where}} ({{engine}}) with its full structure. Continue?",
+    "clone_other": "{{count}} tables will be cloned in {{where}} ({{engine}}) with their full structure. Continue?",
+    "cloneWithData_one": "{{count}} table will be cloned in {{where}} ({{engine}}) with its full structure and all its data. Continue?",
+    "cloneWithData_other": "{{count}} tables will be cloned in {{where}} ({{engine}}) with their full structure and all their data. Continue?",
+    "sync_one": "{{count}} table will be synced in {{where}} ({{engine}}): rows that differ from the source are inserted, updated and deleted. Continue?",
+    "sync_other": "{{count}} tables will be synced in {{where}} ({{engine}}): rows that differ from the source are inserted, updated and deleted. Continue?"
   }
 }

@@ -74,7 +74,6 @@
     "delete_one": "{{n}} удаление",
     "delete_many": "Удалений: {{n}}",
     "delete_few": "{{n}} удаления",
-    "delete_other": "{{n}} удаления",
-    "and": "и"
+    "delete_other": "{{n}} удаления"
   }
 }

@@ -158,4 +158,7 @@ export const t = i18next.t.bind(i18next);
 /** Number and date formatting in the current language. */
 export const locale = () => info(language.value).intl;
 
+/** "a, b y c" in the current language (its own separators and conjunction). */
+export const listOf = (items: string[]) => new Intl.ListFormat(locale(), { type: 'conjunction' }).format(items);
+
 export default i18next;

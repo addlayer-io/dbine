@@ -28,7 +28,6 @@
   "passwords": "비밀번호 가져오기(시스템 키체인에 저장됨)",
   "importN": "{{n}}개 가져오기",
   "imported_other": "연결 {{count}}개를 가져왔습니다",
-  "andFolders_other": " 및 폴더 {{count}}개",
   "failedTitle": "가져오지 못함",
   "gotIt": "확인",
   "suggestion": {
@@ -39,5 +38,7 @@
     "hintAfter": "(탐색기).",
     "notNow": "나중에",
     "viewAndImport": "보고 가져오기…"
-  }
+  },
+  "importedWithFolders_other": "연결 {{count}}개와 $t(importConnections:folders, {\"count\": {{folders}} })를 가져왔습니다",
+  "folders_other": "폴더 {{count}}개"
 }
