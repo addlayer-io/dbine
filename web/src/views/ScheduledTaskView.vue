@@ -172,9 +172,13 @@ const stepLabel = (id: string) => {
       <section class="st-sec">
         <h3 class="nm-section-title">{{ $t('scheduled:when.title') }}</h3>
         <div class="st-when">
-          <el-select v-model="scheduleType" size="small" class="st-type">
-            <el-option v-for="k in ['daily', 'weekly', 'monthly', 'interval']" :key="k" :value="k" :label="$t(`scheduled:when.types.${k}`)" />
-          </el-select>
+          <!-- As wide as its longest option in the current language (hidden sizers). -->
+          <span class="st-type">
+            <span v-for="k in ['daily', 'weekly', 'monthly', 'interval']" :key="k" class="st-sizer" aria-hidden="true">{{ $t(`scheduled:when.types.${k}`) }}</span>
+            <el-select v-model="scheduleType" size="small">
+              <el-option v-for="k in ['daily', 'weekly', 'monthly', 'interval']" :key="k" :value="k" :label="$t(`scheduled:when.types.${k}`)" />
+            </el-select>
+          </span>
           <template v-if="task.schedule.type === 'weekly'">
             <el-checkbox-group v-model="task.schedule.days" size="small">
               <el-checkbox-button v-for="d in DAYS" :key="d" :value="d">{{ $t(`scheduled:days.${d}`) }}</el-checkbox-button>
@@ -277,7 +281,9 @@ const stepLabel = (id: string) => {
 .st-sec { margin: 10px 0 18px; max-width: 980px; }
 .st-sec h3 { margin: 6px 0 10px; }
 .st-when { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; font-size: 13px; }
-.st-type { width: 170px; }
+.st-type { display: inline-grid; min-width: 170px; }
+.st-type > * { grid-area: 1 / 1; min-width: 0; }
+.st-sizer { visibility: hidden; height: 0; overflow: hidden; padding: 0 36px 0 12px; font-size: 12px; white-space: nowrap; }
 .st-phrase { display: inline-flex; align-items: center; gap: 8px; flex-wrap: wrap; }
 .st-time { width: 110px; }
 .st-num { width: 110px; }

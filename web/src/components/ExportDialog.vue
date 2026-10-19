@@ -228,6 +228,10 @@ function toBackground() {
 </template>
 
 <style scoped>
+/* Long option texts (German, Russian) wrap inside the dialog instead of running past it. */
+.el-form :deep(.el-checkbox) { white-space: normal; height: auto; align-items: flex-start; padding: 4px 0; }
+.el-form :deep(.el-checkbox__input) { margin-top: 2px; }
+.el-form :deep(.el-checkbox__label) { line-height: 1.4; }
 .ed-scope { display: flex; flex-direction: column; align-items: flex-start; gap: 4px; }
 .ed-help { font-size: 11.5px; color: var(--nm-text-dim); line-height: 1.45; margin-top: 4px; }
 .ed-help.warn { color: var(--nm-warning); }

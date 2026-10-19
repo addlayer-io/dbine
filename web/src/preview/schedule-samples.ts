@@ -8,6 +8,7 @@
 import { h, reactive } from 'vue';
 import type { NotebookPlan, NotebookResolved, Step } from '../api/scheduled';
 import ScheduledStepEditor from '../components/ScheduledStepEditor.vue';
+import ScheduledTaskView from '../views/ScheduledTaskView.vue';
 import { useConnectionsStore } from '../stores/connections';
 
 const at = (s: string) => new Date(s).getTime();
@@ -89,5 +90,20 @@ export function schedulePreview(params: URLSearchParams) {
   return h('div', { style: 'width: 980px; padding: 12px 16px; background: var(--nm-bg); overflow: auto; height: 100vh' }, [
     h(ScheduledStepEditor, { step: notebook, index: 0, count: 2 }),
     h(ScheduledStepEditor, { step: mail, index: 1, count: 2 }),
+  ]);
+}
+
+// view=schedtask: a new scheduled task's editor (its "Cuándo" sentence with
+// the inputs in place); pick the schedule type in its dropdown.
+export function installScheduledTaskMock() {
+  (window as unknown as Record<string, unknown>).__TAURI_INTERNALS__ = {
+    transformCallback: () => 0,
+    invoke: async (cmd: string) => (cmd === 'scheduled_tasks_list' || cmd === 'scheduled_task_runs' ? [] : null),
+  };
+}
+
+export function scheduledTaskPreview() {
+  return h('div', { style: 'height: 100vh; display: flex; flex-direction: column; background: var(--nm-bg)' }, [
+    h(ScheduledTaskView, { tab: { id: 'st', kind: 'scheduledTask', taskId: null, preview: false } as never }),
   ]);
 }

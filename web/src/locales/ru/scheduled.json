@@ -39,7 +39,7 @@
     "interval_other": "Каждые {{count}} минуты",
     "hint": "Выполняется при закрытом DBine, пока ваш пользователь вошёл в систему. Если компьютер был выключен, задача выполнится при его включении.",
     "atInput": "в {time}",
-    "monthlyInput": "{day}-го числа в {time}",
+    "monthlyInput": "{day} числа в {time}",
     "intervalInput_one": "каждую {minutes} минуту",
     "intervalInput_many": "каждые {minutes} минут",
     "intervalInput_other": "каждые {minutes} минуты",

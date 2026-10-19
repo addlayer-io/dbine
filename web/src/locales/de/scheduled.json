@@ -39,7 +39,7 @@
     "interval_other": "Alle {{count}} Minuten",
     "hint": "Läuft bei geschlossenem DBine, solange Ihr Benutzer angemeldet ist. War der Computer ausgeschaltet, läuft sie beim erneuten Einschalten.",
     "atInput": "um {time}",
-    "monthlyInput": "am {day}. um {time}",
+    "monthlyInput": "am Tag {day} um {time}",
     "intervalInput_one": "alle {minutes} Minute",
     "intervalInput_other": "alle {minutes} Minuten"
   },

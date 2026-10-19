@@ -57,7 +57,7 @@
     "newRows_other": "{{count}} 个新行",
     "newDocs_other": "{{count}} 个新文档",
     "convertedSpatial": "{{column}} 是 SDO_GEOMETRY，已转换为文本（WKT）显示；请用 SQL 更改",
-    "changed_other": "已修改 {{count}} 个单元格，涉及 $t(results:edit.inRows, {\"count\": {{rows}} })",
+    "changed_other": "$t(results:edit.inRows, {\"count\": {{rows}} })中已修改 {{count}} 个单元格",
     "inRows_other": "{{count}} 行"
   },
   "exportDialog": {
