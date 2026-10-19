@@ -1,0 +1,172 @@
+{
+  "connectFailed": "couldn't connect",
+  "pickLeftDatabase": "Choose the left database",
+  "pickRightConnection": "Choose the right connection",
+  "pickDifferent": "Choose two different databases (or schemas)",
+  "kinds": {
+    "table": "Tables",
+    "view": "Views",
+    "materializedView": "Materialized views",
+    "procedure": "Procedures",
+    "function": "Functions",
+    "trigger": "Triggers",
+    "sequence": "Sequences",
+    "synonym": "Synonyms",
+    "type": "Types",
+    "fulltextCatalog": "Full-text catalogs",
+    "fulltextStoplist": "Stoplists",
+    "domain": "Domains",
+    "virtualTable": "Virtual tables",
+    "dictionary": "Dictionaries"
+  },
+  "status": {
+    "equal": "Equal",
+    "changed": "Different",
+    "onlyLeft": "Only on the left",
+    "onlyRight": "Only on the right"
+  },
+  "objectsSameEngine": "Views and procedures can only be carried between databases of the same engine",
+  "arrow": {
+    "revert": "Undo only this change",
+    "table": {
+      "copyLeft": "Copy the table to the left",
+      "copyRight": "Copy the table to the right",
+      "createLeft": "Create the table on the left",
+      "createRight": "Create the table on the right",
+      "deleteLeft": "Delete the table on the left",
+      "deleteRight": "Delete the table on the right"
+    },
+    "object": {
+      "copyLeft": "Copy the object to the left",
+      "copyRight": "Copy the object to the right",
+      "createLeft": "Create the object on the left",
+      "createRight": "Create the object on the right",
+      "deleteLeft": "Delete the object on the left",
+      "deleteRight": "Delete the object on the right"
+    },
+    "item": {
+      "copyLeft": "Copy this to the left",
+      "copyRight": "Copy this to the right",
+      "createLeft": "Create this on the left",
+      "createRight": "Create this on the right",
+      "deleteLeft": "Delete this on the left",
+      "deleteRight": "Delete this on the right"
+    },
+    "pk": {
+      "copyLeft": "Copy the primary key to the left",
+      "copyRight": "Copy the primary key to the right"
+    },
+    "props": {
+      "copyLeft": "Copy the comment and options to the left",
+      "copyRight": "Copy the comment and options to the right"
+    }
+  },
+  "autoIncrement": "auto-increment",
+  "sections": {
+    "columns": "Columns",
+    "indexes": "Indexes",
+    "foreignKeys": "Foreign keys",
+    "checks": "CHECK constraints"
+  },
+  "primaryKey": "Primary key",
+  "sync": {
+    "button": "Sync",
+    "readOnly": "The connection is read-only",
+    "unsupported": "{{engine}} doesn't apply schema changes from DBine",
+    "queryTitle": "Sync {{name}}",
+    "confirm_other": "{{count}} statements will run on {{where}}.{{warnings}}",
+    "confirmWarnings": " Check the warnings before going on.",
+    "failed": "Statement {{n}} of {{total}} failed ({{done}} ran): {{message}}",
+    "done": "{{where}} synced",
+    "generating": "Generating the script…",
+    "openAsQuery": "Open as query",
+    "noChanges": "Nothing to sync: carry changes with the → / ← arrows",
+    "changes_other": "{{count}} changes (left: {{left}}, right: {{right}}): see the scripts and run them",
+    "confirmOrder": "Left first, then right; if anything fails, it stops there.",
+    "failedSide": "{{side}}: {{message}}",
+    "doneTab": "Already run",
+    "emptyScript": "This side has pending changes, but the script is empty: there is no statement to apply them. Nothing will run here. Review the changes or discard them.",
+    "destructiveTables_other": "{{count}} tables are deleted with all their data: {{names}}",
+    "destructiveColumns_other": "{{count}} columns are deleted with their data: {{names}}",
+    "destructiveObjects_other": "{{count}} objects are deleted: {{names}}",
+    "confirmDestructive": "Some tables, columns or objects will be deleted and can't be recovered.",
+    "confirmDependents_other": "{{count}} objects that depend on what is deleted may stop working.",
+    "confirmDepsPending": "Dependencies are still being checked.",
+    "confirmDepsFailed_other": "Couldn't check the dependencies of {{count}} items being deleted.",
+    "confirmDepsIncomplete_other": "The dependency check for {{count}} items is incomplete."
+  },
+  "left": "Left",
+  "right": "Right",
+  "connection": "Connection",
+  "database": "Database",
+  "schema": "Schema",
+  "allSchemas": "All schemas",
+  "discard": "Discard this side's changes",
+  "swap": "Swap",
+  "undo": "Undo the last change",
+  "compare": "Compare",
+  "empty": {
+    "pick": "Choose the two databases (or two schemas) and click {compare}.",
+    "help": "Differences are carried from one side to the other with the arrows and applied with {sync}, which shows the script before running it."
+  },
+  "onlyDiff": "Differences only",
+  "ignoreCase": "Ignore case",
+  "ignoreComments": "Ignore comments",
+  "noDifferences": "No differences.",
+  "noObjects": "No objects.",
+  "pendingChanges": "Has unapplied changes",
+  "pickItem": "Choose a table or object from the list.",
+  "tableProps": "Table properties",
+  "indexUsage": {
+    "share": "{{pct}} of the table's reads in this database ({{reads}} reads)",
+    "unused": "No reads in this database and {{updates}} writes since statistics began"
+  },
+  "drop": {
+    "title": "Delete…",
+    "left": "Delete on the left",
+    "right": "Delete on the right",
+    "both": "Delete on both sides",
+    "undo": "Undo: put it back",
+    "missing": "Not on that side",
+    "inPk": "Delete the primary key first",
+    "lastColumn": "A table needs at least one column",
+    "clearComment": "Remove comment",
+    "cascade_other": "{{side}}: {{count}} foreign keys that reference it are also removed ({{tables}})",
+    "usage": "{{side}}: {{usage}}",
+    "referenced": "{{side}}: foreign key {{fk}} of {{table}} points to this key; the engine may reject the deletion",
+    "referencedColumn": "{{side}}: foreign key {{fk}} of {{table}} points to this column; the engine may reject the deletion",
+    "withColumn_other": "{{side}}: {{count}} items that use it are also removed: {{items}}",
+    "what": {
+      "index": "index",
+      "fk": "foreign key",
+      "check": "CHECK"
+    },
+    "computed": "{{side}}: computed column {{column}} uses it; the engine may reject the deletion",
+    "pkRequired": "{{engine}} doesn't allow a table without a primary key",
+    "backsFk": "{{side}}: MySQL uses this index for foreign key {{fk}}; the deletion may fail",
+    "hiddenEqual_other": "· {{count}} identical hidden",
+    "hiddenEqualTip": "Uncheck “Differences only” to see them and be able to delete them",
+    "pending": {
+      "left": "It will be deleted on the left when syncing",
+      "right": "It will be deleted on the right when syncing",
+      "both": "It will be deleted on both sides when syncing"
+    }
+  },
+  "dropComment": {
+    "left": "Remove the comment on the left",
+    "right": "Remove the comment on the right",
+    "both": "Remove the comment on both sides"
+  },
+  "deps": {
+    "title": "What depends on what is deleted",
+    "loading": "looking for dependencies…",
+    "failed": "couldn't check the dependencies",
+    "tooMany": "Not checked: the first {{limit}} items on each side are checked",
+    "stopped": "Not checked: the dialog was closed first",
+    "breaks_other": "{{count}} objects stop working",
+    "review_other": "{{count}} to review (dynamic SQL)",
+    "incomplete_other": "incomplete list: {{count}} objects couldn't be read",
+    "none": "Nothing depends on this",
+    "noneFound": "Nothing found in what could be read"
+  }
+}

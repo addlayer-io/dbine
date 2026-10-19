@@ -27,8 +27,11 @@ const LATEST_URL: &str = "https://api.github.com/repos/addlayer-io/dbine/release
 /// `{TRANSLATION_PREFIX}v<version>/changelog/CHANGELOG.<lang>.md`.
 const TRANSLATION_PREFIX: &str = "https://raw.githubusercontent.com/addlayer-io/dbine/";
 /// The UI languages with a changelog translation (English is the source,
-/// and it's what latest.json and the GitHub release carry).
-const TRANSLATED: [&str; 4] = ["es", "pt", "fr", "it"];
+/// and it's what latest.json and the GitHub release carry). The same list as
+/// scripts/i18n/languages.json (check.py verifies it). A language added
+/// later has only the versions since it shipped: the older ones come in
+/// English (`localized_notes`).
+const TRANSLATED: [&str; 9] = ["es", "pt", "fr", "it", "de", "ru", "zh", "ja", "ko"];
 /// How long the translation may take before the English notes are used.
 const TRANSLATION_TIMEOUT: Duration = Duration::from_secs(5);
 /// Versions shown at most, like the English notes (changelog.py recent --count 5).
@@ -139,7 +142,7 @@ pub async fn check_for_update(window: WebviewWindow, args: CheckForUpdateArgs) -
     let mut info = check(window, args.manual).await?;
     if info.available {
         if let Some(lang) = translated_lang(args.lang.as_deref()) {
-            if let Some(notes) = translated_notes(lang, &info.latest, &info.current).await {
+            if let Some(notes) = translated_notes(lang, &info.latest, &info.current, &info.notes).await {
                 info.notes = truncate(&notes, NOTES_MAX);
             }
         }
@@ -721,9 +724,10 @@ fn translated_lang(lang: Option<&str>) -> Option<&'static str> {
 }
 
 /// The notes in `lang`, from `changelog/CHANGELOG.<lang>.md` at `latest`'s
-/// tag. `None` on any failure (offline, no such file, a file without
+/// tag, with `english` (the English notes) for the versions the translation
+/// doesn't have. `None` on any failure (offline, no such file, a file without
 /// `latest`): the caller keeps the English notes.
-async fn translated_notes(lang: &str, latest: &str, current: &str) -> Option<String> {
+async fn translated_notes(lang: &str, latest: &str, current: &str, english: &str) -> Option<String> {
     // A version, not a path: it goes into the URL.
     parse_version(latest)?;
     if !latest.chars().all(|c| c.is_ascii_alphanumeric() || matches!(c, '.' | '-' | '+')) {
@@ -736,7 +740,7 @@ async fn translated_notes(lang: &str, latest: &str, current: &str) -> Option<Str
     };
     match fetched.await {
         Ok(md) => {
-            let notes = localized_notes(&md, latest, current);
+            let notes = localized_notes(&md, latest, current, english);
             if notes.is_none() {
                 tracing::info!(lang, latest, "changelog translation without this version, using English notes");
             }
@@ -749,10 +753,8 @@ async fn translated_notes(lang: &str, latest: &str, current: &str) -> Option<Str
     }
 }
 
-/// From a translated CHANGELOG, the versions after `current` up to
-/// `latest` (at most `RECENT_MAX`, newest first), each under
-/// `## Version x.y.z` like the English notes. `None` when `latest` isn't in it.
-fn localized_notes(md: &str, latest: &str, current: &str) -> Option<String> {
+/// A changelog's sections by version, in file order.
+fn version_sections(md: &str) -> Vec<(&str, String)> {
     let mut sections: Vec<(&str, String)> = Vec::new();
     for line in md.lines() {
         if let Some(v) = heading_version(line) {
@@ -762,19 +764,33 @@ fn localized_notes(md: &str, latest: &str, current: &str) -> Option<String> {
             body.push('\n');
         }
     }
-    if !sections.iter().any(|(v, _)| compare_versions(v, latest) == Some(Ordering::Equal)) {
+    sections
+}
+
+/// From a translated CHANGELOG, the versions after `current` up to
+/// `latest` (at most `RECENT_MAX`, newest first), each under
+/// `## Version x.y.z` like the English notes. A version the translation
+/// doesn't have (a language added after it shipped) comes from `english`,
+/// the English notes. `None` when `latest` isn't in the translation.
+fn localized_notes(md: &str, latest: &str, current: &str, english: &str) -> Option<String> {
+    let translated = version_sections(md);
+    if !translated.iter().any(|(v, _)| compare_versions(v, latest) == Some(Ordering::Equal)) {
         return None;
     }
-    let kept: Vec<String> = sections
-        .iter()
-        .filter(|(v, body)| {
-            !body.trim().is_empty()
-                && compare_versions(v, current) == Some(Ordering::Greater)
-                && compare_versions(v, latest).is_some_and(|o| o != Ordering::Greater)
-        })
-        .take(RECENT_MAX)
-        .map(|(v, body)| format!("## Version {v}\n\n{}", body.trim()))
-        .collect();
+    let wanted = |v: &str| {
+        compare_versions(v, current) == Some(Ordering::Greater) && compare_versions(v, latest).is_some_and(|o| o != Ordering::Greater)
+    };
+    let fallback = version_sections(english);
+    let mut versions: Vec<(&str, &str)> = Vec::new();
+    for (v, body) in translated.iter().chain(fallback.iter()) {
+        if body.trim().is_empty() || !wanted(v) || versions.iter().any(|(k, _)| compare_versions(k, v) == Some(Ordering::Equal)) {
+            continue;
+        }
+        versions.push((v, body.trim()));
+    }
+    // Newest first, whichever file each one came from.
+    versions.sort_by(|a, b| compare_versions(b.0, a.0).unwrap_or(Ordering::Equal));
+    let kept: Vec<String> = versions.iter().take(RECENT_MAX).map(|(v, body)| format!("## Version {v}\n\n{body}")).collect();
     if kept.is_empty() { None } else { Some(kept.join("\n\n")) }
 }
 
@@ -904,6 +920,8 @@ mod tests {
         assert_eq!(translated_lang(Some("es")), Some("es"));
         assert_eq!(translated_lang(Some("pt-BR")), Some("pt"));
         assert_eq!(translated_lang(Some("FR")), Some("fr"));
+        assert_eq!(translated_lang(Some("zh-TW")), Some("zh"));
+        assert_eq!(translated_lang(Some("ja")), Some("ja"));
         assert_eq!(translated_lang(Some("en")), None);
         assert_eq!(translated_lang(Some("../x")), None);
         assert_eq!(translated_lang(None), None);
@@ -914,18 +932,31 @@ mod tests {
         let md = "# Cambios\n\n## [0.1.11] - 2026-10-20\n\n- futura\n\n## [0.1.10] - 2026-10-10\n\n### Nuevo\n- a\n\n\
                   ## [0.1.9] - 2026-10-09\n\n### Correcciones\n- b\n\n## [0.1.8] - 2026-10-01\n\n- c\n";
         assert_eq!(
-            localized_notes(md, "0.1.10", "0.1.8").as_deref(),
+            localized_notes(md, "0.1.10", "0.1.8", "").as_deref(),
             Some("## Version 0.1.10\n\n### Nuevo\n- a\n\n## Version 0.1.9\n\n### Correcciones\n- b")
         );
-        assert_eq!(localized_notes(md, "0.1.10", "0.1.9").as_deref(), Some("## Version 0.1.10\n\n### Nuevo\n- a"));
+        assert_eq!(localized_notes(md, "0.1.10", "0.1.9", "").as_deref(), Some("## Version 0.1.10\n\n### Nuevo\n- a"));
         // The translation doesn't have the offered version: English notes.
-        assert_eq!(localized_notes(md, "0.1.12", "0.1.9"), None);
-        assert_eq!(localized_notes("<html>404</html>", "0.1.10", "0.1.9"), None);
+        assert_eq!(localized_notes(md, "0.1.12", "0.1.9", ""), None);
+        assert_eq!(localized_notes("<html>404</html>", "0.1.10", "0.1.9", ""), None);
         // At most RECENT_MAX versions.
         let many: String = (1..=8).rev().map(|n| format!("## [0.2.{n}] - 2026-01-0{n}\n\n- v{n}\n\n")).collect();
-        let notes = localized_notes(&many, "0.2.8", "0.1.0").unwrap();
+        let notes = localized_notes(&many, "0.2.8", "0.1.0", "").unwrap();
         assert_eq!(notes.matches("## Version ").count(), RECENT_MAX);
         assert!(notes.starts_with("## Version 0.2.8") && notes.contains("## Version 0.2.4") && !notes.contains("0.2.3"));
+    }
+
+    #[test]
+    fn older_versions_missing_from_a_translation_come_in_english() {
+        // A language added in 1.0.1: its file starts there.
+        let md = "# 変更履歴\n\n## [1.0.2] - 2026-11-02\n\n- 二\n\n## [1.0.1] - 2026-11-01\n\n- 一\n";
+        let english = "## Version 1.0.2\n\n- two\n\n## Version 1.0.1\n\n- one\n\n## Version 1.0.0\n\n- zero\n\n## Version 0.1.14\n\n- old";
+        assert_eq!(
+            localized_notes(md, "1.0.2", "0.1.14", english).as_deref(),
+            Some("## Version 1.0.2\n\n- 二\n\n## Version 1.0.1\n\n- 一\n\n## Version 1.0.0\n\n- zero")
+        );
+        // Without the offered version the whole English notes stay.
+        assert_eq!(localized_notes(md, "1.0.3", "1.0.0", english), None);
     }
 
     #[test]

@@ -12,7 +12,8 @@ use std::collections::HashMap;
 use std::sync::OnceLock;
 
 /// The languages with a prompt file; anything else gets English.
-pub const LANGS: &[&str] = &["es", "en", "pt", "fr", "it"];
+/// The same list as scripts/i18n/languages.json (check.py verifies it).
+pub const LANGS: &[&str] = &["es", "en", "pt", "fr", "it", "de", "ru", "zh", "ja", "ko"];
 
 fn source(lang: &str) -> &'static str {
     match lang {
@@ -20,12 +21,18 @@ fn source(lang: &str) -> &'static str {
         "pt" => include_str!("../prompts/pt.json"),
         "fr" => include_str!("../prompts/fr.json"),
         "it" => include_str!("../prompts/it.json"),
+        "de" => include_str!("../prompts/de.json"),
+        "ru" => include_str!("../prompts/ru.json"),
+        "zh" => include_str!("../prompts/zh.json"),
+        "ja" => include_str!("../prompts/ja.json"),
+        "ko" => include_str!("../prompts/ko.json"),
         _ => include_str!("../prompts/en.json"),
     }
 }
 
-/// The prompt language for a UI language code ("en", "pt-BR", "es_AR"):
-/// English when there's no file for it.
+/// The prompt language for a UI language code ("en", "pt-BR", "es_AR",
+/// "zh-TW", which gets the Simplified Chinese file): English when there's no
+/// file for it.
 pub fn lang(code: &str) -> &'static str {
     let base = code.split(['-', '_']).next().unwrap_or("").trim().to_ascii_lowercase();
     LANGS.iter().copied().find(|l| *l == base).unwrap_or("en")
@@ -160,9 +167,11 @@ mod tests {
         assert_eq!(lang("pt-BR"), "pt");
         assert_eq!(lang("es_AR"), "es");
         assert_eq!(lang("FR"), "fr");
-        assert_eq!(lang("de"), "en");
+        assert_eq!(lang("zh-TW"), "zh");
+        assert_eq!(lang("ja-JP"), "ja");
+        assert_eq!(lang("sv"), "en");
         assert_eq!(lang(""), "en");
-        assert_eq!(get("ja").lang(), "en");
+        assert_eq!(get("sv").lang(), "en");
     }
 
     #[test]

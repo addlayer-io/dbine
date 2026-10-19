@@ -26,12 +26,12 @@ const CSS: &str = r#"
   :root { --bg: #0d1117; --fg: #e6edf3; --muted: #8d96a0; --border: #30363d; --code: #161b22; --err: #ff7b72; --head: #161b22; }
 }
 * { box-sizing: border-box; }
-body { margin: 0; background: var(--bg); color: var(--fg); font: 15px/1.55 -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; }
+body { margin: 0; background: var(--bg); color: var(--fg); font: 15px/1.55 -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "PingFang SC", "Hiragino Sans", "Hiragino Kaku Gothic ProN", "Apple SD Gothic Neo", "Microsoft YaHei", "Yu Gothic UI", "Meiryo", "Malgun Gothic", "Noto Sans CJK SC", "Noto Sans CJK JP", "Noto Sans CJK KR", sans-serif; }
 main { max-width: 1000px; margin: 0 auto; padding: 24px 16px 64px; }
 .cell { margin: 0 0 20px; }
 .meta { color: var(--muted); font-size: 12px; margin-bottom: 4px; }
 pre { background: var(--code); border: 1px solid var(--border); border-radius: 6px; padding: 10px 12px; overflow-x: auto; margin: 0 0 8px; }
-code, pre { font: 13px/1.45 ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; }
+code, pre { font: 13px/1.45 ui-monospace, SFMono-Regular, Menlo, Consolas, "PingFang SC", "Hiragino Sans", "Hiragino Kaku Gothic ProN", "Apple SD Gothic Neo", "Microsoft YaHei", "Yu Gothic UI", "Meiryo", "Malgun Gothic", "Noto Sans CJK SC", "Noto Sans CJK JP", "Noto Sans CJK KR", monospace; }
 p code, li code { background: var(--code); padding: 1px 4px; border-radius: 4px; }
 .foreign { opacity: .65; }
 .summary { color: var(--muted); font-size: 12px; margin: 4px 0; }

@@ -1,0 +1,33 @@
+{
+  "menu": {
+    "undo": "Undo",
+    "redo": "Redo",
+    "cut": "Cut",
+    "copy": "Copy",
+    "paste": "Paste",
+    "selectAll": "Select all",
+    "runSelection": "Run selection",
+    "runAll": "Run all",
+    "runStatement": "Run statement at cursor",
+    "planEstimated": "Estimated plan",
+    "planActual": "Run with actual plan",
+    "comment": "Toggle comment",
+    "format": "Format",
+    "find": "Find and replace",
+    "gotoLine": "Go to line…",
+    "optimize": "Optimize query",
+    "problems": "Show problems",
+    "goToDefinition": "Go to definition",
+    "revealInExplorer": "Show in explorer",
+    "detectParams": "Ask for parameters when running",
+    "click": "click"
+  },
+  "nav": {
+    "notFound": "There is no table, view or routine with that name in the tab's database.",
+    "notLoaded": "The database objects haven't loaded yet: connect to go to the definition."
+  },
+  "insertColumn": "Column {{n}} of {{total}}: {{name}}",
+  "insertExtra": "Value {{n}}: the list has {{total}} columns",
+  "pickFile": "Choose file…",
+  "dataFiles": "Data files (CSV, Parquet, JSON, Excel)"
+}

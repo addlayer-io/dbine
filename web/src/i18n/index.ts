@@ -12,14 +12,30 @@ import { loadBackendCatalog } from './backend';
 // Messages that come from the backend (Rust) are Spanish sentences, not keys:
 // `tb()` in ./backend.ts translates them.
 
+//
+// The language list is also in scripts/i18n/languages.json (the checks,
+// the changelog), in crates/dbine-ai (the AI prompts) and in
+// src-tauri/src/commands/updates.rs (the changelog translations): a new
+// language goes in all of them.
+//
+// One variant per language: `zh` is Simplified Chinese (zh-CN) and also what
+// zh-TW / zh-HK systems get; `pt` is Brazilian Portuguese.
+// `tag` is the BCP 47 tag (`<html lang>`, which picks the CJK glyph variant
+// in global.scss) and `intl` the locale for number and date formatting.
 export const LANGUAGES = [
-  { code: 'en', name: 'English' },
-  { code: 'es', name: 'Español' },
-  { code: 'pt', name: 'Português' },
-  { code: 'fr', name: 'Français' },
-  { code: 'it', name: 'Italiano' },
+  { code: 'en', name: 'English', tag: 'en', intl: 'en-US' },
+  { code: 'es', name: 'Español', tag: 'es', intl: 'es-AR' },
+  { code: 'pt', name: 'Português', tag: 'pt-BR', intl: 'pt-BR' },
+  { code: 'fr', name: 'Français', tag: 'fr', intl: 'fr-FR' },
+  { code: 'it', name: 'Italiano', tag: 'it', intl: 'it-IT' },
+  { code: 'de', name: 'Deutsch', tag: 'de', intl: 'de-DE' },
+  { code: 'ru', name: 'Русский', tag: 'ru', intl: 'ru-RU' },
+  { code: 'zh', name: '中文（简体）', tag: 'zh-CN', intl: 'zh-CN' },
+  { code: 'ja', name: '日本語', tag: 'ja', intl: 'ja-JP' },
+  { code: 'ko', name: '한국어', tag: 'ko', intl: 'ko-KR' },
 ] as const;
 export type Lang = (typeof LANGUAGES)[number]['code'];
+const info = (code: Lang) => LANGUAGES.find((l) => l.code === code)!;
 
 const STORAGE_KEY = 'dbine.language';
 /** Synced preference (Configuración › General › Idioma). */
@@ -37,11 +53,18 @@ export function isLang(v: unknown): v is Lang {
   return typeof v === 'string' && LANGUAGES.some((l) => l.code === v);
 }
 
+/** Ours for a BCP 47 tag (`pt-BR`, `zh-Hant-TW`, `de_AT`): its primary
+ *  subtag, so every Chinese variant gets `zh`. */
+export function langOfTag(tag: string | null | undefined): Lang | null {
+  const code = tag?.split(/[-_]/)[0]?.toLowerCase();
+  return isLang(code) ? code : null;
+}
+
 /** The system's language when it's one of ours; English otherwise. */
 export function systemLanguage(): Lang {
   for (const tag of navigator.languages ?? [navigator.language]) {
-    const code = tag?.slice(0, 2).toLowerCase();
-    if (isLang(code)) return code;
+    const code = langOfTag(tag);
+    if (code) return code;
   }
   return 'en';
 }
@@ -66,14 +89,14 @@ i18next.init({
   interpolation: { escapeValue: false },
   returnNull: false,
 });
-document.documentElement.lang = language.value;
+document.documentElement.lang = info(language.value).tag;
 
 /** Switch the whole app's language (texts update in place). */
 export async function setLanguage(code: Lang) {
   if (code === language.value) return;
   language.value = code;
   try { localStorage.setItem(STORAGE_KEY, code); } catch { /* storage blocked */ }
-  document.documentElement.lang = code;
+  document.documentElement.lang = info(code).tag;
   await loadBackendCatalog(code);
   await i18next.changeLanguage(code);
 }
@@ -82,6 +105,6 @@ export async function setLanguage(code: Lang) {
 export const t = i18next.t.bind(i18next);
 
 /** Number and date formatting in the current language. */
-export const locale = () => ({ en: 'en-US', es: 'es-AR', pt: 'pt-BR', fr: 'fr-FR', it: 'it-IT' })[language.value];
+export const locale = () => info(language.value).intl;
 
 export default i18next;

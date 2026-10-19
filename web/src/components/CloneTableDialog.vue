@@ -29,11 +29,7 @@ let adopt: CloneRun | null = null;
 <script setup lang="ts">
 import { computed, defineComponent, getCurrentInstance, h, markRaw, onBeforeUnmount, reactive, render, toRefs, type Component, type VNode } from 'vue';
 import { ElConfigProvider, ElMessage } from 'element-plus';
-import elEn from 'element-plus/es/locale/lang/en.mjs';
-import elEs from 'element-plus/es/locale/lang/es.mjs';
-import elPt from 'element-plus/es/locale/lang/pt-br.mjs';
-import elFr from 'element-plus/es/locale/lang/fr.mjs';
-import elIt from 'element-plus/es/locale/lang/it.mjs';
+import { ELEMENT_LOCALES } from '../i18n/element';
 import { useTranslation } from 'i18next-vue';
 import { errorKind, errorMessage } from '../api/client';
 import { cloneTableApi, defaultCloneName, type CloneTableEvent, type CloneTableResult } from '../api/cloneTable';
@@ -115,8 +111,7 @@ const fmt = (n: number) => n.toLocaleString();
 /** A reopened copy mounts outside App.vue's <el-config-provider>: it gets
  *  the same Element Plus locale (the app's language, as App.vue does). */
 function withAppLocale(child: () => VNode): VNode {
-  const locales = { en: elEn, es: elEs, pt: elPt, fr: elFr, it: elIt };
-  return h(defineComponent({ setup: () => () => h(ElConfigProvider, { locale: locales[language.value] }, { default: child }) }));
+  return h(defineComponent({ setup: () => () => h(ElConfigProvider, { locale: ELEMENT_LOCALES[language.value] }, { default: child }) }));
 }
 
 /** "Ver detalle" from the Tareas panel: this dialog again, on the same run. */

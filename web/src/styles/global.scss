@@ -44,8 +44,15 @@
   --nm-radius: 2px;
   --nm-radius-sm: 2px;
   --nm-shadow: none;
-  --nm-mono: "SF Mono", Menlo, Monaco, Consolas, "JetBrains Mono", ui-monospace, monospace;
-  --nm-font: -apple-system, BlinkMacSystemFont, "Segoe WPC", "Segoe UI", system-ui, Ubuntu, "Droid Sans", sans-serif;
+  /* Chinese, Japanese and Korean glyphs come from the CJK fonts after the
+     Latin ones (Cyrillic is in the Latin ones: SF, Segoe UI, Ubuntu, Menlo,
+     Consolas). The order picks each language's own glyph variant (直, 骨, 角
+     differ between Chinese and Japanese): `<html lang>` follows the UI
+     language (web/src/i18n), and the :lang() rules below reorder the list.
+     Simplified Chinese first by default. */
+  --nm-cjk: "PingFang SC", "Hiragino Sans", "Hiragino Kaku Gothic ProN", "Apple SD Gothic Neo", "Microsoft YaHei", "Yu Gothic UI", "Meiryo", "Malgun Gothic", "Noto Sans CJK SC", "Noto Sans CJK JP", "Noto Sans CJK KR";
+  --nm-mono: "SF Mono", Menlo, Monaco, Consolas, "JetBrains Mono", ui-monospace, var(--nm-cjk), monospace;
+  --nm-font: -apple-system, BlinkMacSystemFont, "Segoe WPC", "Segoe UI", system-ui, Ubuntu, "Droid Sans", var(--nm-cjk), sans-serif;
 
   /* more surfaces: widgets (dialogs, menus, hovers), input borders, tabs */
   --ide-input-border: #3c3c3c;
@@ -198,6 +205,16 @@ html.light {
   --nm-card-chip: #e6e8eb;
   --nm-mini-bg: rgba(255, 255, 255, 0.94);
   --nm-mini-node: #c9cdd3;
+}
+
+:root:lang(ja) {
+  --nm-cjk: "Hiragino Sans", "Hiragino Kaku Gothic ProN", "Yu Gothic UI", "Meiryo", "Noto Sans CJK JP", "PingFang SC", "Microsoft YaHei", "Apple SD Gothic Neo", "Malgun Gothic", "Noto Sans CJK SC", "Noto Sans CJK KR";
+}
+:root:lang(ko) {
+  --nm-cjk: "Apple SD Gothic Neo", "Malgun Gothic", "Noto Sans CJK KR", "PingFang SC", "Hiragino Sans", "Hiragino Kaku Gothic ProN", "Microsoft YaHei", "Yu Gothic UI", "Meiryo", "Noto Sans CJK SC", "Noto Sans CJK JP";
+}
+:root:lang(zh) {
+  --nm-cjk: "PingFang SC", "Microsoft YaHei", "Noto Sans CJK SC", "Hiragino Sans", "Hiragino Kaku Gothic ProN", "Apple SD Gothic Neo", "Yu Gothic UI", "Meiryo", "Malgun Gothic", "Noto Sans CJK JP", "Noto Sans CJK KR";
 }
 
 html, body, #app {

@@ -1,0 +1,57 @@
+{
+  "nav": "Keyboard shortcuts",
+  "help": "The keys of each action. Click a combination and press the new one (Esc cancels). The change applies right away and travels with the rest of the settings.",
+  "search": "Search by action or key",
+  "none": "No action matches the search.",
+  "resetAll": "Reset all",
+  "reset": "Back to the original combination",
+  "remove": "Remove the combination",
+  "change": "Change the combination",
+  "recording": "Press the combination…",
+  "unbound": "No shortcut",
+  "conflict": "Also used by: {{names}}",
+  "reserved": "It's a system shortcut (copy, paste, undo…): it stops working where the action runs.",
+  "group": {
+    "general": "General",
+    "view": "View",
+    "editor": "Editor",
+    "results": "Results",
+    "database": "Database",
+    "connection": "Connection",
+    "settings": "Preferences",
+    "help": "Help"
+  },
+  "cmd": {
+    "file": {
+      "newQuery": "New query",
+      "newWindow": "New window",
+      "closeTab": "Close the tab",
+      "save": "Save",
+      "open": "Open file…"
+    },
+    "app": {
+      "settings": "Settings",
+      "quit": "Quit DBine"
+    },
+    "view": {
+      "explorer": "Show or hide the explorer",
+      "output": "Show or hide the bottom panel",
+      "ai": "Show or hide the AI assistant"
+    },
+    "editor": {
+      "run": "Run the selection or everything",
+      "runStatement": "Run the statement at the cursor",
+      "planEstimated": "Estimated plan",
+      "planActual": "Run with actual plan",
+      "format": "Format",
+      "comment": "Comment or uncomment",
+      "find": "Find and replace",
+      "gotoLine": "Go to line…",
+      "autocomplete": "Autocomplete suggestions",
+      "toggleVim": "Turn Vim mode on or off"
+    },
+    "results": {
+      "export": "Export the results…"
+    }
+  }
+}

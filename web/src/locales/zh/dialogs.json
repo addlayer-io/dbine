@@ -1,0 +1,54 @@
+{
+  "folder": {
+    "new": "New folder",
+    "edit": "Edit folder · {{name}}",
+    "name": "Name",
+    "namePlaceholder": "Client, environment…",
+    "nameRequired": "Enter a name",
+    "color": "Color",
+    "noColor": "No color",
+    "colorHelp": "Connections without their own color take their folder's (handy to mark production).",
+    "inside": "Inside",
+    "create": "Create",
+    "topLevel": "(Top level)"
+  },
+  "move": {
+    "title": "Move «{{name}}» to…",
+    "move": "Move"
+  },
+  "database": {
+    "scriptTitle": "Generate script · {{db}}",
+    "scriptName": "Script of {{db}}",
+    "scriptNameConverted": "Script of {{db}} (converted)",
+    "theDatabase": "the database"
+  },
+  "drivers": {
+    "intro": "Each driver downloads by itself the first time you connect to that engine. Here you can download them ahead (for example, if you'll work offline) or delete the ones you don't use.",
+    "search": "Search engine",
+    "diskTitle": "Disk space used by the downloaded drivers",
+    "summary": "{{installed}} of {{total}} downloaded · {{size}} MB",
+    "downloadAll": "Download all ({{size}} MB)",
+    "downloading": "Downloading",
+    "download": "Download",
+    "remove": "Delete",
+    "checkUpdates": "Check for updates",
+    "checking": "Checking…",
+    "upToDateAll": "Drivers are up to date.",
+    "rollback": "Roll back",
+    "rollbackTitle": "Drop version {{version}} and go back to {{previous}}",
+    "rollbackConfirm": "Go back to version {{previous}} of the {{label}} driver? Version {{version}} won't be used again. Open connections keep the current version until you close them.",
+    "statusDownloading": "Downloading version {{available}}…",
+    "statusReady": "Version {{version}} is used from the next connection",
+    "statusNeedsApp": "A newer version needs DBine {{minApp}} or later",
+    "statusRolledBack": "Version {{from}} failed and it went back to {{version}}",
+    "statusRolledBackUser": "Went back to version {{version}}; {{from}} won't be used",
+    "statusRestart": "Restart DBine to see this driver's new options"
+  },
+  "support": {
+    "title": "Support DBine",
+    "text": "DBine is free and will stay free. Your support helps us maintain the app and keep adding features.",
+    "notPayment": "It's support, not a payment: the app works the same either way.",
+    "notNow": "Not now",
+    "support": "Support the project"
+  }
+}

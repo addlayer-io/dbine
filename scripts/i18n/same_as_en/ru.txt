@@ -1,0 +1,2 @@
+# Values of the ru translation that are legitimately the same as English (see scripts/i18n/check.py):
+# terms the translator kept on purpose, one per line.

@@ -11,8 +11,11 @@ reads in the update dialog before installing it, and the body of the GitHub
 release, so write it for **people who use DBine**, not for developers.
 
 `CHANGELOG.md` is **English** and the source. The translations live in
-`changelog/CHANGELOG.{es,pt,fr,it}.md`: the same released versions, translated
-subsection headings, and no Unreleased section. The app shows the user's
+`changelog/CHANGELOG.{es,pt,fr,it,de,ru,zh,ja,ko}.md` (one per UI language
+but English, listed in `scripts/i18n/languages.json`): the same released
+versions, translated subsection headings, and no Unreleased section. de, ru,
+zh, ja and ko start after 1.0.0 (`changelog_after`): they need only the
+versions since. The app shows the user's
 language when the translation of the offered version exists, and the English
 notes otherwise. You write English only; the translations come from the
 `translator` agent at release time.
@@ -69,8 +72,9 @@ notes otherwise. You write English only; the translations come from the
    `## [Unreleased]`.
 3. Ask for the `translator` agent to add that version's section, with the
    same header (`## [<version>] - <date>`), at the top of each
-   `changelog/CHANGELOG.<lang>.md` (es, pt, fr, it). If you can't launch it,
-   say so in your report: the release isn't ready until it's done.
+   `changelog/CHANGELOG.<lang>.md` (es, pt, fr, it, de, ru, zh, ja, ko).
+   If you can't launch it, say so in your report: the release isn't ready
+   until it's done.
 4. `python3 scripts/changelog.py check` must pass: it fails while any
    translation lacks a released version.
 

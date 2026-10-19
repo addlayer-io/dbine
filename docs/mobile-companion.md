@@ -39,7 +39,8 @@ rest of this page is the design it grows into.
   chains and the statements running now (refreshed every 5 seconds), and
   ends a session
   after the phone's biometrics or PIN. A kill is never retried after a
-  dropped connection. The texts are in DBine's five languages.
+  dropped connection. The texts are in Spanish, English, Portuguese, French and Italian;
+  German, Russian, Chinese, Japanese and Korean are pending in the phone app.
 - **Actividad, notices and health (phone app):** two sections at the
   bottom, **Conexiones** and **Actividad**.
   - **Actividad › Consultas:** the queries running in DBine's editor, with

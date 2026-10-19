@@ -4,8 +4,11 @@
 `CHANGELOG.md` is English and the source. Every change lands under
 `## [Unreleased]`; a release turns that section into
 `## [<version>] - <date>`. The translations, `changelog/CHANGELOG.<lang>.md`
-(es, pt, fr, it), have the same released versions and no Unreleased section;
-the translator agent writes each version's section after the release.
+(every UI language but English, from scripts/i18n/languages.json), have the
+same released versions and no Unreleased section; the translator agent writes
+each version's section after the release. A language added later
+(`changelog_after` in languages.json) has only the versions newer than that
+one: the update dialog shows the older ones in English.
 
 The release workflow publishes a version's English section as the GitHub
 release notes and the update dialog's text; the app reads the translation at
@@ -26,12 +29,16 @@ the release's tag when its UI isn't in English.
 
 import argparse
 import datetime
+import json
 import re
 import sys
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent.parent
-LANGS = ("es", "pt", "fr", "it")
+_CONFIG = json.loads((ROOT / "scripts/i18n/languages.json").read_text("utf-8"))
+LANGS = tuple(l["code"] for l in _CONFIG["languages"] if l["code"] != "en")
+# A language's first version: it has every version newer than this one.
+AFTER = {l["code"]: l["changelog_after"] for l in _CONFIG["languages"] if l.get("changelog_after")}
 UNRELEASED = "Unreleased"
 HEADER = re.compile(r"^## \[(?P<name>[^\]]+)\](?: - (?P<date>\d{4}-\d{2}-\d{2}))?\s*$")
 VERSION = re.compile(r"\d+\.\d+\.\d+")
@@ -97,15 +104,17 @@ def check(text):
     return errors + check_versions(secs)
 
 
-def check_translation(text, english):
-    """A translation against the English file's text."""
+def check_translation(text, english, after=None):
+    """A translation against the English file's text. With `after`, only the
+    versions newer than it are required (a language added later)."""
     _, secs = sections(text)
     errors = []
     if any(n == UNRELEASED for n, _, _ in secs):
         errors.append(f"no puede tener sección «{UNRELEASED}» (se traduce al publicar)")
     errors += check_versions(secs)
     mine, source = released(text), released(english)
-    missing = [v for v in source if v not in mine]
+    required = [v for v in source if not after or not VERSION.fullmatch(v) or version_key(v) > version_key(after)]
+    missing = [v for v in required if v not in mine]
     extra = [v for v in mine if v not in source]
     if missing:
         errors.append(
@@ -134,7 +143,7 @@ def check_all(root=ROOT):
         if not p.exists():
             out[name] = ["no existe (correr el agente translator)"]
             continue
-        if errs := check_translation(p.read_text("utf-8"), english):
+        if errs := check_translation(p.read_text("utf-8"), english, AFTER.get(lang)):
             out[name] = errs
     return out
 

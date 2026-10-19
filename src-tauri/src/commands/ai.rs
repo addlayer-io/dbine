@@ -572,7 +572,8 @@ fn dialect_hint(dialect: &str) -> Option<&'static str> {
 }
 
 /// The model refused a legitimate request ("Lo siento, no puedo ayudarte con
-/// eso"): a short answer without code that apologizes or says it can't.
+/// eso"): a short answer without code that apologizes or says it can't, in
+/// any of the UI languages (scripts/i18n/languages.json).
 fn refused(text: &str) -> bool {
     let t = text.trim().to_lowercase();
     if t.is_empty() || t.contains("```") || t.chars().count() > 600 {
@@ -582,6 +583,11 @@ fn refused(text: &str) -> bool {
         "no puedo ayudar", "no puedo asistir", "no puedo hacer eso", "no puedo proporcionar", "lo siento, no puedo", "lo siento, pero no puedo",
         "can't help with", "cannot help with", "can't assist", "cannot assist", "i'm sorry, but i can", "i am sorry, but i can",
         "não posso ajudar", "desculpe, mas não posso", "je ne peux pas vous aider", "je ne peux pas t'aider", "non posso aiutar",
+        "kann ich nicht helfen", "kann ich ihnen nicht helfen", "kann ich dir nicht helfen", "ich kann ihnen dabei nicht helfen", "ich kann dir dabei nicht helfen",
+        "не могу помочь", "не могу с этим помочь", "не могу выполнить этот запрос",
+        "无法帮助", "无法协助", "不能帮助", "无法提供帮助", "抱歉，我无法", "抱歉，我不能",
+        "お手伝いできません", "お手伝いすることはできません", "お応えできません", "対応できません",
+        "도와드릴 수 없습니다", "도와드릴 수 없어요", "도움을 드릴 수 없습니다", "지원할 수 없습니다",
     ];
     SIGNS.iter().any(|s| t.contains(s))
 }
@@ -827,6 +833,12 @@ mod tests {
     fn refusals() {
         assert!(refused("Lo siento, no puedo ayudarte con eso."));
         assert!(refused("I'm sorry, but I can't assist with that request."));
+        assert!(refused("Entschuldigung, dabei kann ich nicht helfen."));
+        assert!(refused("Извините, я не могу помочь с этим."));
+        assert!(refused("抱歉，我无法帮助你完成这个请求。"));
+        assert!(refused("申し訳ありませんが、そのご依頼はお手伝いできません。"));
+        assert!(refused("죄송하지만 그 요청은 도와드릴 수 없습니다."));
+        assert!(!refused("このクエリは表を削除し、元に戻せません。"));
         assert!(!refused("```sql\nSELECT 1;\n```\nLo siento, no puedo garantizar el orden."), "with code it answered");
         assert!(!refused("Esta consulta borra la tabla y no se puede deshacer."));
         assert!(!refused(&format!("{} lo siento, no puedo", "x".repeat(700))), "a long answer isn't a refusal");

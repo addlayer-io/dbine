@@ -1,0 +1,11 @@
+{
+  "right": "Split right",
+  "down": "Split down",
+  "moveLeft": "Move to the left group",
+  "moveRight": "Move to the right group",
+  "moveUp": "Move to the group above",
+  "moveDown": "Move to the group below",
+  "button": "Split editor ({{key}}) · {{alt}}+click: down",
+  "closeGroup": "Close group",
+  "empty": "Empty group: the next tab you open goes here. You can also drag a tab onto this area."
+}

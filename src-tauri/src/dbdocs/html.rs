@@ -37,7 +37,7 @@ const CSS: &str = r#"
 @media (prefers-color-scheme: dark){:root:not([data-theme=light]){--dbine-deep:#6d98ff;--dbine-lite:#a6d3ff;--bg:#1e1f22;--bg2:#26282c;--fg:#e3e5e8;--dim:#9aa1ab;--border:#3a3d43;--accent:#6ea8fe;--code:#2b2d31;--pk:#f0b45a;--fk:#6ea8fe;--edge:#7b8491}}
 :root[data-theme=dark]{--dbine-deep:#6d98ff;--dbine-lite:#a6d3ff;--bg:#1e1f22;--bg2:#26282c;--fg:#e3e5e8;--dim:#9aa1ab;--border:#3a3d43;--accent:#6ea8fe;--code:#2b2d31;--pk:#f0b45a;--fk:#6ea8fe;--edge:#7b8491}
 *{box-sizing:border-box}
-html,body{margin:0;background:var(--bg);color:var(--fg);font:14px/1.5 -apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,Helvetica,Arial,sans-serif}
+html,body{margin:0;background:var(--bg);color:var(--fg);font:14px/1.5 -apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,Helvetica,Arial,"PingFang SC","Hiragino Sans","Hiragino Kaku Gothic ProN","Apple SD Gothic Neo","Microsoft YaHei","Yu Gothic UI","Meiryo","Malgun Gothic","Noto Sans CJK SC","Noto Sans CJK JP","Noto Sans CJK KR",sans-serif}
 a{color:var(--accent);text-decoration:none}a:hover{text-decoration:underline}
 aside{position:fixed;top:0;left:0;bottom:0;width:290px;overflow:auto;border-right:1px solid var(--border);background:var(--bg2);padding:14px 12px}
 aside .product{margin-bottom:14px}aside .product>svg{height:44px;width:auto;display:block}aside .brand{font-weight:600;margin-bottom:8px;word-break:break-word}
@@ -64,7 +64,7 @@ th,td{border:1px solid var(--border);padding:3px 8px;text-align:left;vertical-al
 th{background:var(--bg2);font-weight:600}
 td.pre{white-space:pre-wrap}
 .pk{color:var(--pk);font-weight:600}.fk{color:var(--fk);font-weight:600}
-code,pre{font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;font-size:12.5px}
+code,pre{font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,"PingFang SC","Hiragino Sans","Hiragino Kaku Gothic ProN","Apple SD Gothic Neo","Microsoft YaHei","Yu Gothic UI","Meiryo","Malgun Gothic","Noto Sans CJK SC","Noto Sans CJK JP","Noto Sans CJK KR",monospace;font-size:12.5px}
 pre{background:var(--code);border:1px solid var(--border);border-radius:4px;padding:10px;overflow:auto;white-space:pre}
 details summary{cursor:pointer;color:var(--accent);margin:8px 0 4px}
 .notes{border-left:3px solid var(--pk);padding:4px 12px;background:var(--bg2)}

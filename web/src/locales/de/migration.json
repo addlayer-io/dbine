@@ -1,0 +1,262 @@
+{
+  "migrate": "Migrate",
+  "preview": "Preview",
+  "pickEngine": "Choose the target engine",
+  "pickTable": "Choose at least one table",
+  "intro": "Moves the tables of {database} ({{engine}}) to the target database you choose, even on another engine: creates the converted tables (types, defaults, keys, indexes and names), copies the data with bulk loads and several tables at once, and adds the foreign keys at the end. If the app closes halfway, the migration can be resumed. The preview shows the report of every change and the script first, without touching anything.",
+  "severity": {
+    "dropped": "Dropped",
+    "droppedHint": "The target can't express it: it's left out",
+    "loss": "Loss",
+    "lossHint": "Values may not fit or may lose detail",
+    "warning": "Warning",
+    "warningHint": "Same values, different behavior",
+    "info": "Info",
+    "infoHint": "Faithful change worth knowing"
+  },
+  "confirm": {
+    "message": "{{count}} table(s) will be created in {{where}} ({{engine}}){{data}}{{drop}}. Continue?",
+    "data": " and all their data copied",
+    "drop": ", first dropping any existing ones with the same name",
+    "clone": "{{count}} table(s) will be cloned into {{where}} ({{engine}}) with their full structure{{data}}. Continue?",
+    "cloneData": " and all their data",
+    "sync": "{{count}} table(s) will be synced in {{where}} ({{engine}}): the rows that differ from the source are inserted, updated and deleted. Continue?"
+  },
+  "run": {
+    "cancelled": "Migration cancelled",
+    "finishedWithErrors": "Migration finished with {{count}} error(s): check the summary",
+    "finished": "Migration finished",
+    "running": "Migrating…",
+    "stopped": "The migration stopped",
+    "stepOf": "{{step}} of {{total}}",
+    "fkErrors": "Foreign keys that couldn't be created:",
+    "withErrors": "Migration finished with errors",
+    "progress": "{{done}} of {{total}} table(s) · {{rows}} row(s) · {{elapsed}}",
+    "parallel": "Tables at once",
+    "cancelAll": "Cancel all",
+    "retryFailed": "Retry failed ones",
+    "synced": "Sync finished",
+    "cloned": "Clone finished",
+    "afterErrors": "Final statements that could not be run:"
+  },
+  "phase": {
+    "drop": "Dropping existing tables",
+    "create": "Creating tables",
+    "foreignKeys": "Creating foreign keys",
+    "done": "Finishing",
+    "schemas": "Creating schemas",
+    "identity": "Adjusting the tables' identity",
+    "script": "Reading the source structure",
+    "before": "Preparing the target",
+    "check": "Checking the target tables",
+    "after": "Creating constraints, code and other objects"
+  },
+  "script": {
+    "pickConnection": "Choose a target connection (of the chosen engine) to open the script there",
+    "queryTitle": "Migration from {{name}}",
+    "copied": "Script copied",
+    "fileName": "migration-{{database}}-to-{{engine}}",
+    "fileNameDatabase": "database",
+    "title": "Structure script for {{engine}}",
+    "previewTag": "(preview)",
+    "openInQuery": "Open in a query",
+    "saveAs": "Save as file…",
+    "help": "It's what “Migrate” creates on the target before copying the data. You can also open it in a query, copy it or save it."
+  },
+  "target": {
+    "title": "Target",
+    "engine": "Target engine",
+    "pickEngine": "Choose the engine",
+    "connection": "Target connection",
+    "connectionHint": "(where everything is created)",
+    "connectionPlaceholder": "Connection",
+    "noConnections": "No {{engine}} connections",
+    "thatEngine": "that engine",
+    "database": "Database",
+    "keepSchemas": "Keep the source schemas (created on the target)",
+    "singleSchema": "Single schema",
+    "singleSchemaHint": "(optional: every table goes to this schema)",
+    "eachInOwnSchema": "Each table in its own schema",
+    "engineDefault": "The engine's default"
+  },
+  "tables": {
+    "title": "Tables",
+    "pickedOf": "{{picked}} of {{total}}",
+    "all": "All",
+    "none": "None",
+    "loading": "Reading tables…",
+    "empty": "This database has no tables."
+  },
+  "options": {
+    "title": "Options",
+    "data": "Copy the data",
+    "indexes": "Indexes",
+    "foreignKeys": "Foreign keys",
+    "foldCase": "Adapt the case of names to the target",
+    "drop": "Drop the tables on the target before creating them (DROP)",
+    "ifExists": "Use IF EXISTS / IF NOT EXISTS",
+    "needConnection": "To migrate, choose the target connection. The preview shows the report and the script without touching anything.",
+    "needConnectionSame": "To clone or sync, choose the target connection."
+  },
+  "cols": {
+    "table": "Table",
+    "rows": "Rows",
+    "column": "Column",
+    "sourceType": "Source type",
+    "targetType": "Target type",
+    "new": "(new)"
+  },
+  "report": {
+    "title": "Conversion report",
+    "summary": "{{tables}} table(s) · {{issues}} note(s)",
+    "clean": "The conversion is straightforward: there are no notes.",
+    "byColumn": "Conversion by column ({{count}})",
+    "filterColumns": "Filter columns"
+  },
+  "status": {
+    "pending": "Queued",
+    "running": "Copying",
+    "check": "Checking",
+    "truncate": "Emptying",
+    "indexes": "Indexes",
+    "copied": "Indexes",
+    "done": "Copied",
+    "failed": "Error",
+    "cancelled": "Cancelled",
+    "summary": "Summarizing",
+    "compare": "Comparing",
+    "apply": "Applying",
+    "syncing": "Syncing",
+    "synced": "Synced"
+  },
+  "path": {
+    "native": "Direct copy",
+    "bulkLoad": "Bulk load",
+    "insertScript": "Batched INSERT",
+    "delta": "By rows"
+  },
+  "grid": {
+    "status": "Status",
+    "speed": "Rows/s",
+    "path": "Path",
+    "bottleneck": "Bottleneck",
+    "source": "Source",
+    "destination": "Target",
+    "perSecond": "{{n}}/s",
+    "runNow": "Run now",
+    "cancel": "Cancel this table",
+    "reviewed": "Rows reviewed",
+    "changes": "Changes",
+    "changesValue": "{{inserted}} new · {{updated}} changed · {{deleted}} deleted"
+  },
+  "advanced": {
+    "title": "Advanced options",
+    "parallel": "Tables at once",
+    "parallelHint": "(1 to 32; can change during the copy)",
+    "order": "Order",
+    "largestFirst": "Largest first",
+    "smallestFirst": "Smallest first",
+    "alphabetical": "Alphabetical",
+    "commitRows": "Commit every",
+    "commitRowsHint": "(rows)"
+  },
+  "interrupted": {
+    "title": "Interrupted",
+    "hint": "Migrations cut by closing the app: they resume where they stopped",
+    "tables": "{{done}} of {{total}} table(s) copied",
+    "resume": "Resume",
+    "forget": "Discard",
+    "forgetConfirm": "This migration is forgotten and can no longer be resumed. What was copied stays in the target. Continue?"
+  },
+  "mode": {
+    "title": "Mode",
+    "pickEngineFirst": "Choose the target engine first",
+    "noConvert": "There is no schema conversion to this engine",
+    "noClone": "These engines can't be cloned into each other",
+    "noSync": "These engines can't be synced with each other",
+    "label": {
+      "convert": "Migrate (convert)",
+      "clone": "Clone",
+      "sync": "Sync"
+    },
+    "hint": {
+      "convert": "Converts the structure to the target engine, creates the tables and copies the data.",
+      "clone": "Clone (make the target identical): between databases of the same engine, creates everything with the engine's own script and copies the data.",
+      "sync": "Sync only what changed: in tables that already exist, inserts, updates and deletes only the rows that differ."
+    },
+    "action": {
+      "convert": "Migrate",
+      "clone": "Clone",
+      "sync": "Sync"
+    }
+  },
+  "clone": {
+    "needConnection": "To see the clone script, choose the target connection: the script adapts to what that server supports (it's only queried).",
+    "help": "The target ends up equal to the source: tables with their storage, indexes, constraints, sequences, code and other objects, with the engine's own script. What already exists on the target is left untouched.",
+    "clean": "The target can be made identical: no remarks.",
+    "reportTitle": "Clone remarks",
+    "scriptTitle": "Clone script for {{engine}}",
+    "scriptHelp": "It's what «Clone» runs on the target: first what goes before the tables, then each table with its indexes and, at the end, constraints, code and other objects."
+  },
+  "sync": {
+    "help": "The tables must exist on the target with the same columns: nothing is created or emptied. Only the rows that differ are inserted, updated and deleted, in one transaction per table.",
+    "depth": "What to compare",
+    "depths": {
+      "full": "Full",
+      "fullHint": "The whole content of each row.",
+      "sizes": "Large columns by size only",
+      "sizesHint": "Large columns are compared by their length: much faster, but a change that keeps the same size goes unseen.",
+      "keys": "Keys only",
+      "keysHint": "Finds new and deleted rows, not modified ones."
+    },
+    "maxCores": "Server cores",
+    "maxCoresHint": "(0: the server decides)",
+    "keysTitle": "Keys to sync by",
+    "keysSummary": "{{tables}} table(s) · {{unsyncable}} without a key",
+    "keysHelp": "Each table is compared by its primary key; if it has none, choose a unique key.",
+    "pickKey": "Choose a key",
+    "primaryKey": "Primary key ({{columns}})",
+    "uniqueKey": "Unique key ({{columns}})"
+  },
+  "panes": {
+    "preview": "Preview",
+    "run": "Run"
+  },
+  "runFilter": {
+    "all": "All",
+    "pending": "Queued",
+    "active": "In progress",
+    "done": "Finished",
+    "failed": "Failed",
+    "cancelled": "Cancelled",
+    "search": "Search table…",
+    "none": "No table matches the filter."
+  },
+  "saved": {
+    "untitled": "New migration",
+    "mode": {
+      "convert": "Convert",
+      "clone": "Clone",
+      "sync": "Sync"
+    },
+    "notSaved": "Not saved: it saves itself on the first change",
+    "renameHint": "Migration name (click to change it)",
+    "renameTitle": "Rename migration",
+    "renamePrompt": "New migration name",
+    "delete": "Delete",
+    "deleteTitle": "Delete migration",
+    "deleteConfirm": "The migration «{{name}}» and its configuration will be deleted. Neither the source nor the target is touched: whatever was copied stays where it is. Continue?",
+    "resume": "Resume",
+    "history": "Runs of this migration",
+    "runElsewhere": "This migration has runs, but not on this machine: only its configuration is shown here.",
+    "state": {
+      "draft": "Draft",
+      "elsewhere": "No runs on this machine",
+      "running": "Running",
+      "done": "Finished",
+      "failed": "With errors",
+      "interrupted": "Interrupted",
+      "cancelled": "Cancelled"
+    }
+  }
+}

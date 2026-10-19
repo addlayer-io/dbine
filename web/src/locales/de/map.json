@@ -1,0 +1,60 @@
+{
+  "source": "Data",
+  "latLon": "Latitude / longitude",
+  "lat": "Latitude",
+  "lon": "Longitude",
+  "pick": "Pick a column",
+  "count_one": "{{shown}} feature",
+  "count_other": "{{shown}} features",
+  "fit": "Fit",
+  "openSettings": "Map settings",
+  "privacy": "The map provider sees which area you're looking at (not the data)",
+  "notice": {
+    "cap": "The first {{cap}} features are drawn; {{rest}} more rows aren't.",
+    "srid_one": "{{rows}} row with SRID {{srid}} isn't drawn: the map shows WGS 84 (4326) and Web Mercator (3857).",
+    "srid_other": "{{rows}} rows with SRID {{srid}} aren't drawn: the map shows WGS 84 (4326) and Web Mercator (3857).",
+    "range_one": "{{rows}} row without an SRID has coordinates that aren't degrees: it isn't drawn.",
+    "range_other": "{{rows}} rows without an SRID have coordinates that aren't degrees: they aren't drawn.",
+    "unreadable_one": "{{rows}} value couldn't be read as a geometry.",
+    "unreadable_other": "{{rows}} values couldn't be read as geometries.",
+    "basemap": "The bundled base map couldn't be loaded."
+  },
+  "attribution": {
+    "offline": "Base map: Natural Earth (public domain), offline",
+    "custom": "Tiles: custom provider"
+  },
+  "popup": {
+    "row": "Row {{row}}",
+    "rows_one": "Row {{row}} and {{more}} more at this spot",
+    "rows_other": "Row {{row}} and {{more}} more at this spot",
+    "geometry": "(geometry)"
+  },
+  "settings": {
+    "nav": "Maps",
+    "title": "Maps",
+    "help": "The results' map draws the geometries on this machine: the rows' data never leaves it.",
+    "offline": "Offline base map",
+    "offlineHelp": "Countries, provinces and states, coastlines, lakes and cities from Natural Earth (public domain), bundled with DBine.",
+    "online": "Online tiles",
+    "onlineHelp": "Uses a tile provider with streets and terrain. Off, the map makes no requests to the internet.",
+    "noticeTitle": "Online tiles",
+    "noticeOk": "Turn on",
+    "provider": "Provider",
+    "providers": {
+      "osm": "OpenStreetMap (standard)",
+      "maptiler": "MapTiler (with a key)",
+      "stadia": "Stadia Maps (with a key)",
+      "custom": "Custom (XYZ template)"
+    },
+    "osmPolicy": "The OpenStreetMap Foundation's tiles are a community service with a usage policy (operations.osmfoundation.org/policies/tiles): they're for light use. For heavy use, pick another provider or your own server.",
+    "url": "URL template",
+    "urlHelp": "https with {z}, {x} and {y}; {key} is replaced by the key. http only for a server on this machine (localhost).",
+    "urlInvalid": "The template must be https (or http to localhost) and include {z}, {x} and {y}.",
+    "attribution": "Attribution",
+    "attributionHelp": "The text the provider asks for; it's shown in the map's corner.",
+    "key": "API key",
+    "keyHelp": "Kept on this machine only: it doesn't travel with the sync.",
+    "needUrl": "A valid URL template is missing: until then the map uses the offline base map.",
+    "needKey": "The API key is missing: until then the map uses the offline base map."
+  }
+}

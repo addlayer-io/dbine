@@ -1,0 +1,25 @@
+{
+  "menu": "Clone…",
+  "title": "Clone {{name}}",
+  "name": "New table name",
+  "nameHelp": "It is created in the same schema, with the same structure. Its indexes and constraints get names based on the new name.",
+  "withData": "Copy the data",
+  "withIndexes": "Include indexes",
+  "clone": "Clone",
+  "stop": "Stop",
+  "starting": "Starting…",
+  "rows": "{{done}} rows copied",
+  "rowsOf": "{{done}} of {{total}} rows copied",
+  "done": "«{{name}}» cloned with {{rows}} rows",
+  "cancelled": "Cloning stopped; nothing of the new table was left behind",
+  "notes": "Worth knowing",
+  "phase": {
+    "read": "Reading the table structure…",
+    "create": "Creating the new table…",
+    "copy": "Copying the data…",
+    "identity": "Adjusting the identity counter…",
+    "indexes": "Creating the indexes…",
+    "foreign_keys": "Creating the foreign keys…",
+    "cleanup": "Dropping the half-finished table…"
+  }
+}
