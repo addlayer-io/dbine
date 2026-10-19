@@ -18,7 +18,9 @@
 //!   revokes every lease of it (`sys/leases/revoke`, best effort) and the
 //!   AppRole token that made it.
 //! - Credentials asked by the form (Test, Test connection) aren't held:
-//!   Test revokes them right away, a test connection two minutes later.
+//!   Test revokes them right away, and so does a test connection once its
+//!   session is closed ([`form_scope`]); one asked outside that scope is
+//!   revoked two minutes later.
 //!
 //! The lease ID, the token and the credentials never go to disk or to a log;
 //! errors carry Vault's messages, never a value.
@@ -183,7 +185,7 @@ struct Leases {
     /// Leases replaced while their connection stayed open, by connection.
     retired: Vec<(String, Held)>,
     /// A form's, until their revocation (a test connection's).
-    form: Vec<Held>,
+    form: Vec<(u64, Held)>,
 }
 
 static LEASES: LazyLock<Mutex<Leases>> = LazyLock::new(Mutex::default);
@@ -201,8 +203,30 @@ pub fn margin(ttl: Duration) -> Duration {
     (ttl / 3).clamp(Duration::from_secs(10), Duration::from_secs(300))
 }
 
-/// How long a form's test connection keeps its credentials.
+/// How long a form's credentials asked outside a [`form_scope`] are kept
+/// (and the fallback if the scope is dropped before it ends).
 const FORM_GRACE: Duration = Duration::from_secs(120);
+
+tokio::task_local! {
+    /// The leases a form's test connection got (see [`form_scope`]).
+    static FORM_SCOPE: std::cell::RefCell<Vec<u64>>;
+}
+
+/// Run `f` (a form's test connection: resolve, connect, close) and revoke
+/// the form's leases it got as soon as it ends, instead of after
+/// [`FORM_GRACE`].
+pub async fn form_scope<F: std::future::Future>(f: F) -> F::Output {
+    let (out, ids) = FORM_SCOPE
+        .scope(std::cell::RefCell::new(Vec::new()), async {
+            let out = f.await;
+            (out, FORM_SCOPE.with(|s| s.take()))
+        })
+        .await;
+    for id in ids {
+        release_form(id).await;
+    }
+    out
+}
 
 /// The definition's parts the lease store needs.
 pub struct Source<'a> {
@@ -217,8 +241,8 @@ fn connection_of(key: &str) -> &str {
 
 /// The credentials for `key`: the held ones while their lease has time
 /// left (renewed near its end when Vault allows), else new ones. `hold`:
-/// a saved connection (held until it closes); else a form's (revoked after
-/// [`FORM_GRACE`]).
+/// a saved connection (held until it closes); else a form's (revoked when
+/// its [`form_scope`] ends, else after [`FORM_GRACE`]).
 pub async fn acquire(key: &str, hold: bool, src: &Source<'_>) -> Result<Arc<Resolved>, String> {
     if !hold {
         // A form's key is used once: no gate to share.
@@ -256,10 +280,15 @@ async fn issue_new(key: &str, hold: bool, src: &Source<'_>) -> Result<Arc<Resolv
             tokio::spawn(renewer(key.to_string(), lease_id));
         }
     } else if !lease_id.is_empty() || login.owned {
-        leases().form.push(held);
+        static NEXT: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(1);
+        let id = NEXT.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+        leases().form.push((id, held));
+        // In a test connection's scope: revoked when it ends. The timer
+        // stays as the fallback (a no-op once the lease is gone).
+        let _ = FORM_SCOPE.try_with(|s| s.borrow_mut().push(id));
         tokio::spawn(async move {
             tokio::time::sleep(FORM_GRACE).await;
-            release_form(&lease_id).await;
+            release_form(id).await;
         });
     }
     Ok(resolved)
@@ -373,10 +402,10 @@ async fn renewer(key: String, lease_id: String) {
     }
 }
 
-async fn release_form(lease_id: &str) {
+async fn release_form(id: u64) {
     let found = {
         let mut l = leases();
-        l.form.iter().position(|h| h.lease_id == lease_id).map(|i| l.form.swap_remove(i))
+        l.form.iter().position(|(i, _)| *i == id).map(|i| l.form.swap_remove(i).1)
     };
     if let Some(h) = found {
         h.revoke().await;
@@ -407,7 +436,7 @@ pub async fn release_all() {
         let mut l = leases();
         let mut out: Vec<Held> = l.current.drain().map(|(_, h)| h).collect();
         out.extend(l.retired.drain(..).map(|(_, h)| h));
-        out.append(&mut l.form);
+        out.extend(l.form.drain(..).map(|(_, h)| h));
         out
     };
     let mut all = tokio::task::JoinSet::new();

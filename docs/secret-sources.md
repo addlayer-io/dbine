@@ -520,7 +520,7 @@ How long the credentials live:
   then removes the database user. If DBine can't reach Vault at that moment
   (or is killed), the lease ends at its TTL anyway.
 - **Test** next to the field asks for credentials and revokes them at once;
-  **Test connection** revokes them two minutes after the test.
+  **Test connection** revokes them as soon as the test's session is closed.
 - A static role has no lease: its credentials are reused until shortly
   before Vault's next rotation, and nothing is revoked.
 

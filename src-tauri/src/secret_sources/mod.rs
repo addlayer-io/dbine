@@ -400,6 +400,12 @@ pub fn release_leases(connection_id: &str) {
     tauri::async_runtime::spawn(async move { vault_db::release(&id).await });
 }
 
+/// Run a form's test connection (resolve, connect, close the session) and
+/// revoke the Vault database leases it got as soon as it ends.
+pub async fn with_form_leases<F: std::future::Future>(f: F) -> F::Output {
+    vault_db::form_scope(f).await
+}
+
 /// Revoke every Vault lease held (DBine is closing).
 pub async fn release_all_leases() {
     vault_db::release_all().await;
@@ -1116,6 +1122,36 @@ pub(crate) mod tests {
         let e = fill(&store, &mut base.clone(), &ar_sources, &wrong, saved).await.unwrap_err().to_string();
         assert!(e.contains("role_id o el secret_id") && !e.contains("nope"), "{e}");
         defs::forget(&[defs::digest(&id, "password", &src), defs::digest(&id, "password", &approle)]).unwrap();
+    }
+
+    /// "Probar conexión": the credentials the form's test leased are revoked
+    /// as soon as the test ends (its session closed), not two minutes later.
+    #[tokio::test]
+    async fn vault_database_test_connection_revokes_at_once() {
+        let (addr, m) = vault_mock().await;
+        let dir = temp_dir("vault-db-test-conn");
+        let store = StateStore::open(&dir.join("s.sqlite")).unwrap();
+        let src = vault_db_src(&addr, "ro", defs::VaultAuth::Token);
+        let sources: SecretSources = [("password".to_string(), src)].into();
+        let root: Secrets = [(defs::token_key("password", ""), "root".to_string())].into();
+        let base = ConnectionConfig { driver: "postgres".into(), host: "h".into(), ..Default::default() };
+        let form = Origin::Form { id: None, name: "" };
+        let m2 = m.clone();
+        let user = with_form_leases(async {
+            let mut cfg = base.clone();
+            fill(&store, &mut cfg, &sources, &root, form).await.unwrap();
+            // While the test's session is open, the lease is still there.
+            assert!(m2.revoked.lock().unwrap().is_empty(), "not revoked while the test runs");
+            cfg.username.unwrap_or_default()
+        })
+        .await;
+        let lease = format!("database/creds/ro/L{}", user.trim_start_matches("v-ro-"));
+        assert_eq!(m.revoked.lock().unwrap().as_slice(), [lease], "revoked right after the test");
+        // Outside a test's scope (a form's other uses) nothing changes: the
+        // two-minute fallback still applies, nothing is revoked yet.
+        let mut cfg = base.clone();
+        fill(&store, &mut cfg, &sources, &root, form).await.unwrap();
+        assert_eq!(m.revoked.lock().unwrap().len(), 1);
     }
 
     /// AppRole for a KV read: signs in, reads, revokes its token.
