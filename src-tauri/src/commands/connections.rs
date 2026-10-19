@@ -103,6 +103,11 @@ pub struct SaveConnectionArgs {
     /// Secret fields may come filled in: they're moved to the keychain.
     /// A secret left empty keeps the stored value.
     pub connection: SavedConnection,
+    /// The connection a new form was copied from ("Duplicar conexión"):
+    /// while its definition for a field is unconfirmed, the copy's isn't
+    /// confirmed by saving it either.
+    #[serde(default)]
+    pub duplicate_of: Option<String>,
 }
 
 #[tauri::command(rename_all = "camelCase")]
@@ -155,7 +160,7 @@ pub async fn save_connection(state: State<'_, AppState>, args: SaveConnectionArg
     // was, or copied, isn't, and neither is anything saved over a field
     // whose stored definition is still unconfirmed: it's confirmed when it
     // first runs.
-    confirm_typed(&state.store.list_connections()?, &conn.id, &sources)?;
+    confirm_typed(&state.store.list_connections()?, &conn.id, args.duplicate_of.as_deref(), &sources)?;
     // An opened file saved as it is ("Guardar conexión") keeps its sessions.
     let mut keep_sessions = false;
     // Pointed at another server, database or login: its cached tree is
@@ -178,11 +183,12 @@ pub async fn save_connection(state: State<'_, AppState>, args: SaveConnectionArg
 }
 
 /// Confirm the definitions saved for connection `id` that were typed in its
-/// form here (`saved` is the state before the save).
-fn confirm_typed(saved: &[SavedConnection], id: &str, sources: &source_defs::SecretSources) -> CommandResult<()> {
+/// form here (`saved` is the state before the save; `duplicate_of`, the
+/// connection the form was copied from).
+fn confirm_typed(saved: &[SavedConnection], id: &str, duplicate_of: Option<&str>, sources: &source_defs::SecretSources) -> CommandResult<()> {
     for (field, src) in sources {
         let digest = source_defs::digest(id, field, src);
-        if !source_defs::is_approved(&digest) && !source_defs::needs_confirmation(saved, Some(id), field, src) {
+        if !source_defs::is_approved(&digest) && !source_defs::needs_confirmation(saved, Some(id), duplicate_of, field, src) {
             source_defs::approve(&digest)?;
         }
     }
@@ -241,6 +247,9 @@ pub struct TestConnectionArgs {
     /// When editing a saved connection, secret fields left empty take the
     /// stored values.
     pub connection_id: Option<String>,
+    /// The connection a new form was copied from ("Duplicar conexión").
+    #[serde(default)]
+    pub duplicate_of: Option<String>,
 }
 
 #[derive(Serialize)]
@@ -284,7 +293,7 @@ async fn test_connection_with(state: &AppState, args: TestConnectionArgs) -> Com
     // A definition that came from outside asks first, and so does a master
     // password asked when needed (errors the UI answers); one that fails is
     // a failed test.
-    match crate::secret_sources::fill(&state.store, &mut cfg, &sources, &tokens, crate::secret_sources::Origin::Form { id, name: &name }).await {
+    match crate::secret_sources::fill(&state.store, &mut cfg, &sources, &tokens, crate::secret_sources::Origin::Form { id, duplicate_of: args.duplicate_of.as_deref().filter(|i| !i.is_empty()), name: &name }).await {
         Ok(()) => {}
         Err(e @ (CommandError::SecretSourceApproval(_) | CommandError::SecretSourceUnlock(_))) => return Err(e),
         Err(e) => return Ok(TestResult { ok: false, message: e.to_string() }),
@@ -415,16 +424,23 @@ mod tests {
             (malformed.as_str(), cmd("echo replaced")),
         ];
         for (id, src) in &cases {
-            confirm_typed(&saved, id, &one(src.clone())).unwrap();
+            confirm_typed(&saved, id, None, &one(src.clone())).unwrap();
             assert!(!source_defs::is_approved(&source_defs::digest(id, "password", src)), "{id}: {src:?}");
         }
         // A copy of the imported one in a new connection: not confirmed either.
         let new_id = format!("new-{uid}");
-        confirm_typed(&saved, &new_id, &one(cmd("touch /tmp/never-run"))).unwrap();
+        confirm_typed(&saved, &new_id, None, &one(cmd("touch /tmp/never-run"))).unwrap();
         assert!(!source_defs::is_approved(&source_defs::digest(&new_id, "password", &cmd("touch /tmp/never-run"))));
+        // A duplicate of the imported one, whatever the form made of its
+        // text (a BOM the form trimmed, or edited): not confirmed.
+        let copy_id = format!("copy-{uid}");
+        for src in [cmd("touch /tmp/never-run"), cmd("echo edited in the copy")] {
+            confirm_typed(&saved, &copy_id, Some(&padded), &one(src.clone())).unwrap();
+            assert!(!source_defs::is_approved(&source_defs::digest(&copy_id, "password", &src)), "{src:?}");
+        }
         // Typed here: confirmed by the save.
         for id in [&new_id, &mine] {
-            confirm_typed(&saved, id, &one(cmd("pass typed-here"))).unwrap();
+            confirm_typed(&saved, id, None, &one(cmd("pass typed-here"))).unwrap();
             assert!(source_defs::is_approved(&source_defs::digest(id, "password", &cmd("pass typed-here"))), "{id}");
         }
         let all: Vec<String> = [&new_id, &mine].iter().map(|id| source_defs::digest(id, "password", &cmd("pass typed-here"))).chain([source_defs::digest(&mine, "password", &cmd("pass db"))]).collect();

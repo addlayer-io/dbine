@@ -42,6 +42,8 @@ const props = defineProps<{
   allowAsk: boolean;
   /** The connection being edited, if it's saved. */
   connectionId: string | null;
+  /** The connection a new form was copied from ("Duplicar conexión"). */
+  duplicateOf?: string | null;
   /** The form's engine (for the field's name in errors). */
   driver: string;
   /** The connection is saved: a token typed before is kept for this field. */
@@ -101,7 +103,7 @@ async function test() {
   result.value = null;
   try {
     const tokens = formTokens();
-    const r = await api.testSecretSource(props.connectionId, props.driver, props.field, source, tokens);
+    const r = await api.testSecretSource(props.connectionId, props.driver, props.field, source, tokens, props.duplicateOf ?? null);
     result.value = { ok: true, text: t(r.username ? 'connection:source.testOkUser' : 'connection:source.testOk', { n: r.chars }) };
   } catch (e) {
     // Came from outside and not confirmed yet: show it, and test again if confirmed.
@@ -276,7 +278,7 @@ async function loadFields(ask: boolean): Promise<void> {
   const key = fieldsKey.value;
   fieldsState.value = 'loading';
   try {
-    const l = await api.browseSecretSource(props.connectionId, props.driver, props.field, source as unknown as Record<string, unknown>, formTokens(), q);
+    const l = await api.browseSecretSource(props.connectionId, props.driver, props.field, source as unknown as Record<string, unknown>, formTokens(), q, props.duplicateOf ?? null);
     if (key !== fieldsKey.value) return;
     fieldOptions.value = l.fields ?? [];
     fieldsState.value = 'ready';
@@ -761,7 +763,7 @@ const req = (k: keyof SourceDraft) => external.value && missingInputs({ ...draft
       <AccountConnectWizard v-else :kind="acctKind as WizardKind" @connected="accountConnected" @close="wizardOpen = false" />
     </template>
     <SecretBrowseDialog
-      v-if="browsing" :kind="draft.kind" :source="browsing.source" :tokens="browsing.tokens" :field="field" :connection-id="connectionId" :driver="driver"
+      v-if="browsing" :kind="draft.kind" :source="browsing.source" :tokens="browsing.tokens" :field="field" :connection-id="connectionId" :duplicate-of="duplicateOf ?? null" :driver="driver"
       :roles="browsing.roles" @pick="picked" @close="browsing = null"
     />
   </div>
