@@ -48,29 +48,31 @@ export const api = {
   listConnections: () => invoke<SavedConnection[]>('list_connections'),
   /** Secret fields filled in the config go to the keychain; empty ones keep
    *  the stored value. */
-  saveConnection: (connection: SavedConnection) =>
-    invoke<SavedConnection>('save_connection', { args: { connection } }),
+  /** `duplicateOf`: the connection a new form was copied from ("Duplicar
+   *  conexión"): its unconfirmed secret sources aren't confirmed by the copy. */
+  saveConnection: (connection: SavedConnection, duplicateOf: string | null = null) =>
+    invoke<SavedConnection>('save_connection', { args: { connection, duplicate_of: duplicateOf } }),
   deleteConnection: (id: string) => invoke<void>('delete_connection', { args: { id } }),
   /** Trust an SSH tunnel server's key for a saved connection (docs/ssh-tunnels.md). */
   trustSshHost: (connectionId: string, fingerprint: string) =>
     invoke<void>('trust_ssh_host', { args: { connection_id: connectionId, fingerprint } }),
   /** Resolve one field's source as the form has it; says only how long the value is. */
-  testSecretSource: (connectionId: string | null, driver: string, field: string, source: SecretSource, tokens: Record<string, string>) =>
-    invoke<SecretSourceTest>('test_secret_source', { args: { connection_id: connectionId, driver, field, source, tokens } }),
+  testSecretSource: (connectionId: string | null, driver: string, field: string, source: SecretSource, tokens: Record<string, string>, duplicateOf: string | null = null) =>
+    invoke<SecretSourceTest>('test_secret_source', { args: { connection_id: connectionId, duplicate_of: duplicateOf, driver, field, source, tokens } }),
   /** "Examinar": a source's groups and items (`path`), or an item's field
    *  names (`item`); names only. `source` may leave its item input empty. */
   browseSecretSource: (
     connectionId: string | null, driver: string, field: string, source: Record<string, unknown>, tokens: Record<string, string>,
-    at: { path?: string; item?: string; query?: string } = {},
-  ) => invoke<SecretBrowseListing>('browse_secret_source', { args: { connection_id: connectionId, driver, field, source, tokens, ...at } }),
+    at: { path?: string; item?: string; query?: string } = {}, duplicateOf: string | null = null,
+  ) => invoke<SecretBrowseListing>('browse_secret_source', { args: { connection_id: connectionId, duplicate_of: duplicateOf, driver, field, source, tokens, ...at } }),
   /** A master password asked for a saved connection's field: kept in memory for this run. */
   unlockSecretSource: (connectionId: string, field: string, value: string) =>
     invoke<void>('unlock_secret_source', { args: { connection_id: connectionId, field, value } }),
   /** The user confirmed a source that came from outside (the dialog showed `source`). */
   approveSecretSource: (connectionId: string | null, field: string, source: SecretSource) =>
     invoke<void>('approve_secret_source', { args: { connection_id: connectionId, field, source } }),
-  testConnection: (config: ConnectionConfig, connectionId: string | null) =>
-    invoke<TestResult>('test_connection', { args: { config, connection_id: connectionId } }),
+  testConnection: (config: ConnectionConfig, connectionId: string | null, duplicateOf: string | null = null) =>
+    invoke<TestResult>('test_connection', { args: { config, connection_id: connectionId, duplicate_of: duplicateOf } }),
   connect: (connectionId: string, password: string | null = null) =>
     invoke<ConnectResult>('connect', { args: { connection_id: connectionId, password } }),
   disconnect: (connectionId: string) => invoke<void>('disconnect', { args: { connection_id: connectionId } }),

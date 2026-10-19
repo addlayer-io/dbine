@@ -75,8 +75,10 @@ pub enum Origin<'a> {
     /// A saved connection connecting: each definition must be confirmed.
     Saved { id: &'a str, name: &'a str },
     /// The connection form ("Probar"): what the user typed here counts as
-    /// confirmed, a definition that came from outside doesn't.
-    Form { id: Option<&'a str>, name: &'a str },
+    /// confirmed, a definition that came from outside doesn't. `duplicate_of`:
+    /// the connection a new form was copied from ("Duplicar conexión"), whose
+    /// unconfirmed definitions the copy can't be told apart from.
+    Form { id: Option<&'a str>, duplicate_of: Option<&'a str>, name: &'a str },
 }
 
 impl Origin<'_> {
@@ -421,8 +423,8 @@ fn trusted(store: &StateStore, origin: Origin<'_>, field: &str, src: &SecretSour
         // The edited connection's own unconfirmed definition, or one that
         // came from outside. Saved connections that can't be listed: nothing
         // can be told, so it asks.
-        Origin::Form { id, .. } => match store.list_connections() {
-            Ok(saved) => !defs::needs_confirmation(&saved, id, field, src),
+        Origin::Form { id, duplicate_of, .. } => match store.list_connections() {
+            Ok(saved) => !defs::needs_confirmation(&saved, id, duplicate_of, field, src),
             Err(_) => false,
         },
     }
@@ -564,6 +566,9 @@ fn form_slots(state: &AppState, id: Option<&str>, field: &str, src: &SecretSourc
 pub struct TestSecretSourceArgs {
     /// The connection being edited, if it's saved.
     pub connection_id: Option<String>,
+    /// The connection a new form was copied from ("Duplicar conexión").
+    #[serde(default)]
+    pub duplicate_of: Option<String>,
     pub field: String,
     pub source: SecretSource,
     /// A Vault token typed in the form (else the kept one).
@@ -598,7 +603,7 @@ pub async fn test_secret_source(state: State<'_, AppState>, args: TestSecretSour
     let name = saved.as_ref().map(|c| c.name.clone()).unwrap_or_default();
     let driver = args.driver.clone().or_else(|| saved.as_ref().map(|c| c.config.driver.clone()));
     let info = driver.as_deref().and_then(|d| driver_info(d).ok());
-    let origin = Origin::Form { id, name: &name };
+    let origin = Origin::Form { id, duplicate_of: args.duplicate_of.as_deref().filter(|i| !i.is_empty()), name: &name };
     check_trust(&state.store, origin, info, &args.field, &args.source)?;
     let slots = form_slots(&state, id, &args.field, &args.source, args.tokens.unwrap_or_default(), args.token);
     let label = field_label(info, &args.field);
@@ -734,24 +739,24 @@ pub(crate) mod tests {
         assert!(!json["message"].as_str().unwrap().contains("touch"), "the message (what MCP sees) has no command text");
         assert!(!marker.exists(), "it didn't run");
         // The form editing it, unchanged: refused too.
-        assert!(fill(&store, &mut run_cfg, &sources, &Secrets::new(), Origin::Form { id: Some(&id), name: "Imported" }).await.is_err());
+        assert!(fill(&store, &mut run_cfg, &sources, &Secrets::new(), Origin::Form { id: Some(&id), duplicate_of: None, name: "Imported" }).await.is_err());
         // A copy in a new form: refused (same text as the unconfirmed one).
-        assert!(fill(&store, &mut run_cfg, &sources, &Secrets::new(), Origin::Form { id: None, name: "" }).await.is_err());
+        assert!(fill(&store, &mut run_cfg, &sources, &Secrets::new(), Origin::Form { id: None, duplicate_of: None, name: "" }).await.is_err());
         assert!(!marker.exists());
         // Padded (the form trims it): still the same definition, refused.
         let padded: SecretSources = [("password".to_string(), cmd(&format!(" touch '{}'; printf pw ", marker.display())))].into();
-        for origin in [Origin::Form { id: Some(&id), name: "Imported" }, Origin::Form { id: None, name: "" }] {
+        for origin in [Origin::Form { id: Some(&id), duplicate_of: None, name: "Imported" }, Origin::Form { id: None, duplicate_of: None, name: "" }] {
             assert!(matches!(fill(&store, &mut run_cfg, &padded, &Secrets::new(), origin).await, Err(CommandError::SecretSourceApproval(_))));
         }
         assert!(!marker.exists());
         // Anything else typed over the unconfirmed field of the connection
         // it came with: asks too (the form rewrites what it loads).
         let typed: SecretSources = [("password".to_string(), cmd(&format!("touch '{}'; printf typed", marker.display())))].into();
-        let e = fill(&store, &mut run_cfg, &typed, &Secrets::new(), Origin::Form { id: Some(&id), name: "Imported" }).await.unwrap_err();
+        let e = fill(&store, &mut run_cfg, &typed, &Secrets::new(), Origin::Form { id: Some(&id), duplicate_of: None, name: "Imported" }).await.unwrap_err();
         assert!(matches!(e, CommandError::SecretSourceApproval(_)), "{e:?}");
         assert!(!marker.exists());
         // Typed in a new form: runs.
-        fill(&store, &mut run_cfg, &typed, &Secrets::new(), Origin::Form { id: None, name: "" }).await.unwrap();
+        fill(&store, &mut run_cfg, &typed, &Secrets::new(), Origin::Form { id: None, duplicate_of: None, name: "" }).await.unwrap();
         assert_eq!(run_cfg.password.as_deref(), Some("typed"));
         std::fs::remove_file(&marker).unwrap();
         // Confirmed: runs, and the value goes where the driver reads it.
@@ -774,6 +779,60 @@ pub(crate) mod tests {
         assert!(!snap.contains("\"pw\"") && !snap.contains("typed\""));
         defs::forget(&[defs::digest(&id, "password", &src)]).unwrap();
         forget_cached(&id);
+    }
+
+    /// An imported command padded with a BOM (which the form's JavaScript
+    /// trims and Rust's `trim` didn't), opened with "Duplicar conexión":
+    /// the copy's Test, field Test and Examinar ask, and nothing runs.
+    #[cfg(unix)]
+    #[tokio::test]
+    async fn a_duplicated_bom_padded_import_asks_and_never_runs() {
+        let dir = temp_dir("bom-dup");
+        let store = StateStore::open(&dir.join("s.sqlite")).unwrap();
+        let marker = dir.join("ran");
+        let body = format!("touch '{}'; printf pw", marker.display());
+        // As stored by the import: the BOM is in the state, not validated.
+        let mut cfg = ConnectionConfig { driver: "postgres".into(), host: "h".into(), ..Default::default() };
+        let json = serde_json::json!({ "password": { "kind": "command", "command": format!("\u{FEFF}{body}") } }).to_string();
+        cfg.options.insert(defs::OPTION.into(), json);
+        let id = format!("imported-bom-{}", uuid::Uuid::new_v4());
+        store
+            .save_connection(&dbine_core::SavedConnection {
+                id: id.clone(),
+                name: "Imported".into(),
+                color: None,
+                config: cfg.clone(),
+                save_password: true,
+                folder_id: None,
+                tags: vec![],
+                mcp_level: None,
+                updated_at: String::new(),
+            })
+            .unwrap();
+        // What the copy's form sends: trimmed by JavaScript (no BOM), or edited.
+        let mut run_cfg = ConnectionConfig { driver: "postgres".into(), host: "h".into(), ..Default::default() };
+        let copy = Origin::Form { id: None, duplicate_of: Some(&id), name: "" };
+        for text in [body.clone(), format!("{body}; printf more")] {
+            let sources: SecretSources = [("password".to_string(), cmd(&text))].into();
+            let e = fill(&store, &mut run_cfg, &sources, &Secrets::new(), copy).await.unwrap_err();
+            assert!(matches!(e, CommandError::SecretSourceApproval(_)), "{e:?}");
+            let e = check_trust(&store, copy, None, "password", &cmd(&text)).unwrap_err();
+            assert!(matches!(e, CommandError::SecretSourceApproval(_)), "{e:?}");
+            let e = browse::may_browse(&store, None, Some(&id), None, "password", &cmd(&text)).unwrap_err();
+            assert!(matches!(e, CommandError::SecretSourceApproval(_)), "{e:?}");
+        }
+        // The trimmed text is the stored definition's canonical form: a new
+        // form (not a copy) asks for it too.
+        let sources: SecretSources = [("password".to_string(), cmd(&body))].into();
+        let new_form = Origin::Form { id: None, duplicate_of: None, name: "" };
+        assert!(matches!(fill(&store, &mut run_cfg, &sources, &Secrets::new(), new_form).await, Err(CommandError::SecretSourceApproval(_))));
+        // The stored one with its BOM doesn't run as a saved connection: an
+        // invisible character isn't a valid definition.
+        let stored: SecretSources = defs::read(&cfg).unwrap();
+        let e = fill(&store, &mut run_cfg, &stored, &Secrets::new(), Origin::Saved { id: &id, name: "Imported" }).await.unwrap_err();
+        assert!(e.to_string().contains("caracteres invisibles"), "{e}");
+        assert!(!marker.exists(), "nothing ran");
+        assert_eq!(run_cfg.password, None);
     }
 
     fn kdbx(dir: &std::path::Path) -> std::path::PathBuf {
@@ -805,7 +864,7 @@ pub(crate) mod tests {
         let dir = temp_dir("kp-master");
         let store = StateStore::open(&dir.join("s.sqlite")).unwrap();
         let file = kdbx(&dir);
-        let form = Origin::Form { id: None, name: "" };
+        let form = Origin::Form { id: None, duplicate_of: None, name: "" };
         let base = ConnectionConfig { driver: "postgres".into(), host: "h".into(), ..Default::default() };
         let run = |src: SecretSource, tokens: Secrets| {
             let store = &store;
@@ -866,7 +925,7 @@ pub(crate) mod tests {
             .unwrap();
         defs::take(&mut cfg).unwrap();
         let kept: Secrets = [(defs::token_key("password", ""), "dummy-master".to_string())].into();
-        for origin in [Origin::Saved { id: &id, name: "Imported" }, Origin::Form { id: None, name: "" }] {
+        for origin in [Origin::Saved { id: &id, name: "Imported" }, Origin::Form { id: None, duplicate_of: None, name: "" }] {
             let e = fill(&store, &mut cfg, &sources, &kept, origin).await.unwrap_err();
             assert!(matches!(e, CommandError::SecretSourceApproval(_)), "{e:?}");
             assert_eq!(cfg.password, None);
@@ -1037,18 +1096,18 @@ pub(crate) mod tests {
         let saved = dbine_core::SavedConnection { id: format!("imported-browse-{}", uuid::Uuid::new_v4()), name: "imp".into(), color: None, config: cfg, save_password: true, folder_id: None, tags: vec![], mcp_level: None, updated_at: String::new() };
         store.save_connection(&saved).unwrap();
         // A new form, the imported definition typed as is: confirm it first.
-        assert!(matches!(browse::may_browse(&store, None, None, "password", &src), Err(CommandError::SecretSourceApproval(_))));
+        assert!(matches!(browse::may_browse(&store, None, None, None, "password", &src), Err(CommandError::SecretSourceApproval(_))));
         // Editing the imported connection, even with another definition.
         let mut other = src.clone();
         if let SecretSource::KeePass { file, .. } = &mut other {
             *file = "~/mine.kdbx".into();
         }
-        let e = browse::may_browse(&store, Some(&saved), None, "password", &other).unwrap_err();
+        let e = browse::may_browse(&store, Some(&saved), None, None, "password", &other).unwrap_err();
         assert!(matches!(&e, CommandError::SecretSourceApproval(a) if a.source == src), "the saved one is shown: {e:?}");
         // Confirmed: browsing goes on.
         defs::approve(&defs::digest(&saved.id, "password", &src)).unwrap();
-        assert!(browse::may_browse(&store, Some(&saved), None, "password", &other).is_ok());
-        assert!(browse::may_browse(&store, None, None, "password", &other).is_ok(), "typed in a new form");
+        assert!(browse::may_browse(&store, Some(&saved), None, None, "password", &other).is_ok());
+        assert!(browse::may_browse(&store, None, None, None, "password", &other).is_ok(), "typed in a new form");
         defs::forget(&[defs::digest(&saved.id, "password", &src)]).unwrap();
     }
 
@@ -1143,7 +1202,7 @@ pub(crate) mod tests {
         let sources: SecretSources = [("password".to_string(), src)].into();
         let root: Secrets = [(defs::token_key("password", ""), "root".to_string())].into();
         let base = ConnectionConfig { driver: "postgres".into(), host: "h".into(), ..Default::default() };
-        let form = Origin::Form { id: None, name: "" };
+        let form = Origin::Form { id: None, duplicate_of: None, name: "" };
         let m2 = m.clone();
         let user = with_form_leases(async {
             let mut cfg = base.clone();
@@ -1238,7 +1297,7 @@ pub(crate) mod tests {
                 cfg.username = Some("someone-else".into());
             }
             let sources: SecretSources = [("password".to_string(), src)].into();
-            fill(&store, &mut cfg, &sources, &tokens, Origin::Form { id: None, name: "" }).await.unwrap_or_else(|e| panic!("{what}: {e}"));
+            fill(&store, &mut cfg, &sources, &tokens, Origin::Form { id: None, duplicate_of: None, name: "" }).await.unwrap_or_else(|e| panic!("{what}: {e}"));
             assert_eq!(cfg.username.as_deref(), Some("postgres"), "{what}");
             let mut s = dbine_drivers::open_session(&cfg, None).await.unwrap_or_else(|e| panic!("{what}: connect: {e}"));
             let v = s.server_version().await.unwrap();
@@ -1352,7 +1411,7 @@ pub(crate) mod tests {
         let tokens: Secrets = [(defs::token_key("password", ""), key.clone())].into();
         let mut cfg = ConnectionConfig { driver: "postgres".into(), host: "127.0.0.1".into(), port: 25010, database: "postgres".into(), username: Some("someone-else".into()), ..Default::default() };
         let sources: SecretSources = [("password".to_string(), src("db/prod/password"))].into();
-        fill(&store, &mut cfg, &sources, &tokens, Origin::Form { id: None, name: "" }).await.unwrap();
+        fill(&store, &mut cfg, &sources, &tokens, Origin::Form { id: None, duplicate_of: None, name: "" }).await.unwrap();
         assert_eq!(cfg.username.as_deref(), Some("postgres"), "the user from the second variable");
         let mut s = dbine_drivers::open_session(&cfg, None).await.unwrap();
         eprintln!("conjur: connected, {}", s.server_version().await.unwrap());

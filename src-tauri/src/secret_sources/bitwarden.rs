@@ -1523,7 +1523,7 @@ mod tests {
             let tokens: dbine_core::secrets::Secrets = [(defs::token_key("password", ""), s(u, "password").to_string()), (defs::token_key("password", "client_secret"), s(u, "client_secret").to_string())].into();
             let mut cfg = dbine_driver::ConnectionConfig { driver: "postgres".into(), host: "127.0.0.1".into(), port: 25010, database: "postgres".into(), username: Some("someone-else".into()), ..Default::default() };
             let sources: SecretSources = [("password".to_string(), src)].into();
-            super::super::fill(&store, &mut cfg, &sources, &tokens, super::super::Origin::Form { id: None, name: "" }).await.unwrap_or_else(|e| panic!("{}: {e}", s(u, "email")));
+            super::super::fill(&store, &mut cfg, &sources, &tokens, super::super::Origin::Form { id: None, duplicate_of: None, name: "" }).await.unwrap_or_else(|e| panic!("{}: {e}", s(u, "email")));
             assert_eq!((cfg.password.as_deref(), cfg.username.as_deref()), (Some("pw"), Some("postgres")), "{}", s(u, "email"));
             // The notes as JSON, and the organization's item.
             let notes = bw("dbine-test-postgres", "notes", "password", MasterSource::Keychain, false);
@@ -1536,7 +1536,7 @@ mod tests {
             // A wrong master password, asked: the UI is asked to ask again.
             let asked = bw("dbine-test-postgres", "", "", MasterSource::Ask, true);
             let wrong: dbine_core::secrets::Secrets = [(defs::token_key("password", ""), "nope".to_string()), (defs::token_key("password", "client_secret"), s(u, "client_secret").to_string())].into();
-            let e = super::super::fill(&store, &mut cfg, &[("password".to_string(), asked)].into(), &wrong, super::super::Origin::Form { id: None, name: "" }).await.unwrap_err();
+            let e = super::super::fill(&store, &mut cfg, &[("password".to_string(), asked)].into(), &wrong, super::super::Origin::Form { id: None, duplicate_of: None, name: "" }).await.unwrap_err();
             assert!(matches!(&e, crate::error::CommandError::SecretSourceUnlock(u) if u.wrong && u.kind == "bitwarden"), "{e:?}");
             if std::env::var("DBINE_TEST_PG_SECRETS").is_ok() {
                 let mut sess = dbine_drivers::open_session(&cfg, None).await.unwrap_or_else(|e| panic!("connect: {e}"));

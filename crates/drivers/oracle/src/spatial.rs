@@ -95,23 +95,8 @@ pub fn converted(sql: &str, names: &[&str]) -> Vec<bool> {
         let start = from + i + FUNCTION.len();
         from = start;
         // The call's closing parenthesis, then `[AS] alias`.
-        let mut depth = 1;
-        let mut end = None;
-        for (k, ch) in sql[start..].char_indices() {
-            match ch {
-                '(' => depth += 1,
-                ')' => {
-                    depth -= 1;
-                    if depth == 0 {
-                        end = Some(start + k + 1);
-                        break;
-                    }
-                }
-                _ => {}
-            }
-        }
-        let Some(end) = end else { break };
-        if let Some(alias) = alias_after(&sql[end..]) {
+        let Some(end) = closing_paren(&sql[start..]).map(|k| start + k + 1) else { break };
+        if let Some(alias) = sql.get(end..).and_then(alias_after) {
             aliases.push(alias);
         }
     }
@@ -121,12 +106,48 @@ pub fn converted(sql: &str, names: &[&str]) -> Vec<bool> {
         .collect()
 }
 
+/// Byte offset in `s` of the parenthesis that closes one already open,
+/// skipping double-quoted identifiers and single-quoted strings (both with
+/// their doubled-quote escapes); `None` when it isn't closed.
+fn closing_paren(s: &str) -> Option<usize> {
+    let mut depth = 1usize;
+    let mut quote: Option<char> = None;
+    let mut chars = s.char_indices().peekable();
+    while let Some((k, ch)) = chars.next() {
+        if let Some(q) = quote {
+            if ch == q {
+                if chars.peek().map(|&(_, c)| c) == Some(q) {
+                    chars.next();
+                } else {
+                    quote = None;
+                }
+            }
+            continue;
+        }
+        match ch {
+            '"' | '\'' => quote = Some(ch),
+            '(' => depth += 1,
+            ')' => {
+                depth -= 1;
+                if depth == 0 {
+                    return Some(k);
+                }
+            }
+            _ => {}
+        }
+    }
+    None
+}
+
 /// The alias at the start of `rest` (`AS "x"`, `AS x`, `"x"` or `x`), as
 /// the result names it (unquoted ones upper-cased).
 fn alias_after(rest: &str) -> Option<String> {
     let mut s = rest.trim_start();
-    if s.len() >= 3 && s[..2].eq_ignore_ascii_case("AS") && s[2..].starts_with(|c: char| c.is_whitespace() || c == '"') {
-        s = s[2..].trim_start();
+    // Byte-safe: `get` is `None` when byte 2 falls inside a character.
+    if let (Some(kw), Some(after)) = (s.get(..2), s.get(2..)) {
+        if kw.eq_ignore_ascii_case("AS") && after.starts_with(|c: char| c.is_whitespace() || c == '"') {
+            s = after.trim_start();
+        }
     }
     if let Some(q) = s.strip_prefix('"') {
         let mut out = String::new();
@@ -195,5 +216,56 @@ mod tests {
             [false, true, true, true]
         );
         assert_eq!(converted("SELECT SDO_UTIL.TO_WKTGEOMETRY(g) FROM t", &["X"]), [false]);
+    }
+
+    #[test]
+    fn multibyte_column_names_dont_panic() {
+        // The finding's case: `)` inside a quoted name, then a two-byte char.
+        let cols = [("x)aé".to_string(), true), ("ID".to_string(), false)];
+        let sql = browse("\"T\"", &cols, 5).unwrap();
+        assert_eq!(converted(&sql, &["x)aé", "ID"]), [true, false]);
+        assert_eq!(alias_after("aé"), Some("Aé".to_string()));
+        assert_eq!(alias_after("é"), Some("é".to_string()));
+        assert_eq!(alias_after("Aé x"), Some("Aé".to_string()));
+        assert_eq!(alias_after("ASé"), Some("ASé".to_string()));
+        assert_eq!(alias_after("AS \"é\""), Some("é".to_string()));
+    }
+
+    #[test]
+    fn scan_skips_quoted_identifiers_and_strings() {
+        let sql = "select sdo_util.to_wktgeometry(nvl(t.\"a)b\"\"(\", sdo_geometry('POINT (1 2)'))) as \"G)\" from t";
+        assert_eq!(converted(sql, &["G)"]), [true]);
+        let sql = "select sdo_util.to_wktgeometry(f('it''s )')) g from t";
+        assert_eq!(converted(sql, &["G"]), [true]);
+        // Unclosed quote or parenthesis: nothing is converted, no panic.
+        assert_eq!(converted("select sdo_util.to_wktgeometry(\"x) g", &["G"]), [false]);
+        assert_eq!(converted("select sdo_util.to_wktgeometry('x) g", &["G"]), [false]);
+    }
+
+    #[test]
+    fn multibyte_anywhere_never_panics() {
+        // A small property test: every insertion point of a few multibyte
+        // characters into a few queries, and every truncation of the result.
+        let bases = [
+            "SELECT SDO_UTIL.TO_WKTGEOMETRY(t.\"x)a\") AS \"G\" FROM t",
+            "select sdo_util.to_wktgeometry(g) as x, sdo_util.to_wktgeometry(h) y from t",
+            "select sdo_util.to_wktgeometry(f('a)', \"b\"\"\")) asé from t",
+        ];
+        for base in bases {
+            for ch in ['é', '€', '𝄞', '"', '\'', ')', '('] {
+                let mut cuts: Vec<usize> = base.char_indices().map(|(i, _)| i).collect();
+                cuts.push(base.len());
+                for &i in &cuts {
+                    let mut s = base.to_string();
+                    s.insert(i, ch);
+                    let mut ends: Vec<usize> = s.char_indices().map(|(i, _)| i).collect();
+                    ends.push(s.len());
+                    for &e in &ends {
+                        let _ = converted(&s[..e], &["G", "X", "Y"]);
+                        let _ = alias_after(&s[e..]);
+                    }
+                }
+            }
+        }
     }
 }

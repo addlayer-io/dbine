@@ -25661,6 +25661,9 @@
  "el origen no es válido: {0}": [
   "src-tauri/src/secret_sources/browse.rs"
  ],
+ "el origen tiene caracteres invisibles (de formato, de ancho cero o de dirección del texto): escribilo de nuevo sin ellos": [
+  "crates/dbine-core/src/secret_sources.rs"
+ ],
  "el original está {0} y el clon {1}": [
   "crates/dbine-transfer/src/clone_table/oracle.rs"
  ],

@@ -20,6 +20,8 @@ const props = defineProps<{
   tokens: Record<string, string>;
   field: string;
   connectionId: string | null;
+  /** The connection a new form was copied from ("Duplicar conexión"). */
+  duplicateOf?: string | null;
   driver: string;
   /** The entry gives the user and the password: its field step assigns
    *  each (starting from these). */
@@ -54,7 +56,7 @@ async function call(at: { path?: string; item?: string; query?: string }): Promi
   try {
     const tokens = { ...props.tokens };
     if (asked.value) tokens[''] = asked.value;
-    return await api.browseSecretSource(props.connectionId, props.driver, props.field, props.source, tokens, at);
+    return await api.browseSecretSource(props.connectionId, props.driver, props.field, props.source, tokens, at, props.duplicateOf ?? null);
   } catch (e) {
     loading.value = false;
     if (await askApproveSecretSource(e)) return call(at);
