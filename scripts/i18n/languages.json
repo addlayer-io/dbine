@@ -7,10 +7,10 @@
     { "code": "pt", "name": "Português", "tag": "pt-BR", "plurals": ["one", "many", "other"] },
     { "code": "fr", "name": "Français", "tag": "fr", "plurals": ["one", "many", "other"] },
     { "code": "it", "name": "Italiano", "tag": "it", "plurals": ["one", "many", "other"] },
-    { "code": "de", "name": "Deutsch", "tag": "de", "plurals": ["one", "other"], "changelog_after": "1.0.0" },
-    { "code": "ru", "name": "Русский", "tag": "ru", "plurals": ["one", "few", "many", "other"], "changelog_after": "1.0.0" },
-    { "code": "zh", "name": "中文（简体）", "tag": "zh-CN", "plurals": ["other"], "changelog_after": "1.0.0" },
-    { "code": "ja", "name": "日本語", "tag": "ja", "plurals": ["other"], "changelog_after": "1.0.0" },
-    { "code": "ko", "name": "한국어", "tag": "ko", "plurals": ["other"], "changelog_after": "1.0.0" }
+    { "code": "de", "name": "Deutsch", "tag": "de", "plurals": ["one", "other"], "changelog_after": "0.1.14" },
+    { "code": "ru", "name": "Русский", "tag": "ru", "plurals": ["one", "few", "many", "other"], "changelog_after": "0.1.14" },
+    { "code": "zh", "name": "中文（简体）", "tag": "zh-CN", "plurals": ["other"], "changelog_after": "0.1.14" },
+    { "code": "ja", "name": "日本語", "tag": "ja", "plurals": ["other"], "changelog_after": "0.1.14" },
+    { "code": "ko", "name": "한국어", "tag": "ko", "plurals": ["other"], "changelog_after": "0.1.14" }
   ]
 }

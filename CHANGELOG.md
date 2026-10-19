@@ -2,10 +2,6 @@
 
 ## [Unreleased]
 
-### New
-
-- **Five more languages:** DBine and its phone app now speak German, Russian, Simplified Chinese, Japanese and Korean, besides Spanish, English, Portuguese, French and Italian; the language follows your system's, and only the one in use is loaded.
-
 ## [1.0.0] - 2026-10-19
 
 ### New
@@ -39,6 +35,7 @@
 - **Export a notebook as a Python notebook:** **Export › Python notebook (.ipynb)** writes a Jupyter notebook that reproduces it: one SQLAlchemy engine (or the engine's own Python client, such as pymongo or redis) per connection, each query cell read into a pandas DataFrame with the cell's name, DataFrame SQL cells run with DuckDB over those DataFrames, and text cells as Markdown. Passwords and tokens are never exported: the code reads them from environment variables, which the first cell lists with the packages to install. Results are left out unless you choose to include the previews.
 - **Write a DataFrame into a table from a notebook:** a **write cell** (added under any cell with **Write to a table…**) writes a cell's whole result into a table of SQL Server, PostgreSQL, MySQL, MariaDB, Oracle, SQLite, DuckDB, MongoDB and more: insert, update by key, insert or update, or replace the table's contents, with a column mapping, a preview, and a new table if you want one. Every write asks first, showing where, how and how many rows (production connections ask you to type the table's name), runs in one transaction where the engine has them, and read-only connections are never written. In a scheduled task, a write cell runs only when the step authorizes that cell, table and mode.
 - **Notebook parameters:** a notebook can define parameters (text, number, date, date and time, boolean or a fixed list, with a default) that its cells use as `{{name}}`; running asks for the missing values, each value goes to the database as data (bound by the driver, or quoted by the engine's own rules), and every result shows the values that produced it.
+- **Five more languages:** DBine and its phone app now speak German, Russian, Simplified Chinese, Japanese and Korean, besides Spanish, English, Portuguese, French and Italian; the language follows your system's, and only the one in use is loaded.
 
 ### Improvements
 - **Signed on macOS:** the macOS app is signed with an Apple Developer ID and notarized by Apple, so it opens without the "can't verify the developer" warning or any terminal command. The first time the signed version opens, macOS asks once whether DBine may use its key in the keychain: choose **Always Allow**.
