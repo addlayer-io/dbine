@@ -891,3 +891,58 @@ fn notebook_step_fingerprint_leaves_credential_values_out() {
     assert_eq!(fp("hunter2-pw", "norte"), fp("other-pw", "norte"));
     assert_ne!(fp("hunter2-pw", "norte"), fp("hunter2-pw", "sur"));
 }
+
+/// A parameter named like a host or a user, whose default can live in the
+/// notebook file, stays in the fingerprint: editing that default in the
+/// file asks for approval again (only true secrets, kept in the vault,
+/// are left out).
+#[test]
+fn notebook_step_fingerprint_covers_file_defaults_of_non_secret_parameters() {
+    let w = world("fp-host", vec![]);
+    let path = w.dir.join("fp-host.ipynb");
+    use crate::notebook::params::{NotebookParameter, ParamType};
+    let write = |host: &str| {
+        let nb = Notebook {
+            cells: vec![cell("c1", "borra", on("Ventas"), "DELETE FROM ventas WHERE {{host}} <> ''")],
+            parameters: vec![NotebookParameter { name: "host".into(), kind: ParamType::Text, default: Some(json!(host)), description: None, required: false, options: vec![] }],
+            target: None,
+            save_results: true,
+            save_results_set: true,
+            origin: "dbine".into(),
+            extra_metadata: json!({}),
+            warnings: vec![],
+        };
+        std::fs::write(&path, serialize(&nb, PreviewLimits::default())).unwrap();
+    };
+    let t = task(vec![Step { id: "nb".into(), kind: kinds::RUN_NOTEBOOK.into(), config: json!({"path": path.to_string_lossy(), "params": {}}), ..Default::default() }]);
+    write("db1");
+    let before = crate::tasks::fingerprint_of(&crate::tasks::write_scope(&w.state, &t));
+    write("db2");
+    let after = crate::tasks::fingerprint_of(&crate::tasks::write_scope(&w.state, &t));
+    assert_ne!(before, after, "a new default in the file must void the approval");
+}
+
+/// The scrub also catches the backslash-escaped spellings some engines'
+/// literals use (MySQL, ClickHouse, Databricks…).
+#[test]
+fn notebook_headless_scrubs_backslash_escaped_credentials() {
+    let mut nb = Notebook {
+        target: None,
+        save_results: true,
+        save_results_set: true,
+        cells: vec![cell("c1", "c1", on("Ventas"), "SELECT 1")],
+        parameters: vec![],
+        origin: "dbine".into(),
+        extra_metadata: json!({}),
+        warnings: vec![],
+    };
+    nb.cells[0].result = Some(CellResult {
+        error: Some(r"near 'p\\w0rd\'x' at line 1 / near 'p\\w0rd''x'".into()),
+        ..Default::default()
+    });
+    let mut failure = None;
+    let secrets = credential_values(&BTreeMap::from([("db_password".to_string(), json!(r"p\w0rd'x"))]), std::iter::empty());
+    scrub_credentials(&mut nb, &mut failure, &secrets);
+    let text = format!("{:?}", nb.cells[0].result);
+    assert!(!text.contains("w0rd"), "{text}");
+}

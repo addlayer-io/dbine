@@ -528,8 +528,18 @@ pub fn writing_cells(state: &AppState, opts: &Options, nb: &Notebook) -> Vec<(St
                 let covered = match prepared.filter(|p| !p.prepared.used.is_empty()) {
                     None => sql,
                     Some(p) => {
-                        let values: serde_json::Map<String, Value> = p.values.iter().filter(|(k, _)| !super::is_credential_param(k)).map(|(k, v)| (k.clone(), v.clone())).collect();
-                        format!("{}\u{0}{}", c.source, Value::Object(values))
+                        // Only true secrets stay out (their values come from the
+                        // vault, never the file); every other value, and the
+                        // declarations of the parameters used (a default in
+                        // the file included), is covered.
+                        let values: serde_json::Map<String, Value> = p.values.iter().filter(|(k, _)| !super::params::secret_name(k)).map(|(k, v)| (k.clone(), v.clone())).collect();
+                        let used: Vec<Value> = nb
+                            .parameters
+                            .iter()
+                            .filter(|d| p.prepared.used.iter().any(|u| u.eq_ignore_ascii_case(&d.name)))
+                            .map(|d| serde_json::to_value(d).unwrap_or(Value::Null))
+                            .collect();
+                        format!("{}\u{0}{}\u{0}{}", c.source, Value::Object(values), Value::Array(used))
                     }
                 };
                 out.push((c.name.clone().unwrap_or_default(), r, what, covered));
@@ -922,7 +932,10 @@ fn scrub_credentials(nb: &mut Notebook, failure: &mut Option<(String, String)>, 
     }
     let scrub = |t: &mut String| {
         for s in secrets {
-            for form in [s.replace('\'', "''"), s.clone()] {
+            // As given, and as the engines' literals spell it: quotes
+            // doubled, or backslashes doubled with `\'` or `''` quotes.
+            let bs = s.replace('\\', "\\\\");
+            for form in [bs.replace('\'', "\\'"), bs.replace('\'', "''"), s.replace('\'', "''"), s.clone()] {
                 if t.contains(&form) {
                     *t = t.replace(&form, "***");
                 }
