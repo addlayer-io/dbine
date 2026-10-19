@@ -37,6 +37,39 @@ export interface Spatial {
 
 export type CellValue = null | boolean | number | string | object;
 
+/** Most positions one value may have to be drawn: past it the value is
+ *  unreadable (a crafted value must not freeze the map). */
+export const VALUE_POINT_CAP = 1_000_000;
+/** Most positions drawn for a whole result: rows past it count as over the cap. */
+export const RESULT_POINT_CAP = 5_000_000;
+/** Deepest nesting of collections read (in every format). */
+const MAX_DEPTH = 64;
+/** Nested deeper than MAX_DEPTH: the whole value is unreadable. */
+class TooDeep extends Error {}
+
+/** How many positions `g` has, stopping once past `limit`. */
+export function countPositions(g: Geometry, limit = Infinity): number {
+  switch (g.type) {
+    case 'Point': return 1;
+    case 'MultiPoint': case 'LineString': return g.coordinates.length;
+    case 'MultiLineString': case 'Polygon': {
+      let n = 0;
+      for (const r of g.coordinates) { n += r.length; if (n > limit) break; }
+      return n;
+    }
+    case 'MultiPolygon': {
+      let n = 0;
+      for (const p of g.coordinates) { for (const r of p) n += r.length; if (n > limit) break; }
+      return n;
+    }
+    case 'GeometryCollection': {
+      let n = 0;
+      for (const x of g.geometries) { n += countPositions(x, limit - n); if (n > limit) break; }
+      return n;
+    }
+  }
+}
+
 // -- binary --------------------------------------------------------------------------
 
 /** `0x0101…` or `0101…` (even length, hex only) as bytes; null otherwise. */
@@ -106,7 +139,8 @@ function asLine(g: Geometry | null): Position[] {
 }
 
 /** One WKB / EWKB geometry from where `r` is. */
-function readWkb(r: Reader): Spatial {
+function readWkb(r: Reader, level = 0): Spatial {
+  if (level > MAX_DEPTH) throw new Error('depth');
   const bo = r.u8();
   if (bo > 1) throw new Error('byte order');
   const le = bo === 1;
@@ -117,7 +151,7 @@ function readWkb(r: Reader): Spatial {
     const n = r.count(le, 5);
     const out: Geometry[] = [];
     for (let i = 0; i < n; i++) {
-      const g = readWkb(r).geometry;
+      const g = readWkb(r, level + 1).geometry;
       if (g) out.push(g);
     }
     return out;
@@ -223,14 +257,15 @@ export function parseSpatiaLite(bytes: Uint8Array): Spatial | null {
     const r = new Reader(bytes, 2);
     const srid = r.i32(le);
     r.pos = 39;
-    const body = (cls: number): Geometry | null => {
+    const body = (cls: number, level = 0): Geometry | null => {
+      if (level > MAX_DEPTH) throw new Error('depth');
       const { type, dims } = baseType(cls);
       const kids = (): Geometry[] => {
         const n = r.count(le, 5);
         const out: Geometry[] = [];
         for (let i = 0; i < n; i++) {
           if (r.u8() !== 0x69) throw new Error('entity');
-          const g = body(r.u32(le));
+          const g = body(r.u32(le), level + 1);
           if (g) out.push(g);
         }
         return out;
@@ -292,17 +327,38 @@ export function parseSqlServer(bytes: Uint8Array, geography: boolean): Spatial |
     skipZm(nPoints);
     const nFigures = r.count(le, 5);
     const figures: number[] = [];
-    for (let i = 0; i < nFigures; i++) { r.u8(); figures.push(r.i32(le)); }
+    for (let i = 0; i < nFigures; i++) {
+      r.u8();
+      // Point offsets: ascending, within the points.
+      const off = r.i32(le);
+      if (off < 0 || off > nPoints || (i > 0 && off < figures[i - 1])) return null;
+      figures.push(off);
+    }
     const nShapes = r.count(le, 9);
     const shapes: { parent: number; figure: number; type: number }[] = [];
-    for (let i = 0; i < nShapes; i++) shapes.push({ parent: r.i32(le), figure: r.i32(le), type: r.u8() });
+    const children: number[][] = [];
+    let lastFigure = 0;
+    for (let i = 0; i < nShapes; i++) {
+      const sh = { parent: r.i32(le), figure: r.i32(le), type: r.u8() };
+      // The parent comes before its children (the first shape has none), and
+      // the figure offsets are ascending, within the figures (-1: none).
+      if (i === 0 ? sh.parent !== -1 : sh.parent < 0 || sh.parent >= i) return null;
+      if (sh.figure !== -1) {
+        if (sh.figure < lastFigure || sh.figure > nFigures) return null;
+        lastFigure = sh.figure;
+      }
+      shapes.push(sh);
+      children.push([]);
+      if (i > 0) children[sh.parent].push(i);
+    }
     if (version === 2 && r.left) {
       const nSeg = r.count(le, 1);
       for (let i = 0; i < nSeg; i++) r.u8();
     }
     if (r.left !== 0) return null;
     const figPoints = (f: number): Position[] => pts.slice(figures[f], f + 1 < figures.length ? figures[f + 1] : pts.length);
-    // A shape's figures: from its offset to the next shape's that has any.
+    // A shape's figures: from its offset to the next shape's that has any
+    // (both validated above: within the figures, and in order).
     const figRange = (s: number): number[] => {
       const start = shapes[s].figure;
       if (start < 0) return [];
@@ -312,11 +368,12 @@ export function parseSqlServer(bytes: Uint8Array, geography: boolean): Spatial |
       for (let f = start; f < end; f++) out.push(f);
       return out;
     };
-    const build = (s: number): Geometry | null => {
+    const build = (s: number, level: number): Geometry | null => {
+      if (level > MAX_DEPTH) throw new Error('depth');
       const sh = shapes[s];
-      const kids = () => shapes.map((_, k) => k).filter((k) => shapes[k].parent === s).map(build).filter((g): g is Geometry => !!g);
+      const kids = () => children[s].map((k) => build(k, level + 1)).filter((g): g is Geometry => !!g);
       switch (sh.type) {
-        case 1: { const f = figRange(s); return f.length ? { type: 'Point', coordinates: figPoints(f[0])[0] } : null; }
+        case 1: { const p = figRange(s).flatMap(figPoints)[0]; return p ? { type: 'Point', coordinates: p } : null; }
         case 2: case 8: case 9: { const c = figRange(s).flatMap(figPoints); return c.length ? { type: 'LineString', coordinates: c } : null; }
         case 3: case 10: { const rings = figRange(s).map(figPoints); return rings.length ? { type: 'Polygon', coordinates: rings } : null; }
         case 4: { const c = kids().flatMap((g) => (g.type === 'Point' ? [g.coordinates] : [])); return c.length ? { type: 'MultiPoint', coordinates: c } : null; }
@@ -326,8 +383,7 @@ export function parseSqlServer(bytes: Uint8Array, geography: boolean): Spatial |
         default: return null; // FullGlobe and unknown kinds
       }
     };
-    const root = shapes.findIndex((s) => s.parent === -1);
-    return { geometry: root < 0 ? null : build(root), srid };
+    return { geometry: shapes.length ? build(0, 0) : null, srid };
   } catch {
     return null;
   }
@@ -387,7 +443,12 @@ export function parseWkt(text: string): Spatial | null {
     if (peek() === '(') return coords();
     return asLine(geom());
   };
+  let level = 0;
   const geom = (): Geometry | null => {
+    if (++level > MAX_DEPTH) throw new Error('depth');
+    try { return geomBody(); } finally { level--; }
+  };
+  const geomBody = (): Geometry | null => {
     const kind = take().toUpperCase();
     let mod = peek()?.toUpperCase();
     if (mod === 'Z' || mod === 'M' || mod === 'ZM') { take(); mod = peek()?.toUpperCase(); }
@@ -435,10 +496,20 @@ const depth = <T>(v: unknown, f: (x: unknown) => T): T[] => {
 
 /** A GeoJSON geometry (or Feature) object. */
 export function fromGeoJson(o: unknown): Spatial | null {
+  try {
+    return geoJson(o, 0);
+  } catch {
+    return null;
+  }
+}
+
+/** `fromGeoJson` at nesting `level`: throws TooDeep past MAX_DEPTH. */
+function geoJson(o: unknown, level: number): Spatial | null {
+  if (level > MAX_DEPTH) throw new TooDeep();
   if (!o || typeof o !== 'object' || Array.isArray(o)) return null;
   const v = o as Record<string, unknown>;
   try {
-    if (v.type === 'Feature') return v.geometry === null ? { geometry: null, srid: null } : fromGeoJson(v.geometry);
+    if (v.type === 'Feature') return v.geometry === null ? { geometry: null, srid: null } : geoJson(v.geometry, level + 1);
     const c = v.coordinates;
     const srid = crsSrid(v.crs);
     switch (v.type) {
@@ -449,7 +520,7 @@ export function fromGeoJson(o: unknown): Spatial | null {
       case 'Polygon': return { geometry: { type: 'Polygon', coordinates: depth(c, (r) => depth(r, pos)) }, srid };
       case 'MultiPolygon': return { geometry: { type: 'MultiPolygon', coordinates: depth(c, (p) => depth(p, (r) => depth(r, pos))) }, srid };
       case 'GeometryCollection': {
-        const gs = depth(v.geometries, (g) => fromGeoJson(g)?.geometry ?? null).filter((g): g is Geometry => !!g);
+        const gs = depth(v.geometries, (g) => geoJson(g, level + 1)?.geometry ?? null).filter((g): g is Geometry => !!g);
         return { geometry: { type: 'GeometryCollection', geometries: gs }, srid };
       }
       // Elasticsearch geo_shape extras.
@@ -462,12 +533,13 @@ export function fromGeoJson(o: unknown): Spatial | null {
         if (typeof v.type === 'string' && /^[a-z]/.test(v.type)) {
           const t = v.type.toLowerCase();
           const fixed = { linestring: 'LineString', multilinestring: 'MultiLineString', multipoint: 'MultiPoint', multipolygon: 'MultiPolygon', geometrycollection: 'GeometryCollection' }[t] ?? t[0].toUpperCase() + t.slice(1);
-          if (fixed !== v.type) return fromGeoJson({ ...v, type: fixed });
+          if (fixed !== v.type) return geoJson({ ...v, type: fixed }, level + 1);
         }
         return null;
       }
     }
-  } catch {
+  } catch (e) {
+    if (e instanceof TooDeep) throw e;
     return null;
   }
 }
@@ -534,6 +606,11 @@ function fromClickHouse(type: string, v: unknown): Spatial | null {
  *  (`"lat,lon"` text, `[lon, lat]` arrays, ClickHouse's nested arrays) only
  *  for columns that say they're spatial. */
 export function parseCell(v: CellValue, type = '', name = ''): Spatial | null {
+  const s = parseAny(v, type, name);
+  return s?.geometry && countPositions(s.geometry, VALUE_POINT_CAP) > VALUE_POINT_CAP ? null : s;
+}
+
+function parseAny(v: CellValue, type: string, name: string): Spatial | null {
   if (v === null || v === undefined || typeof v === 'boolean' || typeof v === 'number') return null;
   const pointy = /geo_?point|point|geo|loc(ation)?|coord|position/i.test(`${type} ${name}`);
   if (typeof v === 'object') {
@@ -549,12 +626,12 @@ export function parseCell(v: CellValue, type = '', name = ''): Spatial | null {
   if (!s) return null;
   if (s[0] === '{' || s[0] === '[') {
     if (s.length > 20_000_000) return null;
-    try { return parseCell(JSON.parse(s) as CellValue, type, name); } catch { return null; }
+    try { return parseAny(JSON.parse(s) as CellValue, type, name); } catch { return null; }
   }
   const neo = NEO4J_POINT.exec(s);
   if (neo) {
     // Cypher map literal: keys unquoted.
-    try { return parseCell(JSON.parse(neo[1].replace(/([{,]\s*)([A-Za-z_]\w*)\s*:/g, '$1"$2":')) as CellValue, 'point'); } catch { return null; }
+    try { return parseAny(JSON.parse(neo[1].replace(/([{,]\s*)([A-Za-z_]\w*)\s*:/g, '$1"$2":')) as CellValue, 'point', ''); } catch { return null; }
   }
   const wkt = parseWkt(s);
   if (wkt) return wkt;
@@ -680,7 +757,7 @@ export interface MapFeatures {
   skippedSrid: Map<number | null, number>;
   outOfRange: number;
   unreadable: number;
-  /** Rows past `cap` that weren't read. */
+  /** Rows past `cap` (or past RESULT_POINT_CAP positions) that weren't read. */
   overCap: number;
 }
 
@@ -689,6 +766,7 @@ export const FEATURE_CAP = 10_000;
 /** The features of `rows` for `source`, up to `cap`. */
 export function toFeatures(columns: { name: string; type_name: string }[], rows: CellValue[][], source: MapSource, cap = FEATURE_CAP): MapFeatures {
   const out: MapFeatures = { features: [], skippedSrid: new Map(), outOfRange: 0, unreadable: 0, overCap: 0 };
+  let points = 0;
   for (let r = 0; r < rows.length; r++) {
     let s: Spatial | null;
     if (source.kind === 'latlon') {
@@ -711,7 +789,9 @@ export function toFeatures(columns: { name: string; type_name: string }[], rows:
       else out.outOfRange++;
       continue;
     }
-    if (out.features.length >= cap) { out.overCap = rows.length - r; break; }
+    const n = countPositions(w.geometry, RESULT_POINT_CAP);
+    if (out.features.length >= cap || points + n > RESULT_POINT_CAP) { out.overCap = rows.length - r; break; }
+    points += n;
     out.features.push({ row: r, geometry: w.geometry });
   }
   return out;
