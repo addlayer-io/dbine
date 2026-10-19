@@ -418,7 +418,13 @@ fn trusted(store: &StateStore, origin: Origin<'_>, field: &str, src: &SecretSour
     }
     match origin {
         Origin::Saved { .. } => false,
-        Origin::Form { .. } => !defs::from_outside(&store.list_connections().unwrap_or_default(), field, src),
+        // The edited connection's own unconfirmed definition, or one that
+        // came from outside. Saved connections that can't be listed: nothing
+        // can be told, so it asks.
+        Origin::Form { id, .. } => match store.list_connections() {
+            Ok(saved) => !defs::needs_confirmation(&saved, id, field, src),
+            Err(_) => false,
+        },
     }
 }
 
@@ -732,10 +738,22 @@ pub(crate) mod tests {
         // A copy in a new form: refused (same text as the unconfirmed one).
         assert!(fill(&store, &mut run_cfg, &sources, &Secrets::new(), Origin::Form { id: None, name: "" }).await.is_err());
         assert!(!marker.exists());
-        // Something typed in the form: runs.
-        let typed: SecretSources = [("password".to_string(), cmd("printf typed"))].into();
-        fill(&store, &mut run_cfg, &typed, &Secrets::new(), Origin::Form { id: Some(&id), name: "Imported" }).await.unwrap();
+        // Padded (the form trims it): still the same definition, refused.
+        let padded: SecretSources = [("password".to_string(), cmd(&format!(" touch '{}'; printf pw ", marker.display())))].into();
+        for origin in [Origin::Form { id: Some(&id), name: "Imported" }, Origin::Form { id: None, name: "" }] {
+            assert!(matches!(fill(&store, &mut run_cfg, &padded, &Secrets::new(), origin).await, Err(CommandError::SecretSourceApproval(_))));
+        }
+        assert!(!marker.exists());
+        // Anything else typed over the unconfirmed field of the connection
+        // it came with: asks too (the form rewrites what it loads).
+        let typed: SecretSources = [("password".to_string(), cmd(&format!("touch '{}'; printf typed", marker.display())))].into();
+        let e = fill(&store, &mut run_cfg, &typed, &Secrets::new(), Origin::Form { id: Some(&id), name: "Imported" }).await.unwrap_err();
+        assert!(matches!(e, CommandError::SecretSourceApproval(_)), "{e:?}");
+        assert!(!marker.exists());
+        // Typed in a new form: runs.
+        fill(&store, &mut run_cfg, &typed, &Secrets::new(), Origin::Form { id: None, name: "" }).await.unwrap();
         assert_eq!(run_cfg.password.as_deref(), Some("typed"));
+        std::fs::remove_file(&marker).unwrap();
         // Confirmed: runs, and the value goes where the driver reads it.
         defs::approve(&defs::digest(&id, "password", &src)).unwrap();
         fill(&store, &mut run_cfg, &sources, &Secrets::new(), Origin::Saved { id: &id, name: "Imported" }).await.unwrap();
