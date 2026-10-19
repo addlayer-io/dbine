@@ -344,7 +344,7 @@ pub async fn fetch(src: &SecretSource, slots: &Secrets) -> Result<Resolved, Stri
         }
         SecretSource::Aws { secret_id, region, profile, .. } => aws::get_secret(secret_id, region, profile).await?,
         SecretSource::Azure { vault_url, name, version, tenant, .. } => azure::get_secret(vault_url, name, version, tenant).await?,
-        SecretSource::Gcp { project, secret, version, .. } => gcp::get_secret(project, secret, version).await?,
+        SecretSource::Gcp { project, secret, version, account, .. } => gcp::get_secret(project, secret, version, account).await?,
         SecretSource::BitwardenSm { server, secret, .. } => bitwarden::read_secret(server, secret, token).await?,
         SecretSource::Ssm { parameter, version, region, profile, list_index, .. } => ssm::get_parameter(&ssm::Request { parameter, version, region, profile, list_index }).await?,
         SecretSource::KeePass { .. }

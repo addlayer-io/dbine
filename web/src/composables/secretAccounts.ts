@@ -64,7 +64,8 @@ export function accountFacts(a: SecretAccount): [string, string][] {
     case 'onepassword': return [['opAccount', v('account')]];
     case 'aws': return [['profile', v('profile') || 'default'], ['region', v('region')]];
     case 'azure': return [['vault', hostOf(v('vault_url'))], ...(v('tenant') ? [['tenant', v('tenant')] as [string, string]] : [])];
-    case 'gcp': return [['project', v('project')]];
+    // Saved before the gcloud account was kept: gcloud's active one (reconnect to pin one).
+    case 'gcp': return [['project', v('project')], v('account') ? ['gcloudAccount', v('account')] : ['gcloudActive', '']];
     case 'keepass': return [['file', v('file')], master()];
     default: return [];
   }

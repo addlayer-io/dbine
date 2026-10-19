@@ -257,8 +257,9 @@ fn inline(src: &SecretSource, config: &AccountConfig) -> Result<SecretSource, St
             *tenant = t.clone();
             secret_account.clear();
         }
-        (SecretSource::Gcp { project, secret_account, .. }, AccountConfig::Gcp { project: p }) => {
+        (SecretSource::Gcp { project, account, secret_account, .. }, AccountConfig::Gcp { project: p, account: a }) => {
             *project = p.clone();
+            *account = a.clone();
             secret_account.clear();
         }
         (SecretSource::KeePass { file, key_file, master, master_command, secret_account, .. }, AccountConfig::KeePass { file: f, key_file: k, master: m, master_command: mc }) => {
@@ -742,7 +743,7 @@ async fn verify(config: &AccountConfig, s: &Secrets) -> Result<(String, String),
             let (who, tid) = azure::whoami(vault_url, tenant).await?;
             Ok((who, if tid.is_empty() { String::new() } else { format!("inquilino {tid}") }))
         }
-        AccountConfig::Gcp { .. } => Ok((gcp::whoami().await?, String::new())),
+        AccountConfig::Gcp { account, .. } => Ok((gcp::whoami(account).await?, String::new())),
         AccountConfig::KeePass { file, key_file, .. } => {
             let master = s.get("passphrase").filter(|p| !p.is_empty()).cloned();
             let key_file = Some(key_file.trim()).filter(|k| !k.is_empty()).map(super::expand_home);
@@ -778,7 +779,7 @@ pub fn default_label(config: &AccountConfig, identity: &str) -> String {
         AccountConfig::Ccp { app_id, url, .. } => format!("{} · {}", app_id.trim(), host_of(url)),
         AccountConfig::Aws { profile, region } => format!("{} · {}", if profile.is_empty() { "default" } else { profile.as_str() }, region.trim()),
         AccountConfig::Azure { vault_url, .. } => host_of(vault_url).split('.').next().unwrap_or("").to_string(),
-        AccountConfig::Gcp { project } => project.trim().to_string(),
+        AccountConfig::Gcp { project, .. } => project.trim().to_string(),
         AccountConfig::KeePass { .. } | AccountConfig::Bitwarden { .. } | AccountConfig::Delinea { .. } | AccountConfig::Conjur { .. } | AccountConfig::OnePassword { .. } | AccountConfig::Zoho { .. } => identity.to_string(),
     };
     let who: String = who.chars().filter(|c| !c.is_control()).take(150).collect();
@@ -1190,7 +1191,7 @@ mod tests {
             (AccountConfig::Aws { profile: "prod".into(), region: "eu-west-1".into() }, r#"{"kind":"aws","secret_id":"prod/db","secret_account":"ID"}"#, vec![]),
             (AccountConfig::Aws { profile: String::new(), region: "eu-west-1".into() }, r#"{"kind":"ssm","parameter":"/prod/db","secret_account":"ID"}"#, vec![]),
             (AccountConfig::Azure { tenant: "contoso.onmicrosoft.com".into(), vault_url: "https://kv1.vault.azure.net".into() }, r#"{"kind":"azure","name":"db-pw","secret_account":"ID"}"#, vec![]),
-            (AccountConfig::Gcp { project: "my-proj".into() }, r#"{"kind":"gcp","secret":"db-pw","secret_account":"ID"}"#, vec![]),
+            (AccountConfig::Gcp { project: "my-proj".into(), account: String::new() }, r#"{"kind":"gcp","secret":"db-pw","secret_account":"ID"}"#, vec![]),
             (
                 AccountConfig::KeePass { file: "~/db.kdbx".into(), key_file: "~/db.keyx".into(), master: MasterSource::Keychain, master_command: String::new() },
                 r#"{"kind":"keepass","entry":"Databases/pg","secret_account":"ID"}"#,
@@ -1222,7 +1223,7 @@ mod tests {
             }
             // Another kind's account: refused.
             let wrong: SecretSource = serde_json::from_str(&json.replace("ID", id)).unwrap();
-            let other = if config.kind() == "gcp" { AccountConfig::OnePassword { account: "my".into() } } else { AccountConfig::Gcp { project: "p".into() } };
+            let other = if config.kind() == "gcp" { AccountConfig::OnePassword { account: "my".into() } } else { AccountConfig::Gcp { project: "p".into(), account: String::new() } };
             store.save_secret_account(&acct(id, other)).unwrap();
             assert!(expand_with(&store, &wrong, Secrets::new(), kept(id)).err().unwrap().contains("otro gestor"), "{json}");
         }
@@ -1343,9 +1344,24 @@ mod tests {
   *'--tenant 22222222-2222-4333-8444-555555555555') echo 'ERROR: AADSTS50076: Due to a configuration change made by your administrator, you must use multi-factor authentication to access this tenant.' >&2; exit 1 ;;
   'account get-access-token --resource https://vault.azure.net --output json'*) echo '{{\"accessToken\":\"{jwt}\",\"expires_on\":4102444800}}' ;;\n  *) exit 3 ;;\nesac\n"),
         );
+        let gcloud_log = dir.join("gcloud.log");
         write(
             "gcloud",
-            "#!/bin/sh\ncase \"$*\" in\n  'config list --format json') echo '{\"core\":{\"account\":\"ana@example.com\",\"project\":\"my-proj\"}}' ;;\n  'auth print-access-token --quiet') echo ya29.fake ;;\n  'config get-value account --quiet') echo ana@example.com ;;\n  *) exit 3 ;;\nesac\n".into(),
+            format!(
+                r#"#!/bin/sh
+for a in "$@"; do printf '[%s]' "$a"; done >> '{log}'; echo >> '{log}'
+case "$*" in
+  'config list --format json') echo '{{"core":{{"account":"ana@example.com","project":"my-proj"}}}}' ;;
+  'auth list --format json') echo '[{{"account":"ana@example.com","status":"ACTIVE"}},{{"account":"bob@example.com","status":""}},{{"account":"-x@evil.com","status":""}}]' ;;
+  'auth print-access-token --quiet') echo ya29.fake ;;
+  'auth print-access-token --account bob@example.com --quiet') echo ya29.bob ;;
+  'auth print-access-token --account carol@example.com --quiet') echo 'ERROR: (gcloud.auth.print-access-token) Your current active account [carol@example.com] does not have any valid credentials' >&2; exit 1 ;;
+  'config get-value account --quiet') echo ana@example.com ;;
+  *) exit 3 ;;
+esac
+"#,
+                log = gcloud_log.display()
+            ),
         );
         let old = std::env::var_os("PATH").unwrap_or_default();
         std::env::set_var("PATH", &dir);
@@ -1360,6 +1376,8 @@ mod tests {
         assert_eq!((az["tenants"][1]["display_name"].as_str(), az["tenants"][1]["default_domain"].as_str()), (Some("Fabrikam"), Some("fabrikam.onmicrosoft.com")));
         let g = detect("gcp").await.unwrap();
         assert_eq!((g["account"].as_str(), g["project"].as_str()), (Some("ana@example.com"), Some("my-proj")));
+        // gcloud's signed-in accounts for the select, the active one first; no flag-like one.
+        assert_eq!(g["accounts"], serde_json::json!([{ "account": "ana@example.com", "active": true }, { "account": "bob@example.com", "active": false }]));
         let none = Secrets::new();
         assert_eq!(verify(&AccountConfig::OnePassword { account: "my.1password.com".into() }, &none).await.unwrap().0, "ana@example.com");
         assert!(verify(&AccountConfig::OnePassword { account: "other.1password.com".into() }, &none).await.unwrap_err().contains("op signin"));
@@ -1370,7 +1388,22 @@ mod tests {
         // No sign-in in that tenant: how to sign in there (DBine doesn't run az login).
         let e = verify(&AccountConfig::Azure { tenant: "22222222-2222-4333-8444-555555555555".into(), vault_url: "https://kv1.vault.azure.net".into() }, &none).await.unwrap_err();
         assert_eq!(e, azure::no_sign_in("22222222-2222-4333-8444-555555555555"));
-        assert_eq!(verify(&AccountConfig::Gcp { project: "my-proj".into() }, &none).await.unwrap().0, "ana@example.com");
+        // Without a pinned account (saved before it existed): the active one, as before.
+        assert_eq!(verify(&AccountConfig::Gcp { project: "my-proj".into(), account: String::new() }, &none).await.unwrap().0, "ana@example.com");
+        // Pinned: that account's token, whatever the active one is; `--account`
+        // and the e-mail as two arguments.
+        assert_eq!(verify(&AccountConfig::Gcp { project: "my-proj".into(), account: "bob@example.com".into() }, &none).await.unwrap().0, "bob@example.com");
+        assert_eq!(gcp::token("bob@example.com").await.unwrap().0, "ya29.bob");
+        let log = std::fs::read_to_string(&gcloud_log).unwrap();
+        assert!(log.lines().any(|l| l == "[auth][print-access-token][--account][bob@example.com][--quiet]"), "{log}");
+        // Not signed in (or expired): the command to sign in, DBine doesn't run it.
+        let e = verify(&AccountConfig::Gcp { project: "my-proj".into(), account: "carol@example.com".into() }, &none).await.unwrap_err();
+        assert_eq!(e, gcp::no_sign_in("carol@example.com"));
+        // A malformed e-mail never reaches gcloud.
+        let before = std::fs::read_to_string(&gcloud_log).unwrap().lines().count();
+        assert!(gcp::token("--account=x@evil.com").await.is_err());
+        assert!(gcp::token("ana").await.is_err());
+        assert_eq!(std::fs::read_to_string(&gcloud_log).unwrap().lines().count(), before);
         std::env::set_var("PATH", old);
     }
 

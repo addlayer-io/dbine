@@ -3,8 +3,8 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import {
-  azureTenants, back, canAdvance, configOf, emptyForm, filterTenants, tenantChoices, formFromAccount, isLast, keepsSecrets, next, secretsOf, serviceUrl, stepForError, stepProblems, STEPS,
-  tenantLabel, tenantSignIn, validTenant, WIZARD_KINDS,
+  azureTenants, back, canAdvance, configOf, emptyForm, filterTenants, tenantChoices, formFromAccount, gcloudAccounts, gcloudPreselect, gcloudSignIn, isLast, keepsSecrets, next,
+  secretsOf, serviceUrl, stepForError, stepProblems, STEPS, tenantLabel, tenantSignIn, validGcloudAccount, validTenant, WIZARD_KINDS,
 } from './accountWizards.ts';
 
 const UUID = '6f1c2a9e-0d1b-4c55-9a51-2f7d8c3b1e04';
@@ -198,4 +198,49 @@ test('Azure: the typed tenant is an option only when well formed and unlisted, a
   // A typed tenant chosen before stays an option once the query is cleared.
   assert.deepEqual(ids('', 'fabrikam.onmicrosoft.com'), [C, '33333333-2222-4333-8444-555555555555', 'typed:fabrikam.onmicrosoft.com']);
   assert.deepEqual(ids('', C), [C, '33333333-2222-4333-8444-555555555555']);
+});
+
+test('Google: the gcloud accounts for the select, the active one preselected', () => {
+  const detected = { account: 'ana@example.com', project: 'p', accounts: [
+    { account: 'bob@example.com', active: false },
+    { account: 'ana@example.com', active: true },
+    { account: '--debug@x.com', active: false },
+    { account: 'BOB@example.com', active: false },
+    { account: 'dbine@p.iam.gserviceaccount.com', active: false },
+  ] };
+  const list = gcloudAccounts(detected);
+  assert.deepEqual(list.map((a) => [a.account, a.active]), [['ana@example.com', true], ['bob@example.com', false], ['dbine@p.iam.gserviceaccount.com', false]]);
+  // Only `gcloud config list` answered: the active one alone.
+  assert.deepEqual(gcloudAccounts({ account: 'ana@example.com' }), [{ account: 'ana@example.com', active: true }]);
+  assert.deepEqual(gcloudAccounts({ error: 'x' }), []);
+  assert.deepEqual(gcloudAccounts(null), []);
+  // A new account starts with the active one; one kept stays.
+  assert.equal(gcloudPreselect(list, ''), 'ana@example.com');
+  assert.equal(gcloudPreselect(list, 'bob@example.com'), 'bob@example.com');
+  assert.equal(gcloudPreselect([], ''), '');
+});
+
+test('Google: the account is saved with the project, checked as an e-mail', () => {
+  const s = Object.assign(emptyForm(), { project: 'my-proj', gcp_account: ' bob@example.com ' });
+  assert.deepEqual(stepProblems('gcp', s), []);
+  assert.deepEqual(configOf('gcp', s), { kind: 'gcp', project: 'my-proj', account: 'bob@example.com' });
+  // Empty: gcloud's active one, as accounts saved before it existed.
+  assert.deepEqual(configOf('gcp', Object.assign(emptyForm(), { project: 'my-proj' })), { kind: 'gcp', project: 'my-proj' });
+  for (const bad of ['--debug', '-a@example.com', 'ana', 'ana@', '@example.com', 'ana@example', 'a@b@example.com', 'ana @example.com', 'ana@example.com;x']) {
+    assert.ok(!validGcloudAccount(bad), bad);
+    assert.deepEqual(stepProblems('gcp', Object.assign(emptyForm(), { project: 'my-proj', gcp_account: bad })), ['gcp_account_format'], bad);
+  }
+  for (const ok of ['ana@example.com', 'dbine@my-proj.iam.gserviceaccount.com', 'a.b+c@x.co']) assert.ok(validGcloudAccount(ok), ok);
+  assert.equal(formFromAccount({ kind: 'gcp', project: 'p', account: 'bob@example.com', id: 'i', label: 'L', identity: '', created_at: '', updated_at: '' }).gcp_account, 'bob@example.com');
+  assert.equal(formFromAccount({ kind: 'gcp', project: 'p', id: 'i', label: 'L', identity: '', created_at: '', updated_at: '' }).gcp_account, '');
+});
+
+test('Google: no valid sign-in for the account names the command, in any language', () => {
+  const es = 'gcloud no tiene una sesión válida con esa cuenta: iniciá sesión con «gcloud auth login bob@example.com» y probá de nuevo';
+  assert.equal(gcloudSignIn(es), 'bob@example.com');
+  assert.equal(gcloudSignIn('gcloud has no valid session for that account: sign in with «gcloud auth login dbine@p.iam.gserviceaccount.com» and try again'), 'dbine@p.iam.gserviceaccount.com');
+  assert.equal(gcloudSignIn('no se pudo obtener un token (¿falta gcloud auth login?)'), null);
+  assert.equal(gcloudSignIn('«gcloud auth login --debug»'), null);
+  assert.equal(stepForError('gcp', es), 1, 'back to the project step to pick another account');
+  assert.equal(stepForError('azure', es), null);
 });

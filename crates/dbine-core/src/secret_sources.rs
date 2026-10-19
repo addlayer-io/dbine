@@ -222,6 +222,12 @@ pub enum SecretSource {
         version: String,
         #[serde(default, skip_serializing_if = "String::is_empty")]
         json_key: String,
+        /// The gcloud account the token is asked for (`--account`, an
+        /// e-mail); empty: gcloud's active one (and the rest of the chain).
+        /// Left out when empty, so an inline definition's JSON (and its
+        /// confirmation) is as before.
+        #[serde(default, skip_serializing_if = "String::is_empty")]
+        account: String,
         /// The ID of a saved account of this computer for this manager
         /// (crate::secret_accounts): then the sign-in fields above are empty
         /// and the account's are used. Last and left out when empty, so an
@@ -551,6 +557,20 @@ pub fn valid_azure_tenant(t: &str) -> bool {
     !t.is_empty() && t.len() <= 255 && !t.starts_with(['-', '.']) && t.chars().all(|c| c.is_ascii_alphanumeric() || matches!(c, '-' | '.'))
 }
 
+/// A gcloud account (an e-mail: a user's or a service account's), as it
+/// goes to `gcloud --account`: nothing that reads as a flag.
+pub fn valid_gcloud_account(a: &str) -> bool {
+    let Some((user, domain)) = a.split_once('@') else { return false };
+    a.len() <= 254
+        && !user.is_empty()
+        && !user.starts_with(['-', '.'])
+        && domain.contains('.')
+        && !domain.starts_with(['-', '.'])
+        && !domain.ends_with('.')
+        && !domain.contains('@')
+        && a.chars().all(|c| c.is_ascii_alphanumeric() || matches!(c, '-' | '.' | '_' | '+' | '@'))
+}
+
 /// An AWS profile's name as DBine passes it on (nothing that reads as a flag).
 pub fn valid_aws_profile(p: &str) -> bool {
     !p.is_empty() && p.len() <= 128 && !p.starts_with('-') && p.chars().all(|c| c.is_ascii_alphanumeric() || matches!(c, '-' | '.' | '_' | '@' | '+'))
@@ -688,7 +708,7 @@ impl SecretSource {
             }
             Self::Aws { region, profile, .. } | Self::Ssm { region, profile, .. } => any(&[region, profile]),
             Self::Azure { vault_url, tenant, .. } => any(&[vault_url, tenant]),
-            Self::Gcp { project, .. } => !project.is_empty(),
+            Self::Gcp { project, account, .. } => !project.is_empty() || !account.is_empty(),
             Self::KeePass { file, key_file, master, master_command, .. } => any(&[file, key_file, master_command]) || *master != MasterSource::Keychain,
             Self::Conjur { url, account, login, ca_file, .. } => any(&[url, account, login, ca_file]),
             Self::Ccp { url, app_id, client_cert, client_key, ca_file, .. } => any(&[url, app_id, client_cert, client_key, ca_file]),
@@ -846,9 +866,12 @@ impl SecretSource {
                     return Err(bad("la versión del secreto de Azure Key Vault no es válida"));
                 }
             }
-            Self::Gcp { project, secret, version, .. } => {
+            Self::Gcp { project, secret, version, account, .. } => {
                 if !url_segment(project.trim()) {
                     return Err(bad("falta el proyecto de Google Cloud (o no es válido)"));
+                }
+                if !account.is_empty() && !valid_gcloud_account(account) {
+                    return Err(bad("la cuenta de gcloud tiene que ser un correo (ana@example.com)"));
                 }
                 if !url_segment(secret.trim()) || secret.contains([':', '.']) {
                     return Err(bad("falta el nombre del secreto de Google Secret Manager (o no es válido)"));
@@ -1465,8 +1488,18 @@ mod tests {
         let account = SecretSource::OnePassword { reference: "op://a/b/c".into(), account: "--debug".into(), json_key: String::new(), fill_username: false, user_field: String::new(), secret_account: String::new() };
         assert!(account.validate().is_err());
         assert!(aws("evil.com/").validate().is_err());
-        let gcp = |p: &str, v: &str| SecretSource::Gcp { project: p.into(), secret: "pw".into(), version: v.into(), json_key: String::new(), secret_account: String::new() };
+        let gcp = |p: &str, v: &str| SecretSource::Gcp { project: p.into(), secret: "pw".into(), version: v.into(), json_key: String::new(), account: String::new(), secret_account: String::new() };
         assert!(gcp("my-proj", "").validate().is_ok());
+        let pinned = |a: &str| SecretSource::Gcp { project: "my-proj".into(), secret: "pw".into(), version: String::new(), json_key: String::new(), account: a.into(), secret_account: String::new() };
+        assert!(pinned("ana@example.com").validate().is_ok());
+        assert!(pinned("dbine@my-proj.iam.gserviceaccount.com").validate().is_ok());
+        for a in ["--debug", "-a@example.com", "ana", "ana@", "@example.com", "ana@example", "ana@@example.com", "a@b@example.com", "ana @example.com", "ana@example.com;x", "ana@-example.com"] {
+            assert!(!valid_gcloud_account(a), "{a}");
+            assert!(pinned(a).validate().is_err(), "{a}");
+        }
+        // Empty: left out, so an inline definition hashes as before.
+        assert_eq!(serde_json::to_string(&gcp("my-proj", "")).unwrap(), r#"{"kind":"gcp","project":"my-proj","secret":"pw"}"#);
+        assert!(serde_json::to_string(&pinned("ana@example.com")).unwrap().contains(r#""account":"ana@example.com""#));
         assert!(gcp("my-proj", "3").validate().is_ok());
         assert!(gcp("my/proj", "").validate().is_err());
         assert!(gcp("p", "../x").validate().is_err());

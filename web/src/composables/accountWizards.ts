@@ -83,6 +83,8 @@ export interface WizardForm {
   tenant: string;
   vault_url: string;
   project: string;
+  /** The gcloud account (an e-mail) the tokens are asked for. */
+  gcp_account: string;
   file: string;
   key_file: string;
   label: string;
@@ -93,7 +95,7 @@ export function emptyForm(): WizardForm {
     step: 1, server: 'bitwarden.com', server_url: '', client_id: '', client_secret: '', master: 'keychain', master_command: '', passphrase: '', token: '',
     address: '', namespace: '', ca_file: '', auth: 'token', approle_mount: '', role_id: '', secret_id: '', delinea_mode: 'server', url: '', platform_url: '',
     username: '', domain: '', password: '', conjur_account: '', login: '', api_key: '', app_id: '', client_cert: '', client_key: '', op_account: '',
-    profile: '', region: '', tenant: '', vault_url: '', project: '', file: '', key_file: '', label: '',
+    profile: '', region: '', tenant: '', vault_url: '', project: '', gcp_account: '', file: '', key_file: '', label: '',
   };
 }
 
@@ -120,6 +122,14 @@ export const validAzureVault = (v: string) => /^https:\/\/[a-z0-9-]+\.vault\.(az
 /** A Microsoft Entra tenant, its ID or a domain: dbine_core's `valid_azure_tenant`. */
 export const validTenant = (v: string) => /^[A-Za-z0-9][A-Za-z0-9.-]{0,254}$/.test(v.trim());
 export const validGcpProject = (v: string) => /^[A-Za-z0-9._-]{1,255}$/.test(v.trim());
+/** A gcloud account, an e-mail: dbine_core's `valid_gcloud_account`. */
+export function validGcloudAccount(v: string): boolean {
+  const a = v.trim();
+  const m = /^([A-Za-z0-9._+-]+)@([A-Za-z0-9.-]+)$/.exec(a);
+  if (!m || a.length > 254) return false;
+  const [, user, domain] = m;
+  return !/^[-.]/.test(user) && domain.includes('.') && !/^[-.]/.test(domain) && !domain.endsWith('.');
+}
 export const validDelineaPlatform = (v: string) => /^https:\/\/[a-z0-9-]+\.delinea\.app\/?$/i.test(v.trim());
 export const validOpAccount = (v: string) => /^[A-Za-z0-9._@][A-Za-z0-9._@-]{0,254}$/.test(v.trim());
 
@@ -172,6 +182,45 @@ export function tenantChoices(list: AzureTenant[], query: string, selected = '')
 /** A tenant in the select once chosen: its name and domain, else its ID. */
 export function tenantLabel(t: AzureTenant): string {
   return [t.display_name, t.default_domain].filter(Boolean).join(' · ') || t.id;
+}
+
+// ---- Google Cloud: the accounts gcloud has signed in ------------------------------------
+
+/** An account from `detect_secret_account` (`gcloud auth list`). */
+export interface GcloudAccount {
+  account: string;
+  active: boolean;
+}
+
+/** The detected gcloud accounts, well formed only, once each, the active
+ *  one first (also when only `gcloud config list` named it). */
+export function gcloudAccounts(detected: Record<string, unknown> | null | undefined): GcloudAccount[] {
+  const str = (v: unknown) => (typeof v === 'string' ? v.trim() : '');
+  const out: GcloudAccount[] = [];
+  const add = (a: GcloudAccount) => {
+    if (validGcloudAccount(a.account) && !out.some((o) => o.account.toLowerCase() === a.account.toLowerCase())) out.push(a);
+  };
+  const current = str(detected?.account);
+  if (current) add({ account: current, active: true });
+  for (const a of Array.isArray(detected?.accounts) ? (detected!.accounts as Record<string, unknown>[]) : []) {
+    add({ account: str(a.account), active: a.active === true || str(a.account).toLowerCase() === current.toLowerCase() });
+  }
+  return out.sort((a, b) => Number(b.active) - Number(a.active));
+}
+
+/** The account the select starts with: the one already chosen, else gcloud's active one. */
+export function gcloudPreselect(list: GcloudAccount[], chosen: string): string {
+  if (chosen.trim()) return chosen.trim();
+  return list.find((a) => a.active)?.account ?? '';
+}
+
+/** The account of the backend's "no valid sign-in with that account"
+ *  message (gcp.rs `no_sign_in`: «gcloud auth login <e-mail>», the same in
+ *  every language), or null. */
+export function gcloudSignIn(message: string): string | null {
+  const m = /gcloud auth login ([A-Za-z0-9._+@-]+)/.exec(message ?? '');
+  const a = m?.[1].replace(/\.+$/, '');
+  return a && validGcloudAccount(a) ? a : null;
 }
 
 /** The tenant of the backend's "no sign-in in that tenant" message
@@ -264,6 +313,7 @@ export function stepProblems(kind: WizardKind, s: WizardForm, step = s.step): st
       break;
     case 'gcp.project':
       need('project', validGcpProject);
+      if (!empty('gcp_account') && !validGcloudAccount(s.gcp_account)) out.push('gcp_account_format');
       break;
     case 'keepass.database':
       need('file');
@@ -323,7 +373,7 @@ export function configOf(kind: WizardKind, s: WizardForm): SecretAccountConfig {
     case 'onepassword': return { kind, account: t(s.op_account) };
     case 'aws': return opt({ kind, profile: t(s.profile), region: t(s.region) });
     case 'azure': return opt({ kind, tenant: t(s.tenant), vault_url: t(s.vault_url).replace(/\/+$/, '') });
-    case 'gcp': return { kind, project: t(s.project) };
+    case 'gcp': return opt({ kind, project: t(s.project), account: t(s.gcp_account) });
     case 'keepass': return opt({ kind, file: t(s.file), key_file: t(s.key_file), ...master(true) }) as SecretAccountConfig;
   }
 }
@@ -374,7 +424,7 @@ export function formFromAccount(a: SecretAccount): Partial<WizardForm> {
     case 'onepassword': return { op_account: v('account'), label: a.label };
     case 'aws': return { profile: v('profile'), region: v('region'), label: a.label };
     case 'azure': return { tenant: v('tenant'), vault_url: v('vault_url'), label: a.label };
-    case 'gcp': return { project: v('project'), label: a.label };
+    case 'gcp': return { project: v('project'), gcp_account: v('account'), label: a.label };
     case 'keepass': return { file: v('file'), key_file: v('key_file'), master, master_command: v('master_command'), label: a.label };
     default: return { label: a.label };
   }
@@ -414,6 +464,7 @@ export function stepForError(kind: WizardKind, message: string): number | null {
   if (kind === 'conjur' && (m.includes('rechazó el login') || m.includes('clave de api'))) return at('identity');
   if (kind === 'ccp' && (m.includes('certificado') || m.includes('clave privada') || m.includes('pkcs#12'))) return at('certificate');
   if (kind === 'azure' && tenantSignIn(message)) return at('vault');
+  if (kind === 'gcp' && gcloudSignIn(message)) return at('project');
   if (m.includes('no se pudo conectar')) return 1;
   return null;
 }
