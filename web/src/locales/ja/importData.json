@@ -72,6 +72,7 @@
     "doneDetail_other": "{table} に {{n}} 行 · {{seconds}} 秒",
     "partial_other": "停止するまでに {{n}} 行がインポートされました。",
     "cancelledMessage": "インポートをキャンセルしました。",
-    "cancelImport": "インポートをキャンセル"
+    "cancelImport": "インポートをキャンセル",
+    "ofRows_other": "/ {{total}} 行"
   }
 }

@@ -1724,7 +1724,9 @@ const breadcrumbDir = computed(() => {
 .nb-banner.info { border-bottom-color: color-mix(in srgb, var(--nm-info) 45%, transparent); background: color-mix(in srgb, var(--nm-info) 10%, transparent); }
 .nb-banner.info > .el-icon { color: var(--nm-info); }
 .nb-warnings { display: flex; flex-direction: column; gap: 2px; min-width: 0; }
-.nb-bar { container-type: inline-size; overflow: hidden; }
+/* Wraps to a second row instead of clipping the last buttons when the labels
+   don't fit (German and Russian run long); below 760px they hide anyway. */
+.nb-bar { container-type: inline-size; height: auto; min-height: 34px; flex-wrap: wrap; row-gap: 4px; padding-top: 3px; padding-bottom: 3px; }
 .nb-bar > * { flex-shrink: 0; }
 .nb-bar :deep(.el-button) { white-space: nowrap; }
 .nb-bar > .el-button + .el-button { margin-left: 0; }

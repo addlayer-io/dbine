@@ -192,7 +192,7 @@ impl CouchSession {
     }
 
     pub(crate) async fn alter_database_impl(&mut self, database: &str, changes: &BTreeMap<String, String>) -> Result<()> {
-        self.refuse_if_read_only("modificar las propiedades de una base")?;
+        self.refuse_if_read_only("Conexión de solo lectura: no se pueden modificar las propiedades de una base.")?;
         let requests = alter(database, changes)?;
         for (i, (method, path, body)) in requests.iter().enumerate() {
             if let Err(e) = self.call(method.clone(), path, Some(body)).await {

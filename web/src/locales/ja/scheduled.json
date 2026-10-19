@@ -32,15 +32,14 @@
       "monthly": "毎月 1 回",
       "interval": "分間隔"
     },
-    "at": "時刻",
-    "onDay": "日付",
-    "every": "間隔",
-    "minutes": "分",
     "daily": "毎日 {{time}}",
     "weekly": "{{days}} {{time}}",
     "monthly": "毎月 {{day}} 日 {{time}}",
     "interval_other": "{{count}} 分ごと",
-    "hint": "DBine を閉じていても、ユーザーがログインしている間は実行されます。コンピューターの電源が切れていた場合は、起動時に実行されます。"
+    "hint": "DBine を閉じていても、ユーザーがログインしている間は実行されます。コンピューターの電源が切れていた場合は、起動時に実行されます。",
+    "atInput": "{time} に",
+    "monthlyInput": "毎月 {day} 日の {time}",
+    "intervalInput_other": "{minutes} 分ごと"
   },
   "days": {
     "1": "月",

@@ -32,16 +32,16 @@
       "monthly": "Once a month",
       "interval": "Every few minutes"
     },
-    "at": "at",
-    "onDay": "on day",
-    "every": "every",
-    "minutes": "minutes",
     "daily": "Every day at {{time}}",
     "weekly": "{{days}} at {{time}}",
     "monthly": "On day {{day}} at {{time}}",
     "interval_one": "Every {{count}} minute",
     "interval_other": "Every {{count}} minutes",
-    "hint": "Runs with DBine closed, as long as your user is signed in. If the computer was off, it runs when it's turned back on."
+    "hint": "Runs with DBine closed, as long as your user is signed in. If the computer was off, it runs when it's turned back on.",
+    "atInput": "at {time}",
+    "monthlyInput": "on day {day} at {time}",
+    "intervalInput_one": "every {minutes} minute",
+    "intervalInput_other": "every {minutes} minutes"
   },
   "days": {
     "1": "Mon",

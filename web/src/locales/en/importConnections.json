@@ -29,8 +29,6 @@
   "importN": "Import {{n}}",
   "imported_one": "{{count}} connection imported",
   "imported_other": "{{count}} connections imported",
-  "andFolders_one": " and {{count}} folder",
-  "andFolders_other": " and {{count}} folders",
   "failedTitle": "Not imported",
   "gotIt": "Got it",
   "suggestion": {
@@ -45,5 +43,8 @@
     "count_many": "{{count}} connections"
   },
   "imported_many": "{{count}} connections imported",
-  "andFolders_many": " and {{count}} folders"
+  "importedWithFolders_one": "{{count}} connection imported and $t(importConnections:folders, {\"count\": {{folders}} })",
+  "importedWithFolders_other": "{{count}} connections imported and $t(importConnections:folders, {\"count\": {{folders}} })",
+  "folders_one": "{{count}} folder",
+  "folders_other": "{{count}} folders"
 }

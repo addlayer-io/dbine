@@ -14,14 +14,6 @@
     "info": "信息",
     "infoHint": "值得了解的忠实转换"
   },
-  "confirm": {
-    "message": "将在 {{where}}（{{engine}}）中创建 {{count}} 张表{{data}}{{drop}}。是否继续？",
-    "data": "，并复制它们的全部数据",
-    "drop": "，先删除同名的已有表",
-    "clone": "将把 {{count}} 张表连同完整结构克隆到 {{where}}（{{engine}}）{{data}}。是否继续？",
-    "cloneData": "及其全部数据",
-    "sync": "将在 {{where}}（{{engine}}）中同步 {{count}} 张表：与源不同的行会被插入、更新和删除。是否继续？"
-  },
   "run": {
     "cancelled": "迁移已取消",
     "finishedWithErrors": "迁移已完成，有 {{count}} 个错误：请查看摘要",
@@ -157,8 +149,7 @@
     "largestFirst": "最大的优先",
     "smallestFirst": "最小的优先",
     "alphabetical": "按字母顺序",
-    "commitRows": "每",
-    "commitRowsHint": "行提交"
+    "commitEvery_other": "每 {rows} 行提交一次"
   },
   "interrupted": {
     "title": "已中断",
@@ -258,5 +249,14 @@
       "interrupted": "已中断",
       "cancelled": "已取消"
     }
+  },
+  "confirm": {
+    "create_other": "将在 {{where}}（{{engine}}）中创建 {{count}} 张表。是否继续？",
+    "createData_other": "将在 {{where}}（{{engine}}）中创建 {{count}} 张表，并复制它们的全部数据。是否继续？",
+    "createDrop_other": "将在 {{where}}（{{engine}}）中创建 {{count}} 张表，创建前先删除同名的已有表。是否继续？",
+    "createDataDrop_other": "将在 {{where}}（{{engine}}）中创建 {{count}} 张表，并复制它们的全部数据，创建前先删除同名的已有表。是否继续？",
+    "clone_other": "将把 {{count}} 张表连同完整结构克隆到 {{where}}（{{engine}}）。是否继续？",
+    "cloneWithData_other": "将把 {{count}} 张表连同完整结构和全部数据克隆到 {{where}}（{{engine}}）。是否继续？",
+    "sync_other": "将在 {{where}}（{{engine}}）中同步 {{count}} 张表：与源不同的行会被插入、更新和删除。是否继续？"
   }
 }

@@ -29,8 +29,6 @@
   "importN": "{{n}} importieren",
   "imported_one": "{{count}} Verbindung importiert",
   "imported_other": "{{count}} Verbindungen importiert",
-  "andFolders_one": " und {{count}} Ordner",
-  "andFolders_other": " und {{count}} Ordner",
   "failedTitle": "Nicht importiert",
   "gotIt": "Verstanden",
   "suggestion": {
@@ -42,5 +40,9 @@
     "hintAfter": "Schaltfläche im Explorer tun.",
     "notNow": "Jetzt nicht",
     "viewAndImport": "Ansehen und importieren…"
-  }
+  },
+  "importedWithFolders_one": "{{count}} Verbindung importiert und $t(importConnections:folders, {\"count\": {{folders}} })",
+  "importedWithFolders_other": "{{count}} Verbindungen importiert und $t(importConnections:folders, {\"count\": {{folders}} })",
+  "folders_one": "{{count}} Ordner",
+  "folders_other": "{{count}} Ordner"
 }

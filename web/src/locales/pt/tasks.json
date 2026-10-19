@@ -208,7 +208,6 @@
       "reading": "Lendo o arquivo",
       "inserting": "Inserindo linhas"
     },
-    "ofTotal": "de {{total}}",
     "estimated": "de ~{{total}} estimadas"
   }
 }

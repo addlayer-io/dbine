@@ -151,9 +151,10 @@ impl FluxSession {
         Ok(serde_json::from_str(&body).unwrap_or_default())
     }
 
-    pub(crate) fn check_writable(&self, what: &str) -> Result<()> {
+    /// `refusal` is the whole message for a read-only connection.
+    pub(crate) fn check_writable(&self, refusal: &str) -> Result<()> {
         if self.read_only {
-            return Err(Error::Query(format!("Conexión de solo lectura: no se pueden {what} buckets.")));
+            return Err(Error::Query(refusal.into()));
         }
         Ok(())
     }
@@ -431,7 +432,7 @@ impl Session for FluxSession {
 
     /// `POST /api/v2/buckets` with the retention rules (see [`crate::create_db`]).
     async fn create_database_with(&mut self, name: &str, options: &std::collections::BTreeMap<String, String>) -> Result<()> {
-        self.check_writable("crear")?;
+        self.check_writable("Conexión de solo lectura: no se pueden crear buckets.")?;
         let orgs = self.get("/api/v2/orgs", &[("org", self.org.as_str())]).await?;
         let org_id = orgs
             .pointer("/orgs/0/id")
@@ -444,7 +445,7 @@ impl Session for FluxSession {
     }
 
     async fn drop_database(&mut self, name: &str) -> Result<()> {
-        self.check_writable("borrar")?;
+        self.check_writable("Conexión de solo lectura: no se pueden borrar buckets.")?;
         if self.bucket.as_deref() == Some(name) {
             return Err(Error::Query(format!("No se puede borrar «{name}»: es el bucket de esta conexión.")));
         }

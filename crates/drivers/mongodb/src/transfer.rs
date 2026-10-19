@@ -1182,7 +1182,7 @@ pub(crate) async fn bulk_load(
     source: &mut dyn BatchSource,
     progress: Progress<'_>,
 ) -> Result<u64> {
-    s.refuse_if_read_only("cargar datos")?;
+    s.refuse_if_read_only("Conexión de solo lectura: no se pueden cargar datos.")?;
     // `columns` are the read's, in the order of the cells (the target's
     // names in `spec.columns` may differ).
     let hints: Vec<Hint> = spec
@@ -1233,7 +1233,7 @@ pub(crate) async fn write_rows(
     progress: Progress<'_>,
 ) -> Result<dbine_driver::WriteResult> {
     use dbine_driver::WriteMode;
-    s.refuse_if_read_only("escribir datos")?;
+    s.refuse_if_read_only("Conexión de solo lectura: no se pueden escribir datos.")?;
     spec.check()?;
     let mut out = dbine_driver::WriteResult { atomic: false, ..Default::default() };
     let load = LoadSpec {
@@ -1365,7 +1365,7 @@ pub(crate) async fn copy_native(source: &mut dyn Session, target: &mut dyn Sessi
     let unsupported = |why: &str| Err(Error::Unsupported(format!("copia directa no disponible: {why}")));
     let Some(src) = mongo(source) else { return unsupported("el origen no es una sesión de MongoDB") };
     let Some(dst) = mongo(target) else { return unsupported("el destino no es una sesión de MongoDB") };
-    dst.refuse_if_read_only("cargar datos")?;
+    dst.refuse_if_read_only("Conexión de solo lectura: no se pueden cargar datos.")?;
 
     let filter = parse_filter(spec.source.filter.as_deref())?;
     // (source field, target field), in order; `None`: the whole document.

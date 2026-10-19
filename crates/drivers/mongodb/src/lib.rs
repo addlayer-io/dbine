@@ -538,9 +538,11 @@ pub struct MongoSession {
 }
 
 impl MongoSession {
-    fn refuse_if_read_only(&self, what: &str) -> Result<()> {
+    /// `msg` is the whole refusal ("Conexión de solo lectura: no se puede …"),
+    /// one message per action so it translates as a sentence.
+    fn refuse_if_read_only(&self, msg: &str) -> Result<()> {
         if self.read_only {
-            return Err(Error::Query(format!("Conexión de solo lectura: no se puede {what}.")));
+            return Err(Error::Query(msg.into()));
         }
         Ok(())
     }
@@ -842,7 +844,7 @@ impl Session for MongoSession {
     }
 
     async fn kill_session(&mut self, id: &str) -> Result<()> {
-        self.refuse_if_read_only("terminar operaciones")?;
+        self.refuse_if_read_only("Conexión de solo lectura: no se pueden terminar operaciones.")?;
         blocking::kill(&self.client, self.flavor, id).await
     }
 
@@ -851,7 +853,7 @@ impl Session for MongoSession {
     }
 
     async fn cancel_query(&mut self, id: &str) -> Result<()> {
-        self.refuse_if_read_only("cancelar operaciones")?;
+        self.refuse_if_read_only("Conexión de solo lectura: no se pueden cancelar operaciones.")?;
         processes::cancel(&self.client, self.flavor, &self.tag, id).await
     }
 
@@ -1087,7 +1089,7 @@ impl Session for MongoSession {
     /// created: this one gets an empty `_dbine` collection, which can be
     /// dropped once the database has collections of its own.
     async fn create_database(&mut self, name: &str) -> Result<()> {
-        self.refuse_if_read_only("crear una base")?;
+        self.refuse_if_read_only("Conexión de solo lectura: no se puede crear una base.")?;
         ddl::check_database_name(name)?;
         let names = self.client.list_database_names().await.map_err(err)?;
         if names.iter().any(|n| n.eq_ignore_ascii_case(name)) {
@@ -1097,7 +1099,7 @@ impl Session for MongoSession {
     }
 
     async fn drop_database(&mut self, name: &str) -> Result<()> {
-        self.refuse_if_read_only("borrar una base")?;
+        self.refuse_if_read_only("Conexión de solo lectura: no se puede borrar una base.")?;
         if ddl::is_system_database(name) {
             return Err(Error::Query(format!("«{name}» es una base del sistema de MongoDB y no se borra")));
         }

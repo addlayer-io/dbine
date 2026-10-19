@@ -91,7 +91,7 @@ fn alter(old: &TableSchema, new: &TableSchema, p: &mut Plan) -> Result<()> {
             p.warnings.push(format!("{tname} pasa de colección a vista o al revés: borrala y creala a mano."));
             return Ok(());
         }
-        let pipeline = |t: &TableSchema| opt(t, "pipeline").map(|s| relaxed(s, "pipeline de la vista")).transpose();
+        let pipeline = |t: &TableSchema| opt(t, "pipeline").map(|s| relaxed(s, |e| format!("el pipeline de la vista no es válido: {e}"))).transpose();
         let (op, np) = (pipeline(old)?.unwrap_or(json!([])), pipeline(new)?.unwrap_or(json!([])));
         if opt(old, "viewOn") != opt(new, "viewOn") || op != np {
             let source = opt(new, "viewOn").unwrap_or_default();

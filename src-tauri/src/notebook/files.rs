@@ -1080,18 +1080,31 @@ pub fn allowed_files(files: &[DataFile], access: &super::access::Access<'_>) -> 
 // ---------------------------------------------------------------------------
 // The reader session
 
+/// What a DuckDB extension is loaded for: each has its own whole message
+/// when it can't be loaded.
+#[derive(Clone, Copy)]
+pub enum ExtensionUse {
+    CellSpatial,
+    ReadWorkbook,
+    ReadGeoFiles,
+}
+
 /// `LOAD` a DuckDB extension, fetching it into DuckDB's extensions folder
 /// the first time (`INSTALL`, as the data-file connections do for
 /// `.xlsx`); only while the session isn't locked down yet. `what`: what it
 /// is for, for the message.
-pub async fn load_extension(s: &mut dyn Session, name: &str, what: &str) -> CommandResult<()> {
+pub async fn load_extension(s: &mut dyn Session, name: &str, what: ExtensionUse) -> CommandResult<()> {
     let mut out = QueryOutcome::default();
     let loaded = s.execute(&format!("LOAD {name}"), 1, &mut out).await.is_ok() && out.error.is_none();
     if !loaded {
         let mut out = QueryOutcome::default();
         let r = s.execute(&format!("INSTALL {name}; LOAD {name}"), 1, &mut out).await;
         if let Some(e) = r.err().map(|e| e.to_string()).or(out.error) {
-            return Err(CommandError::Internal(format!("no se pudo cargar la extensión {name} de DuckDB para {what}: {e}")));
+            return Err(CommandError::Internal(match what {
+                ExtensionUse::CellSpatial => format!("no se pudo cargar la extensión {name} de DuckDB para las funciones geográficas (ST_…) de esta celda: {e}"),
+                ExtensionUse::ReadWorkbook => format!("no se pudo cargar la extensión {name} de DuckDB para leer el libro: {e}"),
+                ExtensionUse::ReadGeoFiles => format!("no se pudo cargar la extensión {name} de DuckDB para leer archivos geográficos (st_read): {e}"),
+            }));
         }
     }
     Ok(())
@@ -1130,8 +1143,8 @@ pub async fn open_reader(paths: &[String], extension: Option<&str>) -> CommandRe
         return Err(fail(e));
     }
     match extension {
-        Some("excel") => load_extension(s.as_mut(), "excel", "leer el libro").await?,
-        Some("spatial") => load_extension(s.as_mut(), "spatial", "leer archivos geográficos (st_read)").await?,
+        Some("excel") => load_extension(s.as_mut(), "excel", ExtensionUse::ReadWorkbook).await?,
+        Some("spatial") => load_extension(s.as_mut(), "spatial", ExtensionUse::ReadGeoFiles).await?,
         Some(other) => return Err(fail(format!("extensión desconocida «{other}»"))),
         None => {}
     }

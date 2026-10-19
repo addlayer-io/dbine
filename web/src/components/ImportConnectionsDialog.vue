@@ -115,8 +115,9 @@ async function doImport() {
       },
     });
     await conns.load();
-    const folders = r.folders ? t('importConnections:andFolders', { count: r.folders }) : '';
-    ElMessage.success(`${t('importConnections:imported', { count: r.imported })}${folders}`);
+    ElMessage.success(r.folders
+      ? t('importConnections:importedWithFolders', { count: r.imported, folders: r.folders })
+      : t('importConnections:imported', { count: r.imported }));
     if (r.failed.length) {
       await ElMessageBox.alert(r.failed.map(([n, e]) => `${n}: ${tb(e)}`).join('\n'), t('importConnections:failedTitle'), { confirmButtonText: t('importConnections:gotIt') }).catch(() => {});
     }

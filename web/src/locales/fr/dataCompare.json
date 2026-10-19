@@ -69,7 +69,6 @@
     "update_other": "{{n}} mises à jour",
     "delete_one": "{{n}} suppression",
     "delete_many": "{{n}} suppressions",
-    "delete_other": "{{n}} suppressions",
-    "and": "et"
+    "delete_other": "{{n}} suppressions"
   }
 }

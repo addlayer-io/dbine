@@ -2684,7 +2684,7 @@ dependencies = [
 
 [[package]]
 name = "dbine-driver-athena"
-version = "0.1.9"
+version = "0.1.10"
 dependencies = [
  "aws-config",
  "aws-credential-types",
@@ -2771,7 +2771,7 @@ dependencies = [
 
 [[package]]
 name = "dbine-driver-couchdb"
-version = "0.1.9"
+version = "0.1.10"
 dependencies = [
  "chrono",
  "dbine-driver",
@@ -2940,7 +2940,7 @@ dependencies = [
 
 [[package]]
 name = "dbine-driver-influxdb"
-version = "0.1.9"
+version = "0.1.10"
 dependencies = [
  "chrono",
  "dbine-driver",
@@ -2992,7 +2992,7 @@ dependencies = [
 
 [[package]]
 name = "dbine-driver-mongodb"
-version = "0.1.10"
+version = "0.1.11"
 dependencies = [
  "base64 0.22.1",
  "chrono",
@@ -3019,7 +3019,7 @@ dependencies = [
 
 [[package]]
 name = "dbine-driver-neo4j"
-version = "0.1.9"
+version = "0.1.10"
 dependencies = [
  "aws-config",
  "aws-credential-types",
@@ -3063,7 +3063,7 @@ dependencies = [
 
 [[package]]
 name = "dbine-driver-orientdb"
-version = "0.1.9"
+version = "0.1.10"
 dependencies = [
  "dbine-driver",
  "percent-encoding",
@@ -3107,7 +3107,7 @@ dependencies = [
 
 [[package]]
 name = "dbine-driver-redis"
-version = "0.1.7"
+version = "0.1.8"
 dependencies = [
  "dbine-driver",
  "redis",
@@ -3171,7 +3171,7 @@ dependencies = [
 
 [[package]]
 name = "dbine-driver-sqlserver"
-version = "0.1.13"
+version = "0.1.14"
 dependencies = [
  "base64 0.22.1",
  "chrono",

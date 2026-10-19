@@ -4,7 +4,7 @@ import { ensureConnectedOrTell, useConnectionGate } from '../composables/connect
 import { computed, nextTick, onBeforeUnmount, onMounted, reactive, ref, watch } from 'vue';
 import { listen, type UnlistenFn } from '@tauri-apps/api/event';
 import { ElMessage, ElMessageBox } from 'element-plus';
-import { useTranslation } from 'i18next-vue';
+import { TranslationComponent as I18nT, useTranslation } from 'i18next-vue';
 import { errorMessage } from '../api/client';
 import { locale } from '../i18n';
 import { tb } from '../i18n/backend';
@@ -368,15 +368,12 @@ async function runMigration() {
   const where = `${targetName.value}${targetDatabase.value ? ` · ${targetDatabase.value}` : ''}`;
   const engine = targetInfo.value?.name;
   const count = picked.value.size;
+  // One whole sentence per case: the optional parts change the word order in some languages.
   const message = mode.value === 'clone'
-    ? t('migration:confirm.clone', { count, where, engine, data: options.data ? t('migration:confirm.cloneData') : '' })
+    ? t(options.data ? 'migration:confirm.cloneWithData' : 'migration:confirm.clone', { count, where, engine })
     : mode.value === 'sync'
       ? t('migration:confirm.sync', { count, where, engine })
-      : t('migration:confirm.message', {
-        count, where, engine,
-        data: options.data ? t('migration:confirm.data') : '',
-        drop: options.drop ? t('migration:confirm.drop') : '',
-      });
+      : t(`migration:confirm.create${options.data ? 'Data' : ''}${options.drop ? 'Drop' : ''}`, { count, where, engine });
   try {
     await ElMessageBox.confirm(message, actionLabel.value, { confirmButtonText: actionLabel.value, cancelButtonText: t('common:cancel'), type: 'warning' });
   } catch { return; }
@@ -882,8 +879,9 @@ function saveScript() {
             <el-option value="smallest_first" :label="$t('migration:advanced.smallestFirst')" />
             <el-option value="alphabetical" :label="$t('migration:advanced.alphabetical')" />
           </el-select>
-          <label>{{ $t('migration:advanced.commitRows') }} <span class="mg-muted">{{ $t('migration:advanced.commitRowsHint') }}</span></label>
-          <el-input-number v-model="transfer.commit_rows" :min="1000" :step="10000" size="small" :disabled="!options.data || mode === 'sync'" />
+          <label class="mg-phrase"><I18nT :translation="$t('migration:advanced.commitEvery', { count: transfer.commit_rows })">
+            <template #rows><el-input-number v-model="transfer.commit_rows" :min="1000" :step="10000" size="small" :disabled="!options.data || mode === 'sync'" /></template>
+          </I18nT></label>
         </div>
         <div class="mg-actions">
           <el-button :loading="planning" :disabled="!targetDriver || !picked.size || running" @click="generate">
@@ -1155,6 +1153,7 @@ function saveScript() {
 .mg-adv-head { display: flex; align-items: center; gap: 5px; margin-top: 6px; font-size: 12.5px; color: var(--nm-text-strong); cursor: pointer; user-select: none; }
 .mg-adv { display: flex; flex-direction: column; gap: 4px; padding-left: 16px; }
 .mg-adv .el-select, .mg-adv .el-input-number { width: 180px; }
+.mg-phrase { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; }
 .mg-irun { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; padding: 4px 0; border-bottom: 1px solid var(--nm-border-soft, var(--nm-border)); font-size: 12.5px; }
 .mg-irun .el-button + .el-button { margin-left: 0; }
 .mg-grid-t { max-height: 420px; overflow: auto; font-size: 12px; margin-top: 6px; }

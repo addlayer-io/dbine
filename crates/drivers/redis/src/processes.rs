@@ -129,11 +129,11 @@ impl RedisSession {
     }
 
     /// Checks shared by cancelling and closing: the id's shape, a read-only
-    /// connection and DBine's own client.
-    async fn other_client(&mut self, id: &str, what: &str) -> Result<String> {
+    /// connection (refused with `refusal`, the whole message) and DBine's own client.
+    async fn other_client(&mut self, id: &str, refusal: &str) -> Result<String> {
         let id = client_id(id)?;
         if self.read_only {
-            return Err(Error::Query(format!("Conexión de solo lectura: no se puede {what}.")));
+            return Err(Error::Query(refusal.into()));
         }
         if self.own_id().await.ok().as_deref() == Some(id.as_str()) {
             return Err(Error::Query("esa es la conexión con la que DBine está consultando: no se puede cortar desde acá".into()));
@@ -142,7 +142,7 @@ impl RedisSession {
     }
 
     pub(crate) async fn cancel(&mut self, id: &str) -> Result<()> {
-        let id = self.other_client(id, "cancelar comandos de otros clientes").await?;
+        let id = self.other_client(id, "Conexión de solo lectura: no se pueden cancelar comandos de otros clientes.").await?;
         let reply = self.send(&[b"CLIENT", b"UNBLOCK", id.as_bytes(), b"ERROR"]).await.map_err(|e| {
             if e.to_string().to_ascii_lowercase().contains("unknown subcommand") {
                 Error::Unsupported(UNBLOCK_MISSING.into())
@@ -159,7 +159,7 @@ impl RedisSession {
     }
 
     pub(crate) async fn kill(&mut self, id: &str) -> Result<()> {
-        let id = self.other_client(id, "cerrar conexiones de otros clientes").await?;
+        let id = self.other_client(id, "Conexión de solo lectura: no se pueden cerrar conexiones de otros clientes.").await?;
         match self.run(&[b"CLIENT", b"KILL", b"ID", id.as_bytes()]).await? {
             Value::Int(n) if n > 0 => Ok(()),
             _ => Err(Error::Query(format!("no se pudo cerrar el cliente {id}: ya no existe"))),

@@ -39,13 +39,14 @@
     "statement": "Anweisung {{n}}: {{text}}.",
     "rows_one": "{{rows}} Zeile",
     "rows_other": "{{rows}} Zeilen",
-    "shown": " ({{rows}} angezeigt)",
     "affected_one": "{{rows}} Zeile betroffen",
     "affected_other": "{{rows}} Zeilen betroffen",
     "completed": "abgeschlossen",
     "elapsed": "{{ms}} ms",
     "line": "Zeile {{line}}",
-    "goToLine": "Zu dieser Zeile im Editor springen"
+    "goToLine": "Zu dieser Zeile im Editor springen",
+    "rowsShown_one": "{{rows}} Zeile ({{shown}} angezeigt)",
+    "rowsShown_other": "{{rows}} Zeilen ({{shown}} angezeigt)"
   },
   "status": {
     "done": "Abgeschlossen",
@@ -54,24 +55,20 @@
   "edit": {
     "lookingUpTable": "Tabelle und ihr Schlüssel werden gesucht…",
     "codeCopied": "Code kopiert",
-    "summary": "{{cells}} in {{rows}}, noch nicht gespeichert.",
-    "cells_one": "{{count}} Zelle geändert",
-    "cells_other": "{{count}} Zellen geändert",
-    "rows_one": "{{count}} Zeile",
-    "rows_other": "{{count}} Zeilen",
     "addToQuery": "Zur Abfrage hinzufügen",
     "discard": "Verwerfen",
-    "summaryDeletes": "{{deletes}}, nicht gespeichert.",
-    "summaryBoth": "{{cells}} in {{rows}}, {{deletes}}, nicht gespeichert.",
     "deletes_one": "{{count}} Zeile zu löschen",
     "deletes_other": "{{count}} Zeilen zu löschen",
     "pending": "{{list}}, nicht gespeichert.",
-    "cellsInRows": "{{cells}} in {{rows}}",
     "newRows_one": "{{count}} neue Zeile",
     "newRows_other": "{{count}} neue Zeilen",
     "newDocs_one": "{{count}} neues Dokument",
     "newDocs_other": "{{count}} neue Dokumente",
-    "convertedSpatial": "{{column}} ist SDO_GEOMETRY, zur Anzeige in Text (WKT) umgewandelt; ändern Sie sie mit SQL"
+    "convertedSpatial": "{{column}} ist SDO_GEOMETRY, zur Anzeige in Text (WKT) umgewandelt; ändern Sie sie mit SQL",
+    "changed_one": "{{count}} Zelle in $t(results:edit.inRows, {\"count\": {{rows}} }) geändert",
+    "changed_other": "{{count}} Zellen in $t(results:edit.inRows, {\"count\": {{rows}} }) geändert",
+    "inRows_one": "{{count}} Zeile",
+    "inRows_other": "{{count}} Zeilen"
   },
   "exportDialog": {
     "title": "Ergebnis exportieren",

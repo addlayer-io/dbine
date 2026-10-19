@@ -67,7 +67,8 @@ pub fn parse_script_text(text: &str) -> R<Vec<(String, Stmt)>> {
         }
         let Some(c) = p.peek() else { break };
         let start = p.i;
-        let stmt = if c == '{' { command_stmt(to_doc(p.value()?)?, false) } else { p.db_call()? };
+        let stmt = if c == '{' { p.value().and_then(to_doc).map(|d| command_stmt(d, false)) } else { p.db_call() };
+        let stmt = stmt.map_err(|m| p.at_line(m))?;
         let src: String = p.s[start..p.i].iter().collect();
         out.push((src.trim().to_string(), stmt));
     }
@@ -128,9 +129,8 @@ pub fn parse_units(text: &str) -> std::result::Result<Vec<Unit>, ParseError> {
             Ok(item) => out.push(Unit { item, start, line: line(start) }),
             Err(m) => {
                 let at = bytes[p.i.min(p.s.len())];
-                // `err` prefixes the line; the error carries it apart.
-                let message = m.split_once(": ").filter(|(pre, _)| pre.starts_with("línea ")).map_or(m.clone(), |(_, rest)| rest.to_string());
-                return Err(ParseError { message, offset: at, line: line(at) });
+                // The error carries the line apart (no "línea N: " prefix).
+                return Err(ParseError { message: m, offset: at, line: line(at) });
             }
         }
     }
@@ -206,10 +206,10 @@ pub fn write_reason(cmd: &Document) -> Option<String> {
 /// A single relaxed-JSON value (shell helpers allowed), as extended JSON.
 pub fn parse_value(text: &str) -> R<Value> {
     let mut p = P { s: text.chars().collect(), i: 0 };
-    let v = p.value()?;
+    let v = p.value().map_err(|m| p.at_line(m))?;
     p.ws();
     if p.peek().is_some() {
-        return p.err("sobra texto después del valor");
+        return Err(p.at_line("sobra texto después del valor".into()));
     }
     Ok(v)
 }
@@ -343,9 +343,16 @@ impl P {
         self.s.get(self.i + off).copied()
     }
 
+    /// The error, without its line: the callers that return a plain text
+    /// add it ([`P::at_line`]); [`parse_units`] carries it apart.
     fn err<T>(&self, msg: impl std::fmt::Display) -> R<T> {
+        Err(msg.to_string())
+    }
+
+    /// `msg` with the line the parser stopped at, as one message.
+    fn at_line(&self, msg: String) -> String {
         let line = self.s[..self.i.min(self.s.len())].iter().filter(|c| **c == '\n').count() + 1;
-        Err(format!("línea {line}: {msg}"))
+        format!("línea {line}: {msg}")
     }
 
     /// Skip whitespace and `//` / `/* */` comments.

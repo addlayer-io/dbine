@@ -644,7 +644,7 @@ impl Session for CouchSession {
 
     /// `PUT /{name}`.
     async fn create_database(&mut self, name: &str) -> Result<()> {
-        self.refuse_if_read_only("crear una base")?;
+        self.refuse_if_read_only("Conexión de solo lectura: no se puede crear una base.")?;
         ddl::check_database_name(name)?;
         self.call(Method::PUT, &format!("/{}", seg(name)), None).await.map(|_| ())
     }
@@ -667,7 +667,7 @@ impl Session for CouchSession {
 
     /// `DELETE /{name}`.
     async fn drop_database(&mut self, name: &str) -> Result<()> {
-        self.refuse_if_read_only("borrar una base")?;
+        self.refuse_if_read_only("Conexión de solo lectura: no se puede borrar una base.")?;
         if name.is_empty() || name.starts_with('_') {
             return Err(Error::Query(format!("«{name}» no es una base de usuario")));
         }
@@ -789,9 +789,11 @@ impl Session for CouchSession {
 }
 
 impl CouchSession {
-    fn refuse_if_read_only(&self, what: &str) -> Result<()> {
+    /// `msg` is the whole refusal ("Conexión de solo lectura: no se puede …"),
+    /// one message per action so it translates as a sentence.
+    fn refuse_if_read_only(&self, msg: &str) -> Result<()> {
         if self.read_only {
-            return Err(Error::Query(format!("Conexión de solo lectura: no se puede {what}.")));
+            return Err(Error::Query(msg.into()));
         }
         Ok(())
     }

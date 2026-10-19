@@ -2,7 +2,7 @@
 //! `Files.ReadWrite.AppFolder` scope gives DBine access to that folder only.
 
 use crate::oauth::{authed, TokenSource};
-use crate::provider::{http_error, net_error, CloudStore, ProviderKind, RemoteMeta};
+use crate::provider::{http_error, net_error, HttpOp, CloudStore, ProviderKind, RemoteMeta};
 use crate::Result;
 use async_trait::async_trait;
 use serde::Deserialize;
@@ -72,7 +72,7 @@ impl CloudStore for OneDrive {
         let url = format!("{}/me", self.api);
         let resp = authed(&self.auth, |t| self.http().get(&url).bearer_auth(t).query(&[("$select", "displayName,mail,userPrincipalName")])).await?;
         if !resp.status().is_success() {
-            return Err(http_error(KIND, "leer la cuenta", resp).await);
+            return Err(http_error(KIND, HttpOp::ReadAccount, resp).await);
         }
         let v: serde_json::Value = resp.json().await.map_err(|e| net_error(KIND, e))?;
         let s = |k: &str| v.get(k).and_then(|x| x.as_str()).filter(|x| !x.is_empty()).map(str::to_string);
@@ -89,7 +89,7 @@ impl CloudStore for OneDrive {
             return Ok(None);
         }
         if !resp.status().is_success() {
-            return Err(http_error(KIND, "buscar el backup", resp).await);
+            return Err(http_error(KIND, HttpOp::FindBackup, resp).await);
         }
         Ok(Some(resp.json::<DriveItem>().await.map_err(|e| net_error(KIND, e))?.meta()))
     }
@@ -103,7 +103,7 @@ impl CloudStore for OneDrive {
             return Ok(None);
         }
         if !resp.status().is_success() {
-            return Err(http_error(KIND, "descargar el backup", resp).await);
+            return Err(http_error(KIND, HttpOp::DownloadBackup, resp).await);
         }
         Ok(Some(resp.bytes().await.map_err(|e| net_error(KIND, e))?.to_vec()))
     }
@@ -116,7 +116,7 @@ impl CloudStore for OneDrive {
         })
         .await?;
         if !resp.status().is_success() {
-            return Err(http_error(KIND, "subir el backup", resp).await);
+            return Err(http_error(KIND, HttpOp::UploadBackup, resp).await);
         }
         Ok(resp.json::<DriveItem>().await.map_err(|e| net_error(KIND, e))?.meta())
     }
@@ -125,7 +125,7 @@ impl CloudStore for OneDrive {
         let url = self.item(name);
         let resp = authed(&self.auth, |t| self.http().delete(&url).bearer_auth(t)).await?;
         if !resp.status().is_success() && resp.status() != reqwest::StatusCode::NOT_FOUND {
-            return Err(http_error(KIND, "borrar el backup", resp).await);
+            return Err(http_error(KIND, HttpOp::DeleteBackup, resp).await);
         }
         Ok(())
     }

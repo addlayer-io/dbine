@@ -148,8 +148,10 @@ fn number(t: &TableSchema, k: &str) -> Result<Option<i64>> {
     }
 }
 
-pub(crate) fn relaxed(text: &str, what: &str) -> Result<Value> {
-    shell::parse_value(text).map_err(|e| Error::Query(format!("{what}: {e}")))
+/// `text` as relaxed JSON; `fail` makes the whole message from the parse
+/// error (one sentence per use, so it translates).
+pub(crate) fn relaxed(text: &str, fail: impl FnOnce(String) -> String) -> Result<Value> {
+    shell::parse_value(text).map_err(|e| Error::Query(fail(e)))
 }
 
 /// `string|null` → `["string", "null"]`; `None` = no type constraint.
@@ -260,14 +262,14 @@ pub(crate) fn collection_options(t: &TableSchema) -> Result<Map<String, Value>> 
         o.insert("expireAfterSeconds".into(), s.into());
     }
     if let Some(c) = opt(t, "collation") {
-        o.insert("collation".into(), relaxed(c, "intercalación (collation)")?);
+        o.insert("collation".into(), relaxed(c, |e| format!("la intercalación (collation) no es válida: {e}"))?);
     }
     // The CHECK (what `database_schema` reports) wins over the designer's
     // validator option and the fields.
     let check = validator_check(t)?;
     let validator = match (&check, opt(t, "validator")) {
         (Some(c), _) => c.get("validator").cloned(),
-        (None, Some(v)) => Some(relaxed(v, "validador")?),
+        (None, Some(v)) => Some(relaxed(v, |e| format!("el validador no es válido: {e}"))?),
         (None, None) if opt(t, "validate_fields") != Some("false") => fields_validator(&t.columns)?,
         (None, None) => None,
     };
@@ -312,7 +314,7 @@ pub(crate) fn index_parts(ix: &IndexDef) -> Result<(Map<String, Value>, Map<Stri
         if k.trim().is_empty() || v.is_empty() {
             continue;
         }
-        let val = serde_json::from_str::<Value>(v).or_else(|_| if v.starts_with(['{', '[']) { relaxed(v, &format!("opción {k} del índice {}", ix.name)) } else { Ok(Value::String(v.into())) })?;
+        let val = serde_json::from_str::<Value>(v).or_else(|_| if v.starts_with(['{', '[']) { relaxed(v, |e| format!("la opción {k} del índice {} no es válida: {e}", ix.name)) } else { Ok(Value::String(v.into())) })?;
         o.insert(k.trim().to_string(), val);
     }
     let mut key = Map::new();
@@ -343,7 +345,7 @@ pub(crate) fn index_parts(ix: &IndexDef) -> Result<(Map<String, Value>, Map<Stri
         o.insert("unique".into(), true.into());
     }
     if let Some(f) = ix.filter.as_deref().map(str::trim).filter(|f| !f.is_empty()) {
-        o.insert("partialFilterExpression".into(), relaxed(f, &format!("filtro del índice {}", ix.name))?);
+        o.insert("partialFilterExpression".into(), relaxed(f, |e| format!("el filtro del índice {} no es válido: {e}", ix.name))?);
     }
     // Put `name` first, as people write it.
     let mut ordered = Map::new();
@@ -369,7 +371,7 @@ pub fn table_ddl(t: &TableSchema, parts: DdlParts) -> Result<String> {
         if view {
             let source = opt(t, "viewOn").ok_or_else(|| Error::Query(format!("la vista {name} no indica la colección de origen (viewOn)")))?;
             let pipeline = match opt(t, "pipeline") {
-                Some(p) => relaxed(p, "pipeline de la vista")?,
+                Some(p) => relaxed(p, |e| format!("el pipeline de la vista no es válido: {e}"))?,
                 None => json!([]),
             };
             if !pipeline.is_array() {
@@ -856,7 +858,7 @@ pub(crate) fn validator_check(t: &TableSchema) -> Result<Option<Map<String, Valu
     if checks.len() > 1 {
         return Err(Error::Query(format!("MongoDB tiene un solo validador por colección y {} tiene {}", t.name, checks.len())));
     }
-    let v = relaxed(&c.expression, "validador")?;
+    let v = relaxed(&c.expression, |e| format!("el validador no es válido: {e}"))?;
     let Value::Object(m) = v else { return Err(Error::Query("el validador tiene que ser un documento".into())) };
     let wrapped = m.contains_key("validator") && m.keys().all(|k| matches!(k.as_str(), "validator" | "validationLevel" | "validationAction"));
     Ok(Some(if wrapped {

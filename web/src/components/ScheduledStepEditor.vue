@@ -57,10 +57,15 @@ const label = computed(() => t(`scheduled:kinds.${props.step.kind}`));
       <strong>{{ label }}</strong>
       <el-input v-model="step.name" size="small" class="se-name" :placeholder="$t('scheduled:step.namePlaceholder')" @input="emit('change')" />
       <span class="se-sp" />
-      <el-select v-model="step.on_error" size="small" class="se-onerr" @change="emit('change')">
-        <el-option value="stop" :label="$t('scheduled:step.onError.stop')" />
-        <el-option value="continue" :label="$t('scheduled:step.onError.continue')" />
-      </el-select>
+      <!-- As wide as its longest option in the current language (hidden sizers). -->
+      <span class="se-onerr">
+        <span class="se-sizer" aria-hidden="true">{{ $t('scheduled:step.onError.stop') }}</span>
+        <span class="se-sizer" aria-hidden="true">{{ $t('scheduled:step.onError.continue') }}</span>
+        <el-select v-model="step.on_error" size="small" @change="emit('change')">
+          <el-option value="stop" :label="$t('scheduled:step.onError.stop')" />
+          <el-option value="continue" :label="$t('scheduled:step.onError.continue')" />
+        </el-select>
+      </span>
       <el-button size="small" text :disabled="index === 0" :title="$t('scheduled:step.up')" @click="emit('move', -1)"><el-icon><ei-arrow-up /></el-icon></el-button>
       <el-button size="small" text :disabled="index === count - 1" :title="$t('scheduled:step.down')" @click="emit('move', 1)"><el-icon><ei-arrow-down /></el-icon></el-button>
       <el-button size="small" text :title="$t('scheduled:step.remove')" @click="emit('remove')"><el-icon><ei-delete /></el-icon></el-button>
@@ -157,7 +162,9 @@ const label = computed(() => t(`scheduled:kinds.${props.step.kind}`));
 .se-head .el-button { margin: 0; }
 .se-n { display: inline-flex; align-items: center; justify-content: center; width: 20px; height: 20px; border-radius: 50%; background: var(--ide-hover); font-size: 11px; color: var(--nm-text-dim); }
 .se-name { width: 220px; }
-.se-onerr { width: 190px; }
+.se-onerr { display: inline-grid; min-width: 190px; max-width: 45%; }
+.se-onerr > * { grid-area: 1 / 1; min-width: 0; }
+.se-sizer { visibility: hidden; height: 0; overflow: hidden; padding: 0 36px 0 12px; font-size: 12px; white-space: nowrap; }
 .se-sp { flex: 1; }
 .se-body { padding: 10px 12px 4px; }
 .se-target { max-width: 520px; }

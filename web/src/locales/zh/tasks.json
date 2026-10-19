@@ -197,7 +197,6 @@
       "reading": "正在读取文件",
       "inserting": "正在插入行"
     },
-    "ofTotal": "共 {{total}}",
     "estimated": "共约 {{total}}（估算）"
   }
 }

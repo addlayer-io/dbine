@@ -14,14 +14,6 @@
     "info": "Info",
     "infoHint": "Changement fidèle à connaître"
   },
-  "confirm": {
-    "message": "{{count}} table(s) vont être créées dans {{where}} ({{engine}}){{data}}{{drop}}. Continuer ?",
-    "data": " et toutes leurs données copiées",
-    "drop": ", en supprimant d'abord celles qui existent sous le même nom",
-    "clone": "{{count}} table(s) vont être clonées dans {{where}} ({{engine}}) avec leur structure complète{{data}}. Continuer ?",
-    "cloneData": " et toutes leurs données",
-    "sync": "{{count}} table(s) vont être synchronisées dans {{where}} ({{engine}}) : les lignes qui diffèrent de la source sont insérées, mises à jour et supprimées. Continuer ?"
-  },
   "run": {
     "cancelled": "Migration annulée",
     "finishedWithErrors": "Migration terminée avec {{count}} erreur(s) : consultez le résumé",
@@ -157,8 +149,9 @@
     "largestFirst": "Les plus grandes d'abord",
     "smallestFirst": "Les plus petites d'abord",
     "alphabetical": "Alphabétique",
-    "commitRows": "Valider toutes les",
-    "commitRowsHint": "(lignes)"
+    "commitEvery_one": "Valider toutes les {rows} ligne",
+    "commitEvery_many": "Valider toutes les {rows} lignes",
+    "commitEvery_other": "Valider toutes les {rows} lignes"
   },
   "interrupted": {
     "title": "Interrompues",
@@ -258,5 +251,28 @@
       "interrupted": "Interrompue",
       "cancelled": "Annulée"
     }
+  },
+  "confirm": {
+    "create_one": "{{count}} table va être créée dans {{where}} ({{engine}}). Continuer ?",
+    "create_many": "{{count}} tables vont être créées dans {{where}} ({{engine}}). Continuer ?",
+    "create_other": "{{count}} tables vont être créées dans {{where}} ({{engine}}). Continuer ?",
+    "createData_one": "{{count}} table va être créée dans {{where}} ({{engine}}) et toutes ses données copiées. Continuer ?",
+    "createData_many": "{{count}} tables vont être créées dans {{where}} ({{engine}}) et toutes leurs données copiées. Continuer ?",
+    "createData_other": "{{count}} tables vont être créées dans {{where}} ({{engine}}) et toutes leurs données copiées. Continuer ?",
+    "createDrop_one": "{{count}} table va être créée dans {{where}} ({{engine}}), en supprimant d'abord celle qui existe sous le même nom. Continuer ?",
+    "createDrop_many": "{{count}} tables vont être créées dans {{where}} ({{engine}}), en supprimant d'abord celles qui existent sous le même nom. Continuer ?",
+    "createDrop_other": "{{count}} tables vont être créées dans {{where}} ({{engine}}), en supprimant d'abord celles qui existent sous le même nom. Continuer ?",
+    "createDataDrop_one": "{{count}} table va être créée dans {{where}} ({{engine}}) et toutes ses données copiées, en supprimant d'abord celle qui existe sous le même nom. Continuer ?",
+    "createDataDrop_many": "{{count}} tables vont être créées dans {{where}} ({{engine}}) et toutes leurs données copiées, en supprimant d'abord celles qui existent sous le même nom. Continuer ?",
+    "createDataDrop_other": "{{count}} tables vont être créées dans {{where}} ({{engine}}) et toutes leurs données copiées, en supprimant d'abord celles qui existent sous le même nom. Continuer ?",
+    "clone_one": "{{count}} table va être clonée dans {{where}} ({{engine}}) avec sa structure complète. Continuer ?",
+    "clone_many": "{{count}} tables vont être clonées dans {{where}} ({{engine}}) avec leur structure complète. Continuer ?",
+    "clone_other": "{{count}} tables vont être clonées dans {{where}} ({{engine}}) avec leur structure complète. Continuer ?",
+    "cloneWithData_one": "{{count}} table va être clonée dans {{where}} ({{engine}}) avec sa structure complète et toutes ses données. Continuer ?",
+    "cloneWithData_many": "{{count}} tables vont être clonées dans {{where}} ({{engine}}) avec leur structure complète et toutes leurs données. Continuer ?",
+    "cloneWithData_other": "{{count}} tables vont être clonées dans {{where}} ({{engine}}) avec leur structure complète et toutes leurs données. Continuer ?",
+    "sync_one": "{{count}} table va être synchronisée dans {{where}} ({{engine}}) : les lignes qui diffèrent de la source sont insérées, mises à jour et supprimées. Continuer ?",
+    "sync_many": "{{count}} tables vont être synchronisées dans {{where}} ({{engine}}) : les lignes qui diffèrent de la source sont insérées, mises à jour et supprimées. Continuer ?",
+    "sync_other": "{{count}} tables vont être synchronisées dans {{where}} ({{engine}}) : les lignes qui diffèrent de la source sont insérées, mises à jour et supprimées. Continuer ?"
   }
 }

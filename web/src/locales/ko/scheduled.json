@@ -32,15 +32,14 @@
       "monthly": "매월 한 번",
       "interval": "분 간격"
     },
-    "at": "시각",
-    "onDay": "일자",
-    "every": "간격",
-    "minutes": "분",
     "daily": "매일 {{time}}",
     "weekly": "{{days}} {{time}}",
     "monthly": "매월 {{day}}일 {{time}}",
     "interval_other": "{{count}}분마다",
-    "hint": "DBine이 닫혀 있어도 사용자가 로그인되어 있는 동안 실행됩니다. 컴퓨터가 꺼져 있었다면 다시 켤 때 실행됩니다."
+    "hint": "DBine이 닫혀 있어도 사용자가 로그인되어 있는 동안 실행됩니다. 컴퓨터가 꺼져 있었다면 다시 켤 때 실행됩니다.",
+    "atInput": "{time}에",
+    "monthlyInput": "매월 {day}일 {time}에",
+    "intervalInput_other": "{minutes}분마다"
   },
   "days": {
     "1": "월",

@@ -264,11 +264,24 @@ pub(crate) fn binary_inside(ty: &str) -> bool {
     kind(ty) == Kind::Nested && any_leaf(&parse_ty(ty), &|l| kind(l) == Kind::Binary)
 }
 
-fn nested_binary(name: &str, ty: &str, what: &str) -> Error {
-    Error::Unsupported(format!(
-        "La columna «{name}» ({ty}) tiene valores binarios dentro de un tipo anidado: Athena no puede {what} en JSON, \
-         y pasarlos como texto los alteraría. Dejá esa columna fuera de la copia."
-    ))
+/// `reading`: Athena would have to read them (else convert them); `name`:
+/// the column, when known. One whole message each, so each translates as a
+/// sentence.
+fn nested_binary(name: Option<&str>, ty: &str, reading: bool) -> Error {
+    Error::Unsupported(match (name, reading) {
+        (Some(name), true) => format!(
+            "La columna «{name}» ({ty}) tiene valores binarios dentro de un tipo anidado: Athena no puede leerlos en JSON, \
+             y pasarlos como texto los alteraría. Dejá esa columna fuera de la copia."
+        ),
+        (Some(name), false) => format!(
+            "La columna «{name}» ({ty}) tiene valores binarios dentro de un tipo anidado: Athena no puede convertirlos en JSON, \
+             y pasarlos como texto los alteraría. Dejá esa columna fuera de la copia."
+        ),
+        (None, _) => format!(
+            "Una columna de destino ({ty}) tiene valores binarios dentro de un tipo anidado: Athena no puede leerlos en JSON, \
+             y pasarlos como texto los alteraría. Dejá esa columna fuera de la copia."
+        ),
+    })
 }
 
 /// A zoned time / timestamp leaf.
@@ -285,7 +298,7 @@ pub(crate) fn read_expr(name: &str, ty: &str) -> Result<String> {
         Kind::Binary => format!("to_hex({c})"),
         // JSON can't hold VARBINARY (the cast fails), and the engine's own
         // printing (`{a=…}`) isn't JSON.
-        Kind::Nested if binary_inside(ty) => return Err(nested_binary(name, ty, "convertirlos")),
+        Kind::Nested if binary_inside(ty) => return Err(nested_binary(Some(name), ty, false)),
         // The engine can't cast a zoned timestamp to JSON: those leaves go
         // to text first (`2024-01-02 03:04:05.123456 UTC`, zone kept whole).
         Kind::Nested if any_leaf(&parse_ty(ty), &tz_leaf) => {
@@ -1189,7 +1202,7 @@ pub(crate) fn literal(c: &Cell, ty: &str) -> Result<String> {
             }
             format!("JSON {}", lit(&json))
         }
-        Kind::Nested if binary_inside(ty) => return Err(nested_binary("destino", ty, "leerlos")),
+        Kind::Nested if binary_inside(ty) => return Err(nested_binary(None, ty, true)),
         Kind::Nested => {
             // A cast from JSON makes no DATE / TIMESTAMP / TIME / UUID: those
             // come out as VARCHAR first, then cast to the column's type.
@@ -1789,7 +1802,7 @@ impl AthenaSession {
         }
         let target = Self::typed_columns(&meta, Some(&spec.columns))?;
         if let Some(c) = target.iter().find(|c| binary_inside(&c.type_name)) {
-            return Err(nested_binary(&c.name, &c.type_name, "leerlos"));
+            return Err(nested_binary(Some(&c.name), &c.type_name, true));
         }
         let types: Vec<String> = target.iter().map(|c| c.type_name.clone()).collect();
         let names: Vec<String> = target.iter().map(|c| c.name.clone()).collect();

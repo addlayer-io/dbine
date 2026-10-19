@@ -188,7 +188,7 @@ impl GraphSession {
     }
 
     pub(crate) async fn transfer_load(&mut self, spec: &LoadSpec, source: &mut dyn BatchSource, progress: Progress<'_>) -> Result<u64> {
-        self.refuse_if_read_only("cargar datos")?;
+        self.refuse_if_read_only("Conexión de solo lectura: no se pueden cargar datos.")?;
         if spec.table.kind != LABEL {
             return Err(Error::Unsupported("la carga masiva crea nodos: las relaciones necesitan sus nodos de origen y destino".into()));
         }

@@ -208,7 +208,6 @@
       "reading": "Datei wird gelesen",
       "inserting": "Zeilen werden eingefügt"
     },
-    "ofTotal": "von {{total}}",
     "estimated": "von ~{{total}} geschätzt"
   }
 }

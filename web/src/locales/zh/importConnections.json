@@ -28,7 +28,6 @@
   "passwords": "导入密码（保存到系统钥匙串）",
   "importN": "导入 {{n}} 个",
   "imported_other": "已导入 {{count}} 个连接",
-  "andFolders_other": "，以及 {{count}} 个文件夹",
   "failedTitle": "未导入",
   "gotIt": "知道了",
   "suggestion": {
@@ -39,5 +38,7 @@
     "hintAfter": "按钮来导入。",
     "notNow": "暂不",
     "viewAndImport": "查看并导入…"
-  }
+  },
+  "importedWithFolders_other": "已导入 {{count}} 个连接和 $t(importConnections:folders, {\"count\": {{folders}} })",
+  "folders_other": "{{count}} 个文件夹"
 }

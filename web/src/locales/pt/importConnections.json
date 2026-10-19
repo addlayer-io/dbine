@@ -29,8 +29,6 @@
   "importN": "Importar {{n}}",
   "imported_one": "{{count}} conexão importada",
   "imported_other": "{{count}} conexões importadas",
-  "andFolders_one": " e {{count}} pasta",
-  "andFolders_other": " e {{count}} pastas",
   "failedTitle": "Não foram importadas",
   "gotIt": "Entendi",
   "suggestion": {
@@ -45,5 +43,10 @@
     "count_many": "{{count}} conexões"
   },
   "imported_many": "{{count}} conexões importadas",
-  "andFolders_many": " e {{count}} pastas"
+  "importedWithFolders_one": "{{count}} conexão importada e $t(importConnections:folders, {\"count\": {{folders}} })",
+  "importedWithFolders_many": "{{count}} conexões importadas e $t(importConnections:folders, {\"count\": {{folders}} })",
+  "importedWithFolders_other": "{{count}} conexões importadas e $t(importConnections:folders, {\"count\": {{folders}} })",
+  "folders_one": "{{count}} pasta",
+  "folders_many": "{{count}} pastas",
+  "folders_other": "{{count}} pastas"
 }

@@ -36,12 +36,12 @@
   "messages": {
     "statement": "语句 {{n}}：{{text}}。",
     "rows_other": "{{rows}} 行",
-    "shown": "（显示 {{rows}} 行）",
     "affected_other": "影响 {{rows}} 行",
     "completed": "已完成",
     "elapsed": "{{ms}} 毫秒",
     "line": "第 {{line}} 行",
-    "goToLine": "转到编辑器中的此行"
+    "goToLine": "转到编辑器中的此行",
+    "rowsShown_other": "{{rows}} 行（显示 {{shown}} 行）"
   },
   "status": {
     "done": "已完成",
@@ -50,19 +50,15 @@
   "edit": {
     "lookingUpTable": "正在查找表及其键…",
     "codeCopied": "代码已复制",
-    "summary": "{{cells}}，涉及 {{rows}}，尚未保存。",
-    "cells_other": "{{count}} 个单元格已更改",
-    "rows_other": "{{count}} 行",
     "addToQuery": "添加到查询",
     "discard": "放弃",
-    "summaryDeletes": "{{deletes}}，尚未保存。",
-    "summaryBoth": "{{cells}}，涉及 {{rows}}，{{deletes}}，尚未保存。",
     "deletes_other": "{{count}} 行待删除",
     "pending": "{{list}}，尚未保存。",
-    "cellsInRows": "{{cells}}，涉及 {{rows}}",
     "newRows_other": "{{count}} 个新行",
     "newDocs_other": "{{count}} 个新文档",
-    "convertedSpatial": "{{column}} 是 SDO_GEOMETRY，已转换为文本（WKT）显示；请用 SQL 更改"
+    "convertedSpatial": "{{column}} 是 SDO_GEOMETRY，已转换为文本（WKT）显示；请用 SQL 更改",
+    "changed_other": "$t(results:edit.inRows, {\"count\": {{rows}} })中已修改 {{count}} 个单元格",
+    "inRows_other": "{{count}} 行"
   },
   "exportDialog": {
     "title": "导出结果",

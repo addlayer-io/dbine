@@ -93,9 +93,9 @@ async function remove(a: SecretAccount) {
       <div v-for="a in g.accounts" :key="a.id" class="sa-item" :data-account="a.id">
         <el-icon class="sa-icon"><ei-key /></el-icon>
         <div class="sa-info">
-          <strong>{{ a.label }}</strong>
-          <span v-if="a.identity && !a.label.includes(a.identity)" class="sa-who">{{ a.identity }}</span>
-          <span>{{ facts(a) }}</span>
+          <strong :title="a.label">{{ a.label }}</strong>
+          <span v-if="a.identity && !a.label.includes(a.identity)" class="sa-who" :title="a.identity">{{ a.identity }}</span>
+          <span class="sa-facts">{{ facts(a) }}</span>
         </div>
         <div class="sa-buttons">
           <el-button size="small" @click="rename(a)">{{ $t('secretAccounts:rename') }}</el-button>
@@ -130,6 +130,8 @@ async function remove(a: SecretAccount) {
 .sa-info { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 2px; font-size: 12px; color: var(--nm-text-dim); }
 .sa-info strong { font-size: 13px; color: var(--nm-text-strong); font-weight: 600; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .sa-info span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+/* The facts wrap: longer languages (de, ru) would cut them off. */
+.sa-info .sa-facts { white-space: normal; overflow-wrap: anywhere; line-height: 1.4; }
 .sa-who { font-family: var(--nm-font-mono, ui-monospace, monospace); font-size: 11.5px; }
 .sa-buttons { display: flex; gap: 6px; flex: none; }
 .sa-buttons .el-button + .el-button { margin-left: 0; }

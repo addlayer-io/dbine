@@ -69,7 +69,6 @@
     "update_other": "{{n}} updates",
     "delete_one": "{{n}} delete",
     "delete_many": "{{n}} deletes",
-    "delete_other": "{{n}} deletes",
-    "and": "and"
+    "delete_other": "{{n}} deletes"
   }
 }

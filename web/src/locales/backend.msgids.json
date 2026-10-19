@@ -345,9 +345,6 @@
  "(¿falta gcloud auth login?)": [
   "src-tauri/src/secret_sources/gcp.rs"
  ],
- ", Procedimiento {0}, Línea {1}": [
-  "crates/drivers/sqlserver/src/script.rs"
- ],
  ", de {0}.{1}.{2}": [
   "crates/drivers/postgres/src/health.rs"
  ],
@@ -4475,6 +4472,9 @@
   "crates/drivers/dynamodb/src/transfer.rs"
  ],
  "Conexión de solo lectura: no se puede borrar una base.": [
+  "crates/drivers/couchdb/src/lib.rs",
+  "crates/drivers/mongodb/src/lib.rs",
+  "crates/drivers/neo4j/src/lib.rs",
   "crates/drivers/orientdb/src/lib.rs"
  ],
  "Conexión de solo lectura: no se puede cargar datos.": [
@@ -4482,14 +4482,11 @@
   "crates/drivers/redis/src/transfer.rs"
  ],
  "Conexión de solo lectura: no se puede crear una base.": [
-  "crates/drivers/orientdb/src/create_db.rs"
- ],
- "Conexión de solo lectura: no se puede {0}.": [
+  "crates/drivers/couchdb/src/create_db.rs",
   "crates/drivers/couchdb/src/lib.rs",
   "crates/drivers/mongodb/src/lib.rs",
-  "crates/drivers/neo4j/src/lib.rs",
-  "crates/drivers/orientdb/src/processes.rs",
-  "crates/drivers/redis/src/processes.rs"
+  "crates/drivers/neo4j/src/create_db.rs",
+  "crates/drivers/orientdb/src/create_db.rs"
  ],
  "Conexión de solo lectura: no se pueden borrar bases.": [
   "crates/dbine-driver/src/read_only.rs",
@@ -4497,10 +4494,21 @@
   "crates/drivers/couchbase/src/lib.rs",
   "crates/drivers/duckdb/src/lib.rs",
   "crates/drivers/influxdb/src/v1.rs",
+  "crates/drivers/influxdb/src/v3.rs",
   "crates/drivers/iotdb/src/lib.rs"
  ],
+ "Conexión de solo lectura: no se pueden borrar buckets.": [
+  "crates/drivers/influxdb/src/v2.rs"
+ ],
+ "Conexión de solo lectura: no se pueden cancelar comandos de otros clientes.": [
+  "crates/drivers/redis/src/processes.rs"
+ ],
+ "Conexión de solo lectura: no se pueden cancelar comandos.": [
+  "crates/drivers/orientdb/src/processes.rs"
+ ],
  "Conexión de solo lectura: no se pueden cancelar consultas de otras sesiones.": [
-  "crates/dbine-driver/src/read_only.rs"
+  "crates/dbine-driver/src/read_only.rs",
+  "crates/drivers/neo4j/src/processes.rs"
  ],
  "Conexión de solo lectura: no se pueden cancelar consultas de otros clientes.": [
   "crates/drivers/influxdb/src/v1.rs",
@@ -4509,17 +4517,26 @@
  "Conexión de solo lectura: no se pueden cancelar consultas.": [
   "crates/drivers/couchbase/src/processes.rs"
  ],
+ "Conexión de solo lectura: no se pueden cancelar operaciones.": [
+  "crates/drivers/mongodb/src/lib.rs"
+ ],
  "Conexión de solo lectura: no se pueden cancelar tareas.": [
   "crates/drivers/elasticsearch/src/lib.rs"
  ],
  "Conexión de solo lectura: no se pueden cargar datos.": [
   "crates/dbine-driver/src/read_only.rs",
   "crates/drivers/cassandra/src/transfer.rs",
+  "crates/drivers/couchdb/src/transfer.rs",
   "crates/drivers/elasticsearch/src/transfer.rs",
   "crates/drivers/iotdb/src/transfer.rs",
+  "crates/drivers/mongodb/src/transfer.rs",
+  "crates/drivers/neo4j/src/transfer.rs",
   "crates/drivers/orientdb/src/transfer.rs",
   "crates/drivers/solr/src/transfer.rs",
   "crates/drivers/spanner/src/transfer.rs"
+ ],
+ "Conexión de solo lectura: no se pueden cerrar conexiones de otros clientes.": [
+  "crates/drivers/redis/src/processes.rs"
  ],
  "Conexión de solo lectura: no se pueden crear bases.": [
   "crates/dbine-driver/src/read_only.rs",
@@ -4528,32 +4545,51 @@
   "crates/drivers/couchbase/src/create_db.rs",
   "crates/drivers/duckdb/src/lib.rs",
   "crates/drivers/influxdb/src/v1.rs",
+  "crates/drivers/influxdb/src/v3.rs",
   "crates/drivers/iotdb/src/create_db.rs"
+ ],
+ "Conexión de solo lectura: no se pueden crear buckets.": [
+  "crates/drivers/influxdb/src/v2.rs"
  ],
  "Conexión de solo lectura: no se pueden detener replicaciones.": [
   "crates/drivers/couchdb/src/processes.rs"
+ ],
+ "Conexión de solo lectura: no se pueden escribir datos.": [
+  "crates/drivers/mongodb/src/transfer.rs"
  ],
  "Conexión de solo lectura: no se pueden escribir puntos.": [
   "crates/drivers/influxdb/src/v1.rs",
   "crates/drivers/influxdb/src/v2.rs",
   "crates/drivers/influxdb/src/v3.rs"
  ],
+ "Conexión de solo lectura: no se pueden modificar bases.": [
+  "crates/drivers/influxdb/src/properties.rs"
+ ],
+ "Conexión de solo lectura: no se pueden modificar buckets.": [
+  "crates/drivers/influxdb/src/properties.rs"
+ ],
  "Conexión de solo lectura: no se pueden modificar las propiedades de una base.": [
   "crates/dbine-driver/src/read_only.rs",
   "crates/drivers/cassandra/src/properties.rs",
   "crates/drivers/couchbase/src/properties.rs",
+  "crates/drivers/couchdb/src/properties.rs",
   "crates/drivers/influxdb/src/properties.rs",
   "crates/drivers/iotdb/src/properties.rs",
+  "crates/drivers/mongodb/src/properties.rs",
+  "crates/drivers/neo4j/src/properties.rs",
   "crates/drivers/orientdb/src/properties.rs"
+ ],
+ "Conexión de solo lectura: no se pueden terminar conexiones.": [
+  "crates/drivers/orientdb/src/processes.rs"
+ ],
+ "Conexión de solo lectura: no se pueden terminar operaciones.": [
+  "crates/drivers/mongodb/src/lib.rs"
  ],
  "Conexión de solo lectura: no se pueden terminar sesiones.": [
   "crates/dbine-driver/src/read_only.rs"
  ],
- "Conexión de solo lectura: no se pueden {0} bases.": [
-  "crates/drivers/influxdb/src/v3.rs"
- ],
- "Conexión de solo lectura: no se pueden {0} buckets.": [
-  "crates/drivers/influxdb/src/v2.rs"
+ "Conexión de solo lectura: no se pueden terminar transacciones.": [
+  "crates/drivers/neo4j/src/lib.rs"
  ],
  "Conexión de solo lectura: se bloqueó `{0}`. Solo se permiten lecturas (GET, _find, vistas…).": [
   "crates/drivers/couchdb/src/lib.rs"
@@ -11544,7 +11580,10 @@
  "La columna {0} no puede ser clave de partición y de clustering a la vez.": [
   "crates/drivers/cassandra/src/ddl.rs"
  ],
- "La columna «{0}» ({1}) tiene valores binarios dentro de un tipo anidado: Athena no puede {2} en JSON, y pasarlos como texto los alteraría. Dejá esa columna fuera de la copia.": [
+ "La columna «{0}» ({1}) tiene valores binarios dentro de un tipo anidado: Athena no puede convertirlos en JSON, y pasarlos como texto los alteraría. Dejá esa columna fuera de la copia.": [
+  "crates/drivers/athena/src/transfer.rs"
+ ],
+ "La columna «{0}» ({1}) tiene valores binarios dentro de un tipo anidado: Athena no puede leerlos en JSON, y pasarlos como texto los alteraría. Dejá esa columna fuera de la copia.": [
   "crates/drivers/athena/src/transfer.rs"
  ],
  "La columna «{0}» de la clave no está entre las que se copian": [
@@ -13747,6 +13786,12 @@
  ],
  "Msg": [
   "crates/dbine-transfer/src/clone_table/analytics.rs"
+ ],
+ "Msg {0}, Nivel {1}, Estado {2}": [
+  "crates/drivers/sqlserver/src/script.rs"
+ ],
+ "Msg {0}, Nivel {1}, Estado {2}, Procedimiento {3}, Línea {4}": [
+  "crates/drivers/sqlserver/src/script.rs"
  ],
  "Muchos VLF hacen lentos el arranque, la restauración y los backups de log. Se reducen achicando el log y haciéndolo crecer en pasos grandes.": [
   "crates/drivers/sqlserver/src/health.rs"
@@ -22189,6 +22234,9 @@
  "Una clave foránea de {0} no tiene nombre: no se puede borrar, hacelo a mano.": [
   "crates/dbine-driver/src/alter.rs"
  ],
+ "Una columna de destino ({0}) tiene valores binarios dentro de un tipo anidado: Athena no puede leerlos en JSON, y pasarlos como texto los alteraría. Dejá esa columna fuera de la copia.": [
+  "crates/drivers/athena/src/transfer.rs"
+ ],
  "Una columna de identidad de Oracle tiene que ser numérica: «{0}» pasa a NUMBER(19).": [
   "crates/dbine-schema/src/dialect/oracle.rs"
  ],
@@ -23646,9 +23694,6 @@
  "activada sin validar (NOVALIDATE)": [
   "crates/dbine-transfer/src/clone_table/oracle.rs"
  ],
- "activar las versiones del sistema (SYSTEM_VERSIONING)": [
-  "crates/dbine-transfer/src/clone_table/mssql.rs"
- ],
  "activas": [
   "crates/drivers/cassandra/src/monitor.rs"
  ],
@@ -23676,9 +23721,6 @@
  "actualizado": [
   "crates/drivers/mysql/src/monitor.rs"
  ],
- "actualizar por clave": [
-  "src-tauri/src/notebook/write.rs"
- ],
  "actualizá git a 2.27 o confirmá tus cambios antes del Pull": [
   "src-tauri/src/commands/projects_git.rs"
  ],
@@ -23699,9 +23741,6 @@
  ],
  "agregador del gráfico": [
   "src-tauri/src/commands/chart.rs"
- ],
- "agregar el período PERIOD FOR SYSTEM_TIME": [
-  "crates/dbine-transfer/src/clone_table/mssql.rs"
  ],
  "agregá una tabla para consultar": [
   "src-tauri/src/commands/query_builder.rs"
@@ -23855,15 +23894,6 @@
  "borrando el índice": [
   "crates/drivers/dynamodb/src/admin.rs"
  ],
- "borrar el backup": [
-  "crates/dbine-sync/src/gdrive.rs",
-  "crates/dbine-sync/src/onedrive.rs"
- ],
- "borrar una base": [
-  "crates/drivers/couchdb/src/lib.rs",
-  "crates/drivers/mongodb/src/lib.rs",
-  "crates/drivers/neo4j/src/lib.rs"
- ],
  "borrándose": [
   "crates/drivers/dynamodb/src/admin.rs"
  ],
@@ -23873,10 +23903,6 @@
  ],
  "build": [
   "crates/drivers/iotdb/src/monitor.rs"
- ],
- "buscar el backup": [
-  "crates/dbine-sync/src/gdrive.rs",
-  "crates/dbine-sync/src/onedrive.rs"
  ],
  "bytea no limita el largo.": [
   "crates/dbine-schema/src/dialect/postgres.rs"
@@ -23934,12 +23960,6 @@
  "cancelada": [
   "crates/drivers/neo4j/src/monitor.rs"
  ],
- "cancelar comandos de otros clientes": [
-  "crates/drivers/redis/src/processes.rs"
- ],
- "cancelar consultas de otras sesiones": [
-  "crates/drivers/neo4j/src/processes.rs"
- ],
  "cancelar una consulta (ALTER SYSTEM CANCEL SQL) requiere Oracle 18c o posterior: {0}": [
   "crates/drivers/oracle/src/processes.rs"
  ],
@@ -23985,9 +24005,6 @@
  ],
  "celular no vinculado": [
   "crates/dbine-link/src/lib.rs"
- ],
- "cerrar conexiones de otros clientes": [
-  "crates/drivers/redis/src/processes.rs"
  ],
  "char admite hasta 65536: se usa varchar.": [
   "crates/dbine-schema/src/dialect/trino.rs"
@@ -24354,12 +24371,6 @@
  "copia directa no disponible: {0} y copiarla en una sola transacción bloquearía el archivo de destino más de {1} s": [
   "crates/drivers/sqlite/src/transfer.rs"
  ],
- "copiar el historial": [
-  "crates/dbine-transfer/src/clone_table/mssql.rs"
- ],
- "copiar las filas de historial del original": [
-  "crates/dbine-transfer/src/clone_table/mssql.rs"
- ],
  "core": [
   "crates/drivers/solr/src/monitor.rs"
  ],
@@ -24371,18 +24382,6 @@
  ],
  "creando el índice": [
   "crates/drivers/dynamodb/src/admin.rs"
- ],
- "crear el archivo": [
-  "src-tauri/src/commands/projects.rs"
- ],
- "crear la carpeta": [
-  "src-tauri/src/commands/projects.rs"
- ],
- "crear una base": [
-  "crates/drivers/couchdb/src/create_db.rs",
-  "crates/drivers/couchdb/src/lib.rs",
-  "crates/drivers/mongodb/src/lib.rs",
-  "crates/drivers/neo4j/src/create_db.rs"
  ],
  "createIndexes espera un array de claves": [
   "crates/drivers/mongodb/src/shell.rs"
@@ -24557,10 +24556,6 @@
  ],
  "derechos de administrador (ADMIN)": [
   "crates/drivers/postgres/src/permissions.rs"
- ],
- "descargar el backup": [
-  "crates/dbine-sync/src/gdrive.rs",
-  "crates/dbine-sync/src/onedrive.rs"
  ],
  "descripción": [
   "crates/drivers/elasticsearch/src/monitor.rs"
@@ -25400,6 +25395,9 @@
   "crates/drivers/orientdb/src/ddl.rs",
   "crates/drivers/solr/src/ddl.rs"
  ],
+ "el filtro del índice {0} no es válido: {1}": [
+  "crates/drivers/mongodb/src/ddl.rs"
+ ],
  "el filtro no es una condición cerrada (paréntesis o comillas sin cerrar, o un `;`): {0}": [
   "crates/drivers/orientdb/src/transfer.rs"
  ],
@@ -25704,6 +25702,10 @@
  ],
  "el permiso {0} no dice a quién se otorga": [
   "src-tauri/src/commands/schemas.rs"
+ ],
+ "el pipeline de la vista no es válido: {0}": [
+  "crates/drivers/mongodb/src/ddl.rs",
+  "crates/drivers/mongodb/src/sync.rs"
  ],
  "el pipeline de la vista tiene que ser un array de etapas": [
   "crates/drivers/mongodb/src/ddl.rs"
@@ -26118,6 +26120,9 @@
  "el validador de la colección no es un objeto JSON": [
   "crates/dbine-transfer/src/clone_table/documents.rs"
  ],
+ "el validador no es válido: {0}": [
+  "crates/drivers/mongodb/src/ddl.rs"
+ ],
  "el validador tiene que ser un documento": [
   "crates/drivers/mongodb/src/ddl.rs"
  ],
@@ -26208,7 +26213,7 @@
  "el índice necesita al menos un campo": [
   "crates/drivers/mongodb/src/shell.rs"
  ],
- "el índice {0}": [
+ "el índice {0} lee la misma tabla: en el clon lee el clon": [
   "crates/dbine-transfer/src/clone_table.rs"
  ],
  "el índice {0} no tiene campos": [
@@ -27852,9 +27857,6 @@
  "filas mínimas": [
   "crates/drivers/tdengine/src/create_db.rs"
  ],
- "filtro del índice {0}": [
-  "crates/drivers/mongodb/src/ddl.rs"
- ],
  "filtro del índice {0}: JSON inválido ({1})": [
   "crates/drivers/couchdb/src/ddl.rs"
  ],
@@ -27985,9 +27987,6 @@
  ],
  "guardado en {0}": [
   "src-tauri/src/tasks/steps.rs"
- ],
- "guardar el archivo": [
-  "src-tauri/src/commands/projects.rs"
  ],
  "guardá el notebook para recordar qué archivos puede leer": [
   "src-tauri/src/notebook/access.rs"
@@ -28243,9 +28242,6 @@
   "crates/drivers/postgres/src/properties.rs",
   "crates/drivers/sqlserver/src/create_db.rs",
   "crates/drivers/sqlserver/src/properties.rs"
- ],
- "intercalación (collation)": [
-  "crates/drivers/mongodb/src/ddl.rs"
  ],
  "intercalación: «{0}» no es un valor válido (und:ci)": [
   "crates/drivers/bigquery/src/create_db.rs"
@@ -28742,7 +28738,7 @@
  "la columna autoincremental «{0}» conserva los valores copiados; revisá que su contador siga después del mayor antes de insertar filas nuevas": [
   "crates/dbine-transfer/src/clone_table.rs"
  ],
- "la columna calculada {0}": [
+ "la columna calculada {0} lee la misma tabla: en el clon lee el clon": [
   "crates/dbine-transfer/src/clone_table.rs"
  ],
  "la columna clave «{0}» no está en las dos tablas": [
@@ -29210,6 +29206,9 @@
  "la instancia (V$INSTANCE)": [
   "crates/drivers/oracle/src/monitor.rs"
  ],
+ "la intercalación (collation) no es válida: {0}": [
+  "crates/drivers/mongodb/src/ddl.rs"
+ ],
  "la key no tiene la columna {0}": [
   "crates/drivers/redis/src/transfer.rs"
  ],
@@ -29320,6 +29319,9 @@
  "la nulabilidad": [
   "crates/drivers/hana/src/transfer.rs"
  ],
+ "la opción {0} del índice {1} no es válida: {2}": [
+  "crates/drivers/mongodb/src/ddl.rs"
+ ],
  "la operación {0} ya terminó o no existe": [
   "crates/drivers/mongodb/src/processes.rs"
  ],
@@ -29402,7 +29404,7 @@
  "la restricción CHECK": [
   "crates/dbine-transfer/src/clone_table/mssql.rs"
  ],
- "la restricción CHECK {0}": [
+ "la restricción CHECK {0} lee la misma tabla: en el clon lee el clon": [
   "crates/dbine-transfer/src/clone_table.rs"
  ],
  "la restricción NOT NULL «{0}» se llama «{1}» en el clon": [
@@ -29774,9 +29776,6 @@
  "las filas no cumplen la restricción CHECK {0} (ORA-02293)": [
   "crates/dbine-transfer/src/clone_table/oracle.rs"
  ],
- "las funciones geográficas (ST_…) de esta celda": [
-  "src-tauri/src/notebook/local.rs"
- ],
  "las métricas (V$SYSMETRIC)": [
   "crates/drivers/oracle/src/monitor.rs"
  ],
@@ -29861,22 +29860,6 @@
  ],
  "lecturas": [
   "crates/drivers/cassandra/src/monitor.rs"
- ],
- "leer archivos geográficos (st_read)": [
-  "src-tauri/src/notebook/files.rs"
- ],
- "leer el archivo": [
-  "src-tauri/src/commands/projects.rs"
- ],
- "leer el libro": [
-  "src-tauri/src/notebook/files.rs"
- ],
- "leer la carpeta": [
-  "src-tauri/src/commands/projects.rs"
- ],
- "leer la cuenta": [
-  "crates/dbine-sync/src/gdrive.rs",
-  "crates/dbine-sync/src/onedrive.rs"
  ],
  "libSQL / Turso no expone las conexiones ni las consultas en curso: cada pedido Hrana es independiente y el servidor no tiene una vista ni una API para listarlas o cancelarlas": [
   "crates/drivers/libsql/src/lib.rs"
@@ -30097,9 +30080,6 @@
  "límite de memoria": [
   "crates/drivers/mysql/src/monitor.rs"
  ],
- "línea ": [
-  "crates/drivers/mongodb/src/shell.rs"
- ],
  "línea {0}: {1}": [
   "crates/drivers/etcd/src/command.rs",
   "crates/drivers/mongodb/src/shell.rs",
@@ -30194,11 +30174,6 @@
  ],
  "modificador no soportado: .{0}()": [
   "crates/drivers/mongodb/src/shell.rs"
- ],
- "modificar las propiedades de una base": [
-  "crates/drivers/couchdb/src/properties.rs",
-  "crates/drivers/mongodb/src/properties.rs",
-  "crates/drivers/neo4j/src/properties.rs"
  ],
  "modo": [
   "crates/drivers/dynamodb/src/monitor.rs"
@@ -31008,7 +30983,13 @@
  "no se pudo cargar DuckDB ({0}): {1}": [
   "crates/drivers/duckdb/src/loader.rs"
  ],
- "no se pudo cargar la extensión {0} de DuckDB para {1}: {2}": [
+ "no se pudo cargar la extensión {0} de DuckDB para las funciones geográficas (ST_…) de esta celda: {1}": [
+  "src-tauri/src/notebook/files.rs"
+ ],
+ "no se pudo cargar la extensión {0} de DuckDB para leer archivos geográficos (st_read): {1}": [
+  "src-tauri/src/notebook/files.rs"
+ ],
+ "no se pudo cargar la extensión {0} de DuckDB para leer el libro: {1}": [
   "src-tauri/src/notebook/files.rs"
  ],
  "no se pudo cerrar el archivo: {0}": [
@@ -31112,6 +31093,9 @@
  "no se pudo copiar «{0}»: {1}": [
   "src-tauri/src/notebook/files.rs"
  ],
+ "no se pudo crear el archivo: {0}": [
+  "src-tauri/src/commands/projects.rs"
+ ],
  "no se pudo crear el entorno ODBC": [
   "crates/drivers/odbc/src/odbc.rs"
  ],
@@ -31124,6 +31108,9 @@
  ],
  "no se pudo crear la carpeta «{0}»: {1}": [
   "src-tauri/src/commands/project_paths.rs",
+  "src-tauri/src/commands/projects.rs"
+ ],
+ "no se pudo crear la carpeta: {0}": [
   "src-tauri/src/commands/projects.rs"
  ],
  "no se pudo crear la tabla transitoria de carga «{0}.{1}» (la carga pasa por ella para que la tabla quede entera o vacía{2}): {3}": [
@@ -31229,6 +31216,9 @@
  "no se pudo eliminar «{0}»: {1}": [
   "src-tauri/src/commands/projects_git.rs"
  ],
+ "no se pudo eliminar: {0}": [
+  "src-tauri/src/commands/projects.rs"
+ ],
  "no se pudo escribir el archivo: {0}": [
   "src-tauri/src/commands/export.rs",
   "src-tauri/src/tasks/steps.rs"
@@ -31252,6 +31242,9 @@
  ],
  "no se pudo guardar DuckDB en {0}: {1}": [
   "crates/drivers/duckdb/src/loader.rs"
+ ],
+ "no se pudo guardar el archivo: {0}": [
+  "src-tauri/src/commands/projects.rs"
  ],
  "no se pudo guardar el driver de {0} en {1}: {2}": [
   "crates/dbine-plugin/src/install.rs"
@@ -31329,7 +31322,8 @@
   "src-tauri/src/secret_sources/keepass.rs"
  ],
  "no se pudo leer el archivo: {0}": [
-  "src-tauri/src/commands/imports.rs"
+  "src-tauri/src/commands/imports.rs",
+  "src-tauri/src/commands/projects.rs"
  ],
  "no se pudo leer el certificado de CA «{0}»: {1}": [
   "crates/drivers/postgres/src/lib.rs"
@@ -31372,7 +31366,8 @@
   "crates/dbine-core/src/conn_import/urls.rs"
  ],
  "no se pudo leer la carpeta: {0}": [
-  "crates/drivers/duckdb/src/lib.rs"
+  "crates/drivers/duckdb/src/lib.rs",
+  "src-tauri/src/commands/projects.rs"
  ],
  "no se pudo leer la clave de la tabla {0}": [
   "crates/drivers/dynamodb/src/transfer.rs"
@@ -31572,6 +31567,9 @@
  "no se pudo quitar la restricción {0} del clon para copiar las filas: {1}": [
   "crates/dbine-transfer/src/clone_table/analytics.rs"
  ],
+ "no se pudo renombrar: {0}": [
+  "src-tauri/src/commands/projects.rs"
+ ],
  "no se pudo reproducir la columna dispersa «{0}» (SPARSE / COLUMN_SET) en el clon; no se clona": [
   "crates/dbine-transfer/src/clone_table/mssql.rs"
  ],
@@ -31622,9 +31620,6 @@
  ],
  "no se pudo volver a poner la restricción {0} en el clon: {1}": [
   "crates/dbine-transfer/src/clone_table/analytics.rs"
- ],
- "no se pudo {0}: {1}": [
-  "src-tauri/src/commands/projects.rs"
  ],
  "no se puede borrar el catálogo «{0}»: es el de la sesión actual": [
   "crates/drivers/databricks/src/lib.rs"
@@ -31945,9 +31940,6 @@
  "objetos están": [
   "src-tauri/src/tasks/steps.rs"
  ],
- "ocultar (HIDDEN) la columna del período": [
-  "crates/dbine-transfer/src/clone_table/mssql.rs"
- ],
  "odbc: no definition for {0}: {1}": [
   "crates/drivers/odbc/src/lib.rs"
  ],
@@ -31974,9 +31966,6 @@
  ],
  "opción CREATEROLE (o rol admin)": [
   "crates/drivers/postgres/src/permissions.rs"
- ],
- "opción {0} del índice {1}": [
-  "crates/drivers/mongodb/src/ddl.rs"
  ],
  "openGauss pidió autenticación SHA-256 o SM3, que el cliente de PostgreSQL no soporta. Para este usuario, configurá password_encryption_type = 1 (o 0), método md5 en pg_hba.conf y volvé a asignar la contraseña.": [
   "crates/drivers/postgres/src/lib.rs"
@@ -32204,10 +32193,6 @@
  "ping (ms)": [
   "crates/drivers/mongodb/src/monitor.rs"
  ],
- "pipeline de la vista": [
-  "crates/drivers/mongodb/src/ddl.rs",
-  "crates/drivers/mongodb/src/sync.rs"
- ],
  "plan": [
   "crates/drivers/mongodb/src/monitor.rs"
  ],
@@ -32416,9 +32401,6 @@
  ],
  "rechazados": [
   "crates/drivers/elasticsearch/src/monitor.rs"
- ],
- "reemplazar el contenido": [
-  "src-tauri/src/notebook/write.rs"
  ],
  "registra solo el {0} % de las consultas": [
   "crates/drivers/postgres/src/profiler.rs"
@@ -33215,10 +33197,6 @@
  "subdocumentos con claves como «{0}», que en Extended JSON se leerían como otro tipo de dato": [
   "crates/drivers/mongodb/src/transfer.rs"
  ],
- "subir el backup": [
-  "crates/dbine-sync/src/gdrive.rs",
-  "crates/dbine-sync/src/onedrive.rs"
- ],
  "suma de grupo inválida: {0}": [
   "crates/drivers/sqlserver/src/delta.rs"
  ],
@@ -33248,6 +33226,12 @@
  "tabla temporal: no se encontró la tabla de historial del clon; no se clona": [
   "crates/dbine-transfer/src/clone_table/mssql.rs"
  ],
+ "tabla temporal: no se pudieron activar las versiones del sistema (SYSTEM_VERSIONING) en el clon ({0}); no se clona": [
+  "crates/dbine-transfer/src/clone_table/mssql.rs"
+ ],
+ "tabla temporal: no se pudieron copiar las filas de historial del original en el clon ({0}); no se clona": [
+  "crates/dbine-transfer/src/clone_table/mssql.rs"
+ ],
  "tabla temporal: no se pudieron crear en la tabla de historial del clon los índices de la del original ({0}); no se clona": [
   "crates/dbine-transfer/src/clone_table/mssql.rs"
  ],
@@ -33257,7 +33241,13 @@
  "tabla temporal: no se pudieron leer los índices de las tablas de historial; no se clona": [
   "crates/dbine-transfer/src/clone_table/mssql.rs"
  ],
- "tabla temporal: no se pudo {0} en el clon ({1}); no se clona": [
+ "tabla temporal: no se pudo agregar el período PERIOD FOR SYSTEM_TIME en el clon ({0}); no se clona": [
+  "crates/dbine-transfer/src/clone_table/mssql.rs"
+ ],
+ "tabla temporal: no se pudo copiar el historial en el clon ({0}); no se clona": [
+  "crates/dbine-transfer/src/clone_table/mssql.rs"
+ ],
+ "tabla temporal: no se pudo ocultar (HIDDEN) la columna del período en el clon ({0}); no se clona": [
   "crates/dbine-transfer/src/clone_table/mssql.rs"
  ],
  "tablas": [
@@ -33794,6 +33784,9 @@
  ],
  "una página de la lectura superó {0} MiB: los documentos tienen tamaños muy desparejos y este servidor solo se lee con scroll, que no deja achicar la página a mitad de camino": [
   "crates/drivers/elasticsearch/src/transfer.rs"
+ ],
+ "una restricción CHECK sin nombre lee la misma tabla: en el clon lee el clon": [
+  "crates/dbine-transfer/src/clone_table.rs"
  ],
  "una restricción de existencia": [
   "crates/drivers/neo4j/src/ddl.rs"
@@ -34563,7 +34556,16 @@
  "{0} no escribe datos desde un notebook": [
   "src-tauri/src/notebook/write.rs"
  ],
- "{0} no escribe en modo «{1}» desde un notebook": [
+ "{0} no escribe en modo «actualizar por clave» desde un notebook": [
+  "src-tauri/src/notebook/write.rs"
+ ],
+ "{0} no escribe en modo «insertar o actualizar» desde un notebook": [
+  "src-tauri/src/notebook/write.rs"
+ ],
+ "{0} no escribe en modo «insertar» desde un notebook": [
+  "src-tauri/src/notebook/write.rs"
+ ],
+ "{0} no escribe en modo «reemplazar el contenido» desde un notebook": [
   "src-tauri/src/notebook/write.rs"
  ],
  "{0} no expone cuántas veces se usa cada índice: se listan los índices con sus columnas, sin contadores. Para saber si una consulta usa un índice, mirá su plan de ejecución.": [
@@ -35092,9 +35094,6 @@
  "{0} ya tiene filas, y Phoenix no permite cargarla sin pisar las de igual clave ({1}); vaciala antes de copiar": [
   "crates/drivers/phoenix/src/transfer.rs"
  ],
- "{0} {1} la misma tabla: en el clon {2} el clon": [
-  "crates/dbine-transfer/src/clone_table.rs"
- ],
  "{0} {1} no existe.": [
   "crates/drivers/solr/src/lib.rs"
  ],
@@ -35569,8 +35568,23 @@
  "{0}: no se pudo ajustar la identidad: {1}": [
   "src-tauri/src/commands/migration.rs"
  ],
+ "{0}: no se pudo borrar el backup (HTTP {1}): {2}": [
+  "crates/dbine-sync/src/provider.rs"
+ ],
+ "{0}: no se pudo buscar el backup (HTTP {1}): {2}": [
+  "crates/dbine-sync/src/provider.rs"
+ ],
+ "{0}: no se pudo descargar el backup (HTTP {1}): {2}": [
+  "crates/dbine-sync/src/provider.rs"
+ ],
+ "{0}: no se pudo leer la cuenta (HTTP {1}): {2}": [
+  "crates/dbine-sync/src/provider.rs"
+ ],
  "{0}: no se pudo leer la identidad del origen": [
   "src-tauri/src/commands/migration.rs"
+ ],
+ "{0}: no se pudo subir el backup (HTTP {1}): {2}": [
+  "crates/dbine-sync/src/provider.rs"
  ],
  "{0}: no se pudo vaciar al cancelar: {1}": [
   "crates/dbine-transfer/src/engine.rs"
@@ -36954,8 +36968,7 @@
  ],
  "índice": [
   "crates/drivers/dynamodb/src/monitor.rs",
-  "crates/drivers/elasticsearch/src/monitor.rs",
-  "crates/drivers/mongodb/src/rename.rs"
+  "crates/drivers/elasticsearch/src/monitor.rs"
  ],
  "índice de drivers en caché de otra plataforma ({0})": [
   "crates/dbine-plugin/src/updater.rs"

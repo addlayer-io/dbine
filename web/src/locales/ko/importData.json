@@ -72,6 +72,7 @@
     "doneDetail_other": "{table}에 행 {{n}}개 · {{seconds}}초",
     "partial_other": "중지되기 전에 행 {{n}}개를 가져왔습니다.",
     "cancelledMessage": "가져오기가 취소되었습니다.",
-    "cancelImport": "가져오기 취소"
+    "cancelImport": "가져오기 취소",
+    "ofRows_other": "/ {{total}}행"
   }
 }

@@ -14,14 +14,6 @@
     "info": "Info",
     "infoHint": "Verlustfreie Änderung, die man kennen sollte"
   },
-  "confirm": {
-    "message": "{{count}} Tabelle(n) werden in {{where}} ({{engine}}) erstellt{{data}}{{drop}}. Fortfahren?",
-    "data": " und alle ihre Daten kopiert",
-    "drop": ", wobei vorhandene gleichnamige zuvor gelöscht werden",
-    "clone": "{{count}} Tabelle(n) werden mit ihrer vollständigen Struktur{{data}} in {{where}} ({{engine}}) geklont. Fortfahren?",
-    "cloneData": " und alle ihre Daten",
-    "sync": "{{count}} Tabelle(n) werden in {{where}} ({{engine}}) synchronisiert: Die Zeilen, die sich von der Quelle unterscheiden, werden eingefügt, aktualisiert und gelöscht. Fortfahren?"
-  },
   "run": {
     "cancelled": "Migration abgebrochen",
     "finishedWithErrors": "Migration mit {{count}} Fehler(n) abgeschlossen: Prüfen Sie die Zusammenfassung",
@@ -157,8 +149,8 @@
     "largestFirst": "Größte zuerst",
     "smallestFirst": "Kleinste zuerst",
     "alphabetical": "Alphabetisch",
-    "commitRows": "Commit alle",
-    "commitRowsHint": "(Zeilen)"
+    "commitEvery_one": "Commit alle {rows} Zeile",
+    "commitEvery_other": "Commit alle {rows} Zeilen"
   },
   "interrupted": {
     "title": "Unterbrochen",
@@ -258,5 +250,21 @@
       "interrupted": "Unterbrochen",
       "cancelled": "Abgebrochen"
     }
+  },
+  "confirm": {
+    "create_one": "{{count}} Tabelle wird in {{where}} ({{engine}}) erstellt. Fortfahren?",
+    "create_other": "{{count}} Tabellen werden in {{where}} ({{engine}}) erstellt. Fortfahren?",
+    "createData_one": "{{count}} Tabelle wird in {{where}} ({{engine}}) erstellt und alle ihre Daten werden kopiert. Fortfahren?",
+    "createData_other": "{{count}} Tabellen werden in {{where}} ({{engine}}) erstellt und alle ihre Daten werden kopiert. Fortfahren?",
+    "createDrop_one": "{{count}} Tabelle wird in {{where}} ({{engine}}) erstellt, wobei eine vorhandene gleichnamige Tabelle zuvor gelöscht wird. Fortfahren?",
+    "createDrop_other": "{{count}} Tabellen werden in {{where}} ({{engine}}) erstellt, wobei vorhandene gleichnamige Tabellen zuvor gelöscht werden. Fortfahren?",
+    "createDataDrop_one": "{{count}} Tabelle wird in {{where}} ({{engine}}) erstellt und alle ihre Daten werden kopiert, wobei eine vorhandene gleichnamige Tabelle zuvor gelöscht wird. Fortfahren?",
+    "createDataDrop_other": "{{count}} Tabellen werden in {{where}} ({{engine}}) erstellt und alle ihre Daten werden kopiert, wobei vorhandene gleichnamige Tabellen zuvor gelöscht werden. Fortfahren?",
+    "clone_one": "{{count}} Tabelle wird mit ihrer vollständigen Struktur in {{where}} ({{engine}}) geklont. Fortfahren?",
+    "clone_other": "{{count}} Tabellen werden mit ihrer vollständigen Struktur in {{where}} ({{engine}}) geklont. Fortfahren?",
+    "cloneWithData_one": "{{count}} Tabelle wird mit ihrer vollständigen Struktur und allen ihren Daten in {{where}} ({{engine}}) geklont. Fortfahren?",
+    "cloneWithData_other": "{{count}} Tabellen werden mit ihrer vollständigen Struktur und allen ihren Daten in {{where}} ({{engine}}) geklont. Fortfahren?",
+    "sync_one": "{{count}} Tabelle wird in {{where}} ({{engine}}) synchronisiert: Die Zeilen, die sich von der Quelle unterscheiden, werden eingefügt, aktualisiert und gelöscht. Fortfahren?",
+    "sync_other": "{{count}} Tabellen werden in {{where}} ({{engine}}) synchronisiert: Die Zeilen, die sich von der Quelle unterscheiden, werden eingefügt, aktualisiert und gelöscht. Fortfahren?"
   }
 }

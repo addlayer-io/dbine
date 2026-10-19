@@ -113,7 +113,7 @@ impl GraphSession {
     }
 
     pub(crate) async fn create_database_with_impl(&mut self, name: &str, o: &BTreeMap<String, String>) -> Result<()> {
-        self.refuse_if_read_only("crear una base")?;
+        self.refuse_if_read_only("Conexión de solo lectura: no se puede crear una base.")?;
         let q = script(self.flavor, name, o)?;
         match self.flavor {
             Flavor::Neo4j => self.query_on(&q, Some("system")).await.map_err(enterprise_hint)?,

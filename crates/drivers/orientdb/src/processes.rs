@@ -73,8 +73,9 @@ impl OrientSession {
     pub(crate) async fn end_connection(&self, id: &str, action: &str) -> Result<()> {
         let kill = action == "kill";
         if self.read_only {
-            let what = if kill { "terminar conexiones" } else { "cancelar comandos" };
-            return Err(Error::Query(format!("Conexión de solo lectura: no se puede {what}.")));
+            return Err(Error::Query(
+                if kill { "Conexión de solo lectura: no se pueden terminar conexiones." } else { "Conexión de solo lectura: no se pueden cancelar comandos." }.into(),
+            ));
         }
         let id = id.trim();
         if !valid_id(id) {

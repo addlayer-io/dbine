@@ -124,7 +124,7 @@ onMounted(async () => {
         <span v-if="conn.config.read_only" class="sb-item sb-ro">{{ $t('workbench:status.readOnly') }}</span>
         <span v-if="server" class="sb-item sb-server" :title="server">{{ server }}</span>
       </template>
-      <span class="sb-item sb-version">DBine{{ version ? ` ${version}` : '' }}</span>
+      <span class="sb-item sb-version" :title="`DBine${version ? ` ${version}` : ''}`">DBine{{ version ? ` ${version}` : '' }}</span>
     </div>
     <TasksPanel />
     <QuickPick />

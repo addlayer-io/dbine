@@ -89,7 +89,7 @@ import { chartPreview, installWholeMock, notebookCellPreview } from './chart-sam
 import { notebookResultsPreview } from './nbx-samples';
 import { notebookWritePreview } from './nbwrite-samples';
 import { installNbPermMock, nbPermPreview } from './nbperm-samples';
-import { installScheduleMock, schedulePreview, setupScheduleConnections } from './schedule-samples';
+import { installScheduleMock, installScheduledTaskMock, schedulePreview, scheduledTaskPreview, setupScheduleConnections } from './schedule-samples';
 import { notebookParamsPreview } from './nbparams-samples';
 import { browseSample, sourceConnection, SAMPLE_ACCOUNTS } from './source-samples';
 import ZohoConnectWizard from '../components/ZohoConnectWizard.vue';
@@ -269,6 +269,7 @@ function multiDbView() {
 if (view === 'multidb') installTauriMock();
 if (view === 'nbperm') installNbPermMock();
 if (view === 'schedule') installScheduleMock(params);
+if (view === 'schedtask') installScheduledTaskMock();
 if (view === 'nbcell' && params.get('set') === 'whole') installWholeMock(params);
 if (view === 'feedback') {
   (window as unknown as Record<string, unknown>).__TAURI_INTERNALS__ = {
@@ -332,6 +333,7 @@ const app = createApp({
         : view === 'nbwrite' ? notebookWritePreview(params)
         : view === 'nbperm' ? nbPermPreview(params)
         : view === 'schedule' ? schedulePreview(params)
+        : view === 'schedtask' ? scheduledTaskPreview()
         : view === 'nbparams' ? notebookParamsPreview(params)
         : view === 'filters' ? filtersView()
         : view === 'fkjump' ? fkJumpView()

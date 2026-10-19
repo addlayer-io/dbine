@@ -520,9 +520,11 @@ impl GraphSession {
         Ok(())
     }
 
-    fn refuse_if_read_only(&self, what: &str) -> Result<()> {
+    /// `msg` is the whole refusal ("Conexión de solo lectura: no se puede …"),
+    /// one message per action so it translates as a sentence.
+    fn refuse_if_read_only(&self, msg: &str) -> Result<()> {
         if self.read_only {
-            return Err(Error::Query(format!("Conexión de solo lectura: no se puede {what}.")));
+            return Err(Error::Query(msg.into()));
         }
         Ok(())
     }
@@ -1407,7 +1409,7 @@ impl Session for GraphSession {
     }
 
     async fn drop_database(&mut self, name: &str) -> Result<()> {
-        self.refuse_if_read_only("borrar una base")?;
+        self.refuse_if_read_only("Conexión de solo lectura: no se puede borrar una base.")?;
         let n = cypher::ident(name.trim());
         match self.flavor {
             Flavor::Neo4j => self.query_on(&format!("DROP DATABASE {n} IF EXISTS WAIT"), Some("system")).await.map_err(enterprise_hint)?,
@@ -1639,7 +1641,7 @@ impl Session for GraphSession {
         if self.flavor != Flavor::Neo4j {
             return Err(Error::Unsupported("este motor no permite terminar sesiones desde DBine".into()));
         }
-        self.refuse_if_read_only("terminar transacciones")?;
+        self.refuse_if_read_only("Conexión de solo lectura: no se pueden terminar transacciones.")?;
         blocking::kill(self, id).await
     }
 

@@ -318,7 +318,7 @@ impl GraphSession {
     }
 
     pub(crate) async fn alter_database_impl(&mut self, database: &str, changes: &BTreeMap<String, String>) -> Result<()> {
-        self.refuse_if_read_only("modificar las propiedades de una base")?;
+        self.refuse_if_read_only("Conexión de solo lectura: no se pueden modificar las propiedades de una base.")?;
         let statements = alter(self.flavor, database, changes)?;
         for (i, q) in statements.iter().enumerate() {
             if let Err(e) = self.query_on(q, Some("system")).await {
