@@ -1,0 +1,46 @@
+{
+  "title": "Verbindungen importieren",
+  "source": {
+    "ssmsHint": "Registrierte Server oder eine exportierte .regsrvr",
+    "pasteUrls": "URLs einfügen",
+    "found": "Auf diesem Rechner gefunden",
+    "notFound": "Nicht gefunden: Speicherort wählen"
+  },
+  "urlsPlaceholder": "Eine pro Zeile: postgres://user:password@host:5432/db, mongodb+srv://…, jdbc:sqlserver://…, Server=host;Database=db;User Id=…, oder der Pfad einer SQLite-Datei",
+  "read": "Lesen",
+  "chooseFolder": "Ordner auswählen…",
+  "chooseFile": "Datei auswählen…",
+  "dialogFolder": "Verbindungsordner",
+  "dialogFile": "Verbindungsdatei",
+  "reading": "Verbindungen werden gelesen…",
+  "noneInText": "Im Text wurde keine Verbindung gefunden.",
+  "noneAtPath": "An diesem Speicherort gibt es keine Verbindungen.",
+  "columns": {
+    "name": "Name",
+    "engine": "Engine",
+    "server": "Server",
+    "user": "Benutzer"
+  },
+  "hasSecret": "Hat ein gespeichertes Passwort",
+  "inKeychain": "Das Passwort liegt im Systemschlüsselbund: Beim Importieren fragt das System möglicherweise nach der Erlaubnis, es zu lesen",
+  "existsTitle": "Eine Verbindung zum selben Server existiert bereits: «{{name}}»",
+  "exists": "Existiert bereits",
+  "passwords": "Passwörter importieren (im Systemschlüsselbund gespeichert)",
+  "importN": "{{n}} importieren",
+  "imported_one": "{{count}} Verbindung importiert",
+  "imported_other": "{{count}} Verbindungen importiert",
+  "andFolders_one": " und {{count}} Ordner",
+  "andFolders_other": " und {{count}} Ordner",
+  "failedTitle": "Nicht importiert",
+  "gotIt": "Verstanden",
+  "suggestion": {
+    "title": "Verbindungen übernehmen?",
+    "found": "Auf diesem Rechner wurden Verbindungen aus anderen Tools gefunden:",
+    "count_one": "{{count}} Verbindung",
+    "count_other": "{{count}} Verbindungen",
+    "hintBefore": "Sie werden mit ihren Ordnern und Passwörtern importiert, die im Systemschlüsselbund landen. Sie können das auch jederzeit über die",
+    "hintAfter": "Schaltfläche im Explorer tun.",
+    "notNow": "Jetzt nicht",
+    "viewAndImport": "Ansehen und importieren…"
+  }
+}

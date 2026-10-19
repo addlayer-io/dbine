@@ -1,0 +1,71 @@
+{
+  "tab": "Sicherungen",
+  "menu": "Sicherungen…",
+  "title": "Sicherungen",
+  "copies": "DBine-Kopien",
+  "copiesHint": "Ein Skript mit Struktur und Daten in einer Datei. Funktioniert mit jeder Engine.",
+  "noCopies": "Noch keine Kopien dieser Datenbank.",
+  "withData": "Struktur und Daten",
+  "structureOnly": "Nur Struktur",
+  "server": "Server-Sicherungen",
+  "noNative": "Diese Engine hat keine eigenen Sicherungen, die DBine verwalten kann. DBine-Kopien funktionieren.",
+  "noHistory": "Die Engine meldet ihren Sicherungsverlauf nicht.",
+  "noNativeHistory": "Auf dem Server sind keine Sicherungen verzeichnet.",
+  "wholeServer": "gesamter Server",
+  "restore": "Wiederherstellen",
+  "restoreFrom": "Wiederherstellen aus…",
+  "pick": "Durchsuchen…",
+  "seeScript": "Skript ansehen",
+  "reviewTitle": "Vor dem Ausführen prüfen",
+  "reviewHint": "Das wird auf dem Server in {{db}} ausgeführt.",
+  "run": "Ausführen",
+  "copied": "Kopiert",
+  "done": {
+    "backup": "Sicherung abgeschlossen",
+    "restore": "Wiederherstellung abgeschlossen",
+    "delete": "Sicherung gelöscht"
+  },
+  "col": {
+    "date": "Datum",
+    "content": "Inhalt",
+    "objects": "Objekte",
+    "rows": "Zeilen",
+    "size": "Größe",
+    "file": "Datei",
+    "kind": "Typ",
+    "database": "Datenbank",
+    "location": "Speicherort",
+    "status": "Status"
+  },
+  "copy": {
+    "new": "Neue Kopie",
+    "file": "Datei",
+    "data": "Daten einschließen",
+    "hint": "Das Skript löscht und erstellt jedes Objekt neu, daher ersetzt die Wiederherstellung, was in der Zieldatenbank vorhanden ist.",
+    "run": "Kopie erstellen",
+    "done": "Kopie fertig ({{size}})",
+    "cancelled": "Kopie abgebrochen",
+    "empty": "Die Datenbank hat keine Objekte zum Kopieren."
+  },
+  "restoreCopy": {
+    "title": "Kopie wiederherstellen",
+    "into": "In Datenbank wiederherstellen",
+    "continueOnError": "Fortfahren, wenn eine Anweisung fehlschlägt",
+    "hint": "Das Skript der Kopie wird in der gewählten Datenbank ausgeführt.",
+    "confirm": "Die Objekte der Kopie, die in {{db}} vorhanden sind, werden ersetzt. Fortfahren?",
+    "done": "Wiederherstellung abgeschlossen ({{n}} Anweisungen)",
+    "cancelled": "Wiederherstellung abgebrochen"
+  },
+  "deleteCopy": {
+    "title": "Kopie löschen",
+    "message": "Auch die Datei {{path}} löschen?",
+    "withFile": "Datei ebenfalls löschen",
+    "listOnly": "Nur aus der Liste entfernen"
+  },
+  "native": {
+    "new": "Sichern",
+    "source": "Wiederherzustellende Sicherung",
+    "sourceHint": "Aus dem Verlauf oder von einem Speicherort",
+    "into": "Wiederherstellen als"
+  }
+}

@@ -1,0 +1,301 @@
+# Values of the it translation that are legitimately the same as English (see scripts/i18n/check.py).
+# Seeded from the translations as they were when the untranslated check was added.
+ai.json:context.editor
+backups.json:col.file
+backups.json:col.database
+backups.json:copy.file
+common.json:no
+compare.json:database
+compare.json:schema
+connection.json:family.streaming
+connection.json:problem.server
+connection.json:source.kind.vault
+connection.json:source.kind.aws
+connection.json:source.kind.azure
+connection.json:source.kind.gcp
+connection.json:source.kind.zoho
+connection.json:source.kind.conjur
+connection.json:source.kind.ccp
+connection.json:source.kind.delinea
+connection.json:source.kind.bitwarden
+connection.json:source.kind.bitwarden_sm
+connection.json:source.kind.ssm
+connection.json:source.input.data_center
+connection.json:source.input.account_id
+connection.json:source.input.role_id
+connection.json:source.input.approle_secret_id
+connection.json:source.input.conjur_account
+connection.json:source.input.master_delinea
+connection.json:source.input.server
+connection.json:source.input.tenant
+connection.json:source.dataCenter.in
+connection.json:source.dataCenter.com_au
+connection.json:source.dataCenter.ca
+connection.json:source.dataCenter.sg
+connection.json:source.unlock.titles.delinea
+connection.json:source.vaultAuth.token
+connection.json:source.advanced.password
+core.json:connections.queryName
+core.json:families.streaming
+createDatabase.json:script
+dataGen.json:gen.null
+dataGen.json:gen.email
+dataGen.json:param.min
+dataGen.json:param.max
+dbDocs.json:formats.markdown
+dbDocs.json:destination
+dbDocs.json:doc.database
+dbDocs.json:doc.schema
+dbDocs.json:doc.no
+dependencies.json:kind.trigger
+designer.json:toolbar.schema
+designer.json:toolbar.schemaPlaceholder
+designer.json:toolbar.database
+diagram.json:tab.fileNameDefault
+explorer.json:tree.file
+explorer.json:menu.monitor
+explorer.json:menu.profiler
+explorer.json:indexes.drop.script
+explorer.json:indexes.col.seekShare
+history.json:tl.commit
+history.json:tl.commitOf
+importConnections.json:columns.server
+importData.json:steps.file
+importData.json:target.schema
+library.json:dialogs.param.schema
+library.json:dialogs.database
+library.json:dialogs.db
+library.json:git.repository
+library.json:git.branch
+lint.json:groups.oracle
+lint.json:groups.etcd
+lint.json:rules.select-star.title
+lint.json:rules.global-identity.title
+lint.json:rules.where-operator.title
+locks.json:database
+mail.json:password
+map.json:settings.providers.osm
+mcp.json:level.schema
+mcp.json:token
+mcp.json:forClaude
+mcp.json:forCodex
+mcp.json:col.client
+menu.json:file.title
+menu.json:view.output
+menu.json:window.zoom
+migration.json:severity.info
+migration.json:script.fileNameDatabase
+migration.json:target.database
+migration.json:grid.perSecond
+monitor.json:duration.s
+monitor.json:duration.hm
+monitor.json:duration.ms
+notebook.json:untitled
+notebook.json:settings.awsProfilePlaceholder
+notebook.json:summary.ms
+notebook.json:summary.seconds
+notebook.json:summary.minutes
+notebook.json:save.filter
+notebook.json:toolbar.exportMarkdown
+notebook.json:loaded.files_one
+notebook.json:fileAccess.pattern
+notebook.json:write.schema
+optimizer.json:table.min
+optimizer.json:rules.not_in_to_not_exists.title
+optimizer.json:rules.exists_to_in.title
+optimizer.json:rules.count_to_exists.title
+palette.json:cmd.database.profiler
+palette.json:goto.database
+palette.json:goto.query
+plan.json:query
+processes.json:dashboard
+processes.json:col.host
+processes.json:col.database
+processes.json:own
+profiler.json:column.query
+profiler.json:column.database
+profiler.json:column.client
+profiler.json:stats.min
+profiler.json:stats.max
+profiler.json:foot.queries_one
+profiler.json:unitHint
+projects.json:clone.branch
+projects.json:changes.commit
+projects.json:operation.merge
+projects.json:operation.rebase
+projects.json:operation.cherry-pick
+projects.json:operation.revert
+projects.json:op.pull
+projects.json:op.push
+projects.json:op.fetch
+projects.json:op.commit
+projects.json:menu.commit
+projects.json:picker.database
+projects.json:identity.email
+projects.json:task.commit
+query.json:database
+query.json:tx.auto
+query.json:status.server
+query.json:object.no
+queryBuilder.json:alias
+queryBuilder.json:grid.alias
+rename.json:what.schema
+rename.json:what.database
+rename.json:where
+rename.json:script
+results.json:export.format.json_lines
+results.json:export.format.xlsx
+results.json:messages.elapsed
+results.json:edit.cellsInRows
+results.json:grid.copyFormat.json_lines.name
+results.json:grid.copyFormat.sql_insert.name
+results.json:grid.copyFormat.sql_update.name
+results.json:grid.copyFormat.mongo_insert.name
+results.json:grid.stats.min
+results.json:grid.stats.max
+results.json:chart.kind.area
+results.json:chart.kind.box
+results.json:chart.null
+scheduled.json:kinds.backup
+scheduled.json:step.database
+scheduled.json:step.script
+scheduled.json:step.query
+scheduled.json:formats.xlsx
+scheduled.json:formats.json_lines
+scheduled.json:notebook.file
+scheduled.json:notebook.formats.markdown
+schemas.json:script
+schemas.json:scriptName
+secretAccounts.json:kind.zoho
+secretAccounts.json:dataCenter
+secretAccounts.json:picker.account
+secretAccounts.json:wizard.steps.client
+secretAccounts.json:wizard.steps.passphrase
+secretAccounts.json:wizard.client_id
+secretAccounts.json:wizard.client_secret
+secretAccounts.json:facts.server
+secretAccounts.json:facts.namespace
+secretAccounts.json:facts.vault
+secretAccounts.json:facts.tenant
+secretAccounts.json:facts.file
+secretAccounts.json:facts.dataCenter
+secretAccounts.json:acct.steps.server
+secretAccounts.json:acct.steps.master
+secretAccounts.json:acct.steps.token
+secretAccounts.json:acct.steps.vault
+secretAccounts.json:acct.steps.database
+secretAccounts.json:acct.input.client_id
+secretAccounts.json:acct.input.client_secret
+secretAccounts.json:acct.input.namespace
+secretAccounts.json:acct.input.role_id
+secretAccounts.json:acct.input.secret_id
+secretAccounts.json:acct.placeholder.url_delinea
+secretAccounts.json:acct.placeholder.url_conjur
+secretAccounts.json:acct.placeholder.url_ccp
+security.json:login
+security.json:password
+security.json:kind.schema
+security.json:kind.database
+settings.json:sync.passphrase
+shortcuts.json:group.editor
+shortcuts.json:group.database
+snippets.json:families.oracle
+snippets.json:families.db2
+snippets.json:families.flux
+snippets.json:families.etcd
+subset.json:rules.hash
+subset.json:fakes.email
+tasks.json:elapsed.seconds
+tasks.json:elapsed.minutes
+tasks.json:elapsed.hours
+tasks.json:eta.minutes
+tasks.json:eta.hours
+tasks.json:eta.hoursExact
+tunnel.json:authPassword
+workbench.json:app.output
+workbench.json:welcome.keyOutput
+workbench.json:welcome.family.streaming
+workbench.json:output.title
+workbench.json:tabs.designer
+workbench.json:tabs.monitor
+workbench.json:tabs.query
+backend:1 contraseña
+backend:Archivo
+backend:Archivo (.accdb / .mdb)
+backend:Bajo demanda
+backend:Base
+backend:Base de datos
+backend:Base de datos (M_DATABASE)
+backend:Base de datos (SERVERDB)
+backend:Base de datos: {0}
+backend:Base de datos: {0}.{1}
+backend:Brecha
+backend:Caché
+backend:Caché / buffer pool
+backend:Cliente
+backend:Clon
+backend:Clúster
+backend:Clúster (ON CLUSTER)
+backend:Confirmar
+backend:Consulta
+backend:Contenedor
+backend:Contraseña
+backend:Copia (nbackup)
+backend:Correo
+backend:Cuenta
+backend:Cuota (bytes)
+backend:Cuota en {0}
+backend:Códec
+backend:Delta (en línea)
+backend:Delta (fuera de línea)
+backend:Diseño
+backend:En línea
+backend:En línea (ONLINE)
+backend:Equipo
+backend:Escritor
+backend:Espacio de tablas
+backend:Esquema
+backend:Fuera de línea (OFFLINE)
+backend:Fuera de línea (offline)
+backend:Intercalación
+backend:Intercalación (COLLATE)
+backend:Intercalación (LC_COLLATE)
+backend:Lector
+backend:Líder
+backend:Nube
+backend:Particionador
+backend:Política
+backend:Por datacenter (NetworkTopologyStrategy)
+backend:Rama / commit
+backend:Registro
+backend:Rendimiento
+backend:Repositorio
+backend:Retención (everySeconds)
+backend:Réplica
+backend:Réplica {0}
+backend:Servidor
+backend:Servidor {0}
+backend:Sesgo
+backend:Trabajo
+backend:archivo
+backend:base
+backend:caché
+backend:cliente
+backend:consulta
+backend:contenedor
+backend:contraseña
+backend:ejecutor
+backend:espacio de nombres
+backend:hilo
+backend:intercalación
+backend:líder
+backend:retención (DURATION)
+backend:réplica
+backend:servidor
+backend:tiempo activo
+backend:tiempo activo (s)
+backend:Área
+mobile:conn.monitor
+mobile:conn.f.host
+mobile:conn.f.database
+mobile:conn.f.client

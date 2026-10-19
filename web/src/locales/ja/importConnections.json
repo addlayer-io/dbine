@@ -1,0 +1,43 @@
+{
+  "title": "接続をインポート",
+  "source": {
+    "ssmsHint": "登録済みサーバー、またはエクスポートした .regsrvr",
+    "pasteUrls": "URL を貼り付け",
+    "found": "このマシンで検出",
+    "notFound": "見つかりません: 場所を選択してください"
+  },
+  "urlsPlaceholder": "1 行に 1 つ: postgres://user:password@host:5432/db、mongodb+srv://…、jdbc:sqlserver://…、Server=host;Database=db;User Id=…、または SQLite ファイルのパス",
+  "read": "読み込み",
+  "chooseFolder": "フォルダーを選択…",
+  "chooseFile": "ファイルを選択…",
+  "dialogFolder": "接続のフォルダー",
+  "dialogFile": "接続のファイル",
+  "reading": "接続を読み込んでいます…",
+  "noneInText": "テキストに接続が見つかりませんでした。",
+  "noneAtPath": "その場所に接続はありません。",
+  "columns": {
+    "name": "名前",
+    "engine": "エンジン",
+    "server": "サーバー",
+    "user": "ユーザー"
+  },
+  "hasSecret": "パスワードが保存されています",
+  "inKeychain": "パスワードはシステムのキーチェーンにあります。インポート時に、読み取りの許可を求められる場合があります",
+  "existsTitle": "同じサーバーへの接続が既にあります: 「{{name}}」",
+  "exists": "既に存在",
+  "passwords": "パスワードをインポート(システムのキーチェーンに保存されます)",
+  "importN": "{{n}} 件をインポート",
+  "imported_other": "{{count}} 件の接続をインポートしました",
+  "andFolders_other": "、{{count}} 個のフォルダー",
+  "failedTitle": "インポートされませんでした",
+  "gotIt": "了解",
+  "suggestion": {
+    "title": "接続を取り込みますか？",
+    "found": "このマシンで他のツールの接続が見つかりました:",
+    "count_other": "{{count}} 件の接続",
+    "hintBefore": "フォルダーとパスワードごとインポートされ、パスワードはシステムのキーチェーンに保存されます。あとからでも、エクスプローラーの",
+    "hintAfter": "ボタンからいつでもインポートできます。",
+    "notNow": "今はしない",
+    "viewAndImport": "確認してインポート…"
+  }
+}

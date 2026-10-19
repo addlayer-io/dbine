@@ -2,7 +2,7 @@
 // http://localhost:<port>/ai-preview.html?state=setup|chat|empty|history|approval
 import './lang';
 import I18NextVue from 'i18next-vue';
-import i18next from '../i18n';
+import i18next, { i18nReady } from '../i18n';
 import { loadBackendCatalog } from '../i18n/backend';
 import { createApp, h } from 'vue';
 import { createPinia } from 'pinia';
@@ -91,6 +91,7 @@ if (state === 'history') {
     { id: 'h3', title: 'cómo veo qué sesiones están bloqueando a otras', updated: Date.now() - 6 * day, messages: chat('cómo veo…', 'ok') },
   ]));
 }
+await i18nReady;
 app.mount('#app');
 if (state === 'history') setTimeout(() => (document.querySelector('[title="Historial"], [title="History"]') as HTMLElement | null)?.click(), 600);
 if (state === 'approval') {

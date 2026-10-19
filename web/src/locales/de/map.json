@@ -1,0 +1,60 @@
+{
+  "source": "Daten",
+  "latLon": "Breitengrad / Längengrad",
+  "lat": "Breitengrad",
+  "lon": "Längengrad",
+  "pick": "Spalte wählen",
+  "count_one": "{{shown}} Objekt",
+  "count_other": "{{shown}} Objekte",
+  "fit": "Anpassen",
+  "openSettings": "Karteneinstellungen",
+  "privacy": "Der Kartenanbieter sieht, welchen Bereich Sie betrachten (nicht die Daten)",
+  "notice": {
+    "cap": "Die ersten {{cap}} Objekte werden gezeichnet; {{rest}} weitere Zeilen nicht.",
+    "srid_one": "{{rows}} Zeile mit SRID {{srid}} wird nicht gezeichnet: Die Karte zeigt WGS 84 (4326) und Web Mercator (3857).",
+    "srid_other": "{{rows}} Zeilen mit SRID {{srid}} werden nicht gezeichnet: Die Karte zeigt WGS 84 (4326) und Web Mercator (3857).",
+    "range_one": "{{rows}} Zeile ohne SRID hat Koordinaten, die keine Grad sind: Sie wird nicht gezeichnet.",
+    "range_other": "{{rows}} Zeilen ohne SRID haben Koordinaten, die keine Grad sind: Sie werden nicht gezeichnet.",
+    "unreadable_one": "{{rows}} Wert konnte nicht als Geometrie gelesen werden.",
+    "unreadable_other": "{{rows}} Werte konnten nicht als Geometrien gelesen werden.",
+    "basemap": "Die mitgelieferte Basiskarte konnte nicht geladen werden."
+  },
+  "attribution": {
+    "offline": "Basiskarte: Natural Earth (gemeinfrei), offline",
+    "custom": "Kacheln: eigener Anbieter"
+  },
+  "popup": {
+    "row": "Zeile {{row}}",
+    "rows_one": "Zeile {{row}} und {{more}} weitere an dieser Stelle",
+    "rows_other": "Zeile {{row}} und {{more}} weitere an dieser Stelle",
+    "geometry": "(Geometrie)"
+  },
+  "settings": {
+    "nav": "Karten",
+    "title": "Karten",
+    "help": "Die Karte der Ergebnisse zeichnet die Geometrien auf diesem Rechner: Die Daten der Zeilen verlassen ihn nie.",
+    "offline": "Offline-Basiskarte",
+    "offlineHelp": "Länder, Provinzen und Bundesstaaten, Küstenlinien, Seen und Städte von Natural Earth (gemeinfrei), in DBine enthalten.",
+    "online": "Online-Kacheln",
+    "onlineHelp": "Verwendet einen Kachelanbieter mit Straßen und Gelände. Ausgeschaltet stellt die Karte keine Anfragen ins Internet.",
+    "noticeTitle": "Online-Kacheln",
+    "noticeOk": "Einschalten",
+    "provider": "Anbieter",
+    "providers": {
+      "osm": "OpenStreetMap (Standard)",
+      "maptiler": "MapTiler (mit Schlüssel)",
+      "stadia": "Stadia Maps (mit Schlüssel)",
+      "custom": "Benutzerdefiniert (XYZ-Vorlage)"
+    },
+    "osmPolicy": "Die Kacheln der OpenStreetMap Foundation sind ein Community-Dienst mit Nutzungsrichtlinie (operations.osmfoundation.org/policies/tiles): Sie sind für leichte Nutzung gedacht. Wählen Sie bei starker Nutzung einen anderen Anbieter oder Ihren eigenen Server.",
+    "url": "URL-Vorlage",
+    "urlHelp": "https mit {z}, {x} und {y}; {key} wird durch den Schlüssel ersetzt. http nur für einen Server auf diesem Rechner (localhost).",
+    "urlInvalid": "Die Vorlage muss https (oder http zu localhost) sein und {z}, {x} und {y} enthalten.",
+    "attribution": "Quellenangabe",
+    "attributionHelp": "Der vom Anbieter verlangte Text; er wird in der Ecke der Karte angezeigt.",
+    "key": "API-Schlüssel",
+    "keyHelp": "Nur auf diesem Rechner gespeichert: Er wandert nicht mit der Synchronisierung.",
+    "needUrl": "Eine gültige URL-Vorlage fehlt: Bis dahin verwendet die Karte die Offline-Basiskarte.",
+    "needKey": "Der API-Schlüssel fehlt: Bis dahin verwendet die Karte die Offline-Basiskarte."
+  }
+}

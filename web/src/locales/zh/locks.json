@@ -1,0 +1,18 @@
+{
+  "title": "锁",
+  "none": "没有阻塞",
+  "blocked_other": "{{count}} 个会话在等待",
+  "session": "会话",
+  "user": "用户 · 客户端",
+  "database": "数据库",
+  "wait": "等待",
+  "time": "时间",
+  "object": "对象",
+  "sql": "语句",
+  "blocks_other": "阻塞 {{count}} 个",
+  "blocksTitle": "直接或间接等待此会话的会话",
+  "kill": "终止",
+  "killTitle": "终止会话",
+  "killConfirm": "终止会话 {{id}}（{{user}}）？其未完成的事务将被回滚。",
+  "killed": "会话 {{id}} 已终止"
+}

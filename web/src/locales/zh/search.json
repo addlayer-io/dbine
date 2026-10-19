@@ -1,0 +1,23 @@
+{
+  "menu": "在数据库中搜索…",
+  "tab": "搜索",
+  "placeholder": "在名称以及视图、存储过程、函数、触发器等的代码中搜索的文本…",
+  "search": "搜索",
+  "names": "名称",
+  "code": "代码",
+  "caseSensitive": "区分大小写",
+  "wholeWord": "全字匹配",
+  "allKinds": "所有类型",
+  "starting": "搜索中…",
+  "progress": "正在检查 {{total}} 个对象中的 {{done}} 个",
+  "found_other": "{{count}} 个对象",
+  "scanned_other": "已检查 {{count}} 个定义",
+  "cancelled": "已取消：部分结果",
+  "truncated": "已在达到结果数量上限时停止",
+  "unreadable_other": "有 {{count}} 个对象无法读取",
+  "inName": "在名称中",
+  "lines_other": "{{count}} 行",
+  "none": "没有结果。",
+  "column": "列",
+  "columns": "列"
+}

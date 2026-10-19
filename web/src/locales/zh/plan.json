@@ -1,0 +1,57 @@
+{
+  "query": "查询 {{n}}",
+  "actualPlan": "实际计划",
+  "estimatedPlan": "预估计划",
+  "diagram": "关系图",
+  "rawPlan": "原始计划",
+  "statementTitle": "点击查看全部",
+  "hint": "拖动以平移 · ⌘/双指缩放 + 滚轮以缩放 · F 适应视图",
+  "summary": {
+    "operators": "运算符",
+    "cost": "成本",
+    "time": "耗时",
+    "rows": "行数",
+    "firstWarning": "转到第一个警告",
+    "warnings_other": "{{count}} 个警告"
+  },
+  "edge": {
+    "actualRows": "实际行数：{{rows}}",
+    "estimatedRows": "预估行数：{{rows}}"
+  },
+  "node": {
+    "operatorCost": "运算符成本：{{pct}}%",
+    "noCost": "无成本",
+    "actualEstimatedRows": "实际 / 预估行数",
+    "estimatedRows": "预估行数",
+    "estimatedShort": "预估 {{rows}}",
+    "expand_other": "展开（{{count}} 个运算符）",
+    "collapse": "折叠"
+  },
+  "zoom": {
+    "zoomOut": "缩小（−）",
+    "actualSize": "实际大小（0）",
+    "zoomIn": "放大（+）",
+    "fit": "适应视图（F）",
+    "expandAll": "全部展开",
+    "collapseBelow": "折叠第 3 层以下",
+    "minimap": "缩略图"
+  },
+  "props": {
+    "close": "关闭（Esc）",
+    "operator": "运算符",
+    "self": "自身",
+    "subtree": "子树",
+    "rowsAndTime": "行数和耗时",
+    "estimatedPerExecution": "预估（每次执行）",
+    "actualTotal": "实际（总计）",
+    "executions": "执行次数",
+    "actualTime": "实际耗时",
+    "object": "对象",
+    "properties": "属性"
+  },
+  "raw": {
+    "save": "保存…",
+    "sqlServerPlan": "SQL Server 计划",
+    "ssmsHint": "在 SQL Server Management Studio 中打开（.sqlplan）"
+  }
+}

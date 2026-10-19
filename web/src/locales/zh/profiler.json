@@ -1,0 +1,85 @@
+{
+  "couldNotConnect": "无法连接。",
+  "connection": "连接",
+  "thisEngine": "此引擎",
+  "unsupported": "{{engine}} 不允许查看其他客户端的查询。",
+  "hint": {
+    "duration": "> 500 · < 1s · >= 2.5s",
+    "text": "包含… · !不包含 · =等于",
+    "database": "包含… · !不包含"
+  },
+  "menu": {
+    "filter": {
+      "user": "按用户“{{value}}”筛选",
+      "client": "按客户端“{{value}}”筛选",
+      "application": "按应用程序“{{value}}”筛选",
+      "database": "按数据库“{{value}}”筛选"
+    },
+    "filterSame": "筛选与此查询相似的查询",
+    "copy": "复制查询"
+  },
+  "openInQuery": "在查询中打开",
+  "column": {
+    "time": "时间",
+    "duration": "持续时间",
+    "query": "查询",
+    "database": "数据库",
+    "user": "用户",
+    "client": "客户端",
+    "application": "应用程序",
+    "rows": "行数",
+    "cpu": "CPU",
+    "reads": "读取",
+    "writes": "写入"
+  },
+  "columns": "列",
+  "columnsHint": "显示或隐藏列",
+  "showAll": "显示全部",
+  "status": {
+    "starting": "正在启动…",
+    "capturing": "捕获中",
+    "stopped": "已停止",
+    "notStarted": "未开始"
+  },
+  "source": "来源：{{source}}",
+  "mode": {
+    "complete": "完整捕获",
+    "sampled": "采样"
+  },
+  "clearFilters": "清除筛选",
+  "resume": "恢复",
+  "sampledNote": "此引擎只显示正在运行的内容：短于约 100 毫秒的查询可能不会出现。",
+  "enabled": "已在服务器上启用 {{source}}。",
+  "disabled": "已禁用 {{source}}。",
+  "stats": {
+    "title": "此查询",
+    "runs_other": "运行 {n} 次",
+    "avg": "平均",
+    "min": "最小",
+    "max": "最大"
+  },
+  "filtersHint": "仅保留通过筛选的查询",
+  "sameAs": "类似：{{label}}",
+  "removeFilter": "移除此筛选",
+  "noneYet": "尚未出现任何内容",
+  "noValues": "无值",
+  "empty": {
+    "noMatch": "没有匹配的查询。",
+    "waitingFiltered": "正在等待通过筛选的查询…",
+    "waiting": "正在等待查询…",
+    "none": "没有捕获到查询。"
+  },
+  "dragHint": "拖动以调整高度",
+  "detail": {
+    "rows_other": "{{n}} 行"
+  },
+  "foot": {
+    "queries_other": "{{n}} 个查询",
+    "passing": "{{n}} 个通过筛选",
+    "skipped": "{{n}} 个被筛选丢弃",
+    "dropped": "最早的 {{n}} 个已被丢弃（保留最近的 {{max}} 个）",
+    "arrivalOrder": "返回到达顺序",
+    "toEnd": "转到末尾"
+  },
+  "unitHint": "单位：{{unit}}"
+}

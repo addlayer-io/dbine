@@ -51,7 +51,10 @@ To comply:
 
 ## Conventions
 
-- UI texts in the five locales (Spanish is the source of the UI strings);
+- UI texts in the ten languages: Spanish `es` (the source of the UI
+  strings), English `en`, Portuguese (Brazil) `pt`, French `fr`, Italian
+  `it`, German `de`, Russian `ru`, Simplified Chinese `zh` (zh-CN), Japanese
+  `ja` and Korean `ko`. The list lives in `scripts/i18n/languages.json`;
   documentation, markdown, agent instructions and the changelog in English;
   code, comments and commits in English.
 - Commits prefixed with `feat:`, `fix:` or `perf:`.
@@ -59,6 +62,22 @@ To comply:
 - Rust types are copied by hand into `web/src/api/types.ts`, with the fields
   in snake_case.
 - Passwords and secret fields never go into the state file or the logs.
+
+## Every text in every language
+
+Every new UI or backend text, and every feature, ships in **all ten
+languages** in the same batch of work: the Spanish source plus the nine
+translations in `web/src/locales/<lang>/` (UI keys and `backend.json`) and,
+for the AI assistant, `crates/dbine-ai/prompts/<lang>.json`. The `translator`
+agent (`.claude/agents/translator.md`) does the translating. A text isn't
+done while it's in Spanish only or copied from English.
+
+`python3 scripts/i18n/check.py` must pass, with **no untranslated values**,
+before a merge to `main` and before a release (it's part of the release
+gate). It checks keys, placeholders, markup and plural forms in every
+language, and reports as untranslated any value identical to English, except
+the terms listed in `scripts/i18n/same_as_en/<lang>.txt`. A new language goes
+in `scripts/i18n/languages.json` and in the lists the check verifies.
 
 ## Changelog
 
@@ -68,8 +87,12 @@ source. Every change the user notices adds a line under `## [Unreleased]`, in
 the same commit or in its own, using the format of the `changelog` agent
 (`.claude/agents/changelog.md`).
 
-The translations are in `changelog/CHANGELOG.{es,pt,fr,it}.md`: the same
-published versions, without an `Unreleased` section. When preparing a release,
+The translations are in
+`changelog/CHANGELOG.{es,pt,fr,it,de,ru,zh,ja,ko}.md`: the same published
+versions, without an `Unreleased` section. A language added later starts at
+the first version it shipped with (`changelog_after` in
+`scripts/i18n/languages.json`: de, ru, zh, ja and ko have every version after
+1.0.0); for older versions the update dialog shows the English notes. When preparing a release,
 `python3 scripts/changelog.py release <version>` turns `Unreleased` into the
 new version in the English file; then the `translator` agent adds that version
 to each translation and `python3 scripts/changelog.py check` has to pass (it
@@ -82,7 +105,9 @@ reading the tag's translation, and in English if it can't.
 A release goes out only when **both** pass, on the release commit:
 
 1. **Tests:** `cargo test --workspace` (no failures), `cd web && npx vue-tsc
-   --noEmit` and `npx vite build`, on a clean worktree of that commit.
+   --noEmit` and `npx vite build`, and `python3 scripts/i18n/check.py` and
+   `python3 scripts/changelog.py check` (no problems and no untranslated
+   values), on a clean worktree of that commit.
 2. **Security:** the `security` agent (`.claude/agents/security.md`) runs the
    `claude-security` scan on what the release adds (since the last release
    users have) and returns PASS: a verified report with **no CRITICAL or

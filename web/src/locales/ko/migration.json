@@ -1,0 +1,262 @@
+{
+  "migrate": "마이그레이션",
+  "preview": "미리 보기",
+  "pickEngine": "대상 엔진을 선택하세요",
+  "pickTable": "테이블을 하나 이상 선택하세요",
+  "intro": "{database}({{engine}})의 테이블을 선택한 대상 데이터베이스(다른 엔진이어도 됨)로 옮깁니다. 변환된 테이블(유형, 기본값, 키, 인덱스, 이름)을 만들고, 대량 로드로 여러 테이블을 동시에 데이터를 복사하며, 마지막에 외래 키를 추가합니다. 앱이 중간에 종료되면 마이그레이션을 재개할 수 있습니다. 미리 보기에서는 아무것도 건드리지 않고 각 변경의 보고서와 스크립트를 먼저 볼 수 있습니다.",
+  "severity": {
+    "dropped": "생략됨",
+    "droppedHint": "대상이 표현할 수 없어 제외됩니다",
+    "loss": "손실",
+    "lossHint": "값이 들어가지 않거나 세부 정보가 손실될 수 있습니다",
+    "warning": "경고",
+    "warningHint": "값은 같지만 동작이 다릅니다",
+    "info": "정보",
+    "infoHint": "충실한 변경이지만 알아 두면 좋습니다"
+  },
+  "confirm": {
+    "message": "{{where}}({{engine}})에 테이블 {{count}}개를 만듭니다{{data}}{{drop}}. 계속할까요?",
+    "data": " (모든 데이터도 복사)",
+    "drop": " (같은 이름의 기존 테이블은 먼저 삭제)",
+    "clone": "{{where}}({{engine}})에 테이블 {{count}}개를 전체 구조로 복제합니다{{data}}. 계속할까요?",
+    "cloneData": " (모든 데이터 포함)",
+    "sync": "{{where}}({{engine}})의 테이블 {{count}}개가 동기화됩니다. 원본과 다른 행이 삽입, 업데이트, 삭제됩니다. 계속할까요?"
+  },
+  "run": {
+    "cancelled": "마이그레이션이 취소되었습니다",
+    "finishedWithErrors": "마이그레이션이 오류 {{count}}개와 함께 완료되었습니다. 요약을 확인하세요",
+    "finished": "마이그레이션이 완료되었습니다",
+    "running": "마이그레이션하는 중…",
+    "stopped": "마이그레이션이 중지되었습니다",
+    "stepOf": "{{total}}개 중 {{step}}번째",
+    "fkErrors": "만들지 못한 외래 키:",
+    "withErrors": "오류와 함께 마이그레이션이 완료되었습니다",
+    "progress": "테이블 {{total}}개 중 {{done}}개 · 행 {{rows}}개 · {{elapsed}}",
+    "parallel": "동시 처리 테이블 수",
+    "cancelAll": "모두 취소",
+    "retryFailed": "실패한 항목 다시 시도",
+    "synced": "동기화 완료",
+    "cloned": "복제 완료",
+    "afterErrors": "실행하지 못한 마지막 문:"
+  },
+  "phase": {
+    "drop": "기존 테이블 삭제 중",
+    "create": "테이블 생성 중",
+    "foreignKeys": "외래 키 생성 중",
+    "done": "마무리하는 중",
+    "schemas": "스키마 생성 중",
+    "identity": "테이블의 ID 조정 중",
+    "script": "원본 구조 읽는 중",
+    "before": "대상 준비 중",
+    "check": "대상 테이블 확인 중",
+    "after": "제약 조건, 코드 및 기타 개체 생성 중"
+  },
+  "script": {
+    "pickConnection": "스크립트를 열 대상 연결(선택한 엔진의 연결)을 선택하세요",
+    "queryTitle": "{{name}}에서 마이그레이션",
+    "copied": "스크립트를 복사했습니다",
+    "fileName": "migration-{{database}}-to-{{engine}}",
+    "fileNameDatabase": "database",
+    "title": "{{engine}}용 구조 스크립트",
+    "previewTag": "(미리 보기)",
+    "openInQuery": "쿼리로 열기",
+    "saveAs": "파일로 저장…",
+    "help": "데이터를 복사하기 전에 「마이그레이션」이 대상에 만드는 내용입니다. 쿼리로 열거나 복사하거나 저장할 수도 있습니다."
+  },
+  "target": {
+    "title": "대상",
+    "engine": "대상 엔진",
+    "pickEngine": "엔진을 선택하세요",
+    "connection": "대상 연결",
+    "connectionHint": "(모든 것이 만들어지는 곳)",
+    "connectionPlaceholder": "연결",
+    "noConnections": "{{engine}} 연결이 없습니다",
+    "thatEngine": "해당 엔진",
+    "database": "데이터베이스",
+    "keepSchemas": "원본의 스키마 유지(대상에 생성됨)",
+    "singleSchema": "단일 스키마",
+    "singleSchemaHint": "(선택 사항: 모든 테이블이 이 스키마에 들어갑니다)",
+    "eachInOwnSchema": "테이블마다 자체 스키마",
+    "engineDefault": "엔진 기본값"
+  },
+  "tables": {
+    "title": "테이블",
+    "pickedOf": "{{total}}개 중 {{picked}}개",
+    "all": "모두",
+    "none": "없음",
+    "loading": "테이블을 읽는 중…",
+    "empty": "이 데이터베이스에는 테이블이 없습니다."
+  },
+  "options": {
+    "title": "옵션",
+    "data": "데이터 복사",
+    "indexes": "인덱스",
+    "foreignKeys": "외래 키",
+    "foldCase": "이름의 대소문자를 대상에 맞게 조정",
+    "drop": "만들기 전에 대상의 테이블 삭제(DROP)",
+    "ifExists": "IF EXISTS / IF NOT EXISTS 사용",
+    "needConnection": "마이그레이션하려면 대상 연결을 선택하세요. 미리 보기에서는 아무것도 건드리지 않고 보고서와 스크립트를 보여 줍니다.",
+    "needConnectionSame": "복제하거나 동기화하려면 대상 연결을 선택하세요."
+  },
+  "cols": {
+    "table": "테이블",
+    "rows": "행",
+    "column": "열",
+    "sourceType": "원본 유형",
+    "targetType": "대상 유형",
+    "new": "(새로 만듦)"
+  },
+  "report": {
+    "title": "변환 보고서",
+    "summary": "테이블 {{tables}}개 · 참고 사항 {{issues}}개",
+    "clean": "변환이 그대로 이루어집니다. 참고 사항이 없습니다.",
+    "byColumn": "열별 변환({{count}})",
+    "filterColumns": "열 필터"
+  },
+  "status": {
+    "pending": "대기 중",
+    "running": "복사 중",
+    "check": "확인 중",
+    "truncate": "비우는 중",
+    "indexes": "인덱스",
+    "copied": "인덱스",
+    "done": "복사됨",
+    "failed": "오류",
+    "cancelled": "취소됨",
+    "summary": "요약 중",
+    "compare": "비교 중",
+    "apply": "적용 중",
+    "syncing": "동기화 중",
+    "synced": "동기화됨"
+  },
+  "path": {
+    "native": "직접 복사",
+    "bulkLoad": "대량 로드",
+    "insertScript": "배치 INSERT",
+    "delta": "행 단위"
+  },
+  "grid": {
+    "status": "상태",
+    "speed": "행/초",
+    "path": "방식",
+    "bottleneck": "병목",
+    "source": "원본",
+    "destination": "대상",
+    "perSecond": "{{n}}/초",
+    "runNow": "지금 실행",
+    "cancel": "이 테이블 취소",
+    "reviewed": "검토한 행",
+    "changes": "변경",
+    "changesValue": "신규 {{inserted}}개 · 변경 {{updated}}개 · 삭제 {{deleted}}개"
+  },
+  "advanced": {
+    "title": "고급 옵션",
+    "parallel": "동시 처리 테이블 수",
+    "parallelHint": "(1~32, 복사 중에도 변경 가능)",
+    "order": "순서",
+    "largestFirst": "큰 것부터",
+    "smallestFirst": "작은 것부터",
+    "alphabetical": "가나다순",
+    "commitRows": "커밋 단위",
+    "commitRowsHint": "(행)"
+  },
+  "interrupted": {
+    "title": "중단됨",
+    "hint": "앱을 닫을 때 중단된 마이그레이션입니다. 중단된 지점부터 다시 시작합니다",
+    "tables": "테이블 {{total}}개 중 {{done}}개 복사됨",
+    "resume": "재개",
+    "forget": "버리기",
+    "forgetConfirm": "이 마이그레이션을 잊으면 더 이상 재개할 수 없습니다. 이미 복사된 내용은 대상에 남습니다. 계속할까요?"
+  },
+  "mode": {
+    "title": "모드",
+    "pickEngineFirst": "먼저 대상 엔진을 선택하세요",
+    "noConvert": "이 엔진으로의 스키마 변환은 지원되지 않습니다",
+    "noClone": "이 엔진끼리는 복제할 수 없습니다",
+    "noSync": "이 엔진끼리는 동기화할 수 없습니다",
+    "label": {
+      "convert": "마이그레이션(변환)",
+      "clone": "복제",
+      "sync": "동기화"
+    },
+    "hint": {
+      "convert": "구조를 대상 엔진에 맞게 변환하고 테이블을 만든 후 데이터를 복사합니다.",
+      "clone": "복제(대상을 동일하게 만들기): 같은 엔진의 데이터베이스 사이에서 엔진 자체의 스크립트로 모든 것을 만들고 데이터를 복사합니다.",
+      "sync": "변경된 부분만 동기화: 이미 있는 테이블에서 다른 행만 삽입, 업데이트, 삭제합니다."
+    },
+    "action": {
+      "convert": "마이그레이션",
+      "clone": "복제",
+      "sync": "동기화"
+    }
+  },
+  "clone": {
+    "needConnection": "복제 스크립트를 보려면 대상 연결을 선택하세요. 스크립트는 해당 서버가 지원하는 내용에 맞게 조정됩니다(조회만 수행).",
+    "help": "대상이 원본과 동일해집니다. 저장소가 포함된 테이블, 인덱스, 제약 조건, 시퀀스, 코드 및 기타 개체를 엔진 자체의 스크립트로 만듭니다. 대상에 이미 있는 것은 건드리지 않습니다.",
+    "clean": "대상이 동일해질 수 있습니다. 참고 사항이 없습니다.",
+    "reportTitle": "복제 참고 사항",
+    "scriptTitle": "{{engine}}용 복제 스크립트",
+    "scriptHelp": "「복제」가 대상에서 실행하는 내용입니다. 먼저 테이블 이전 항목, 그다음 각 테이블과 인덱스, 마지막으로 제약 조건, 코드 및 기타 개체 순입니다."
+  },
+  "sync": {
+    "help": "테이블이 대상에 같은 열로 존재해야 합니다. 아무것도 만들거나 비우지 않으며, 다른 행만 테이블당 하나의 트랜잭션으로 삽입, 업데이트, 삭제합니다.",
+    "depth": "비교 대상",
+    "depths": {
+      "full": "전체",
+      "fullHint": "각 행의 전체 내용.",
+      "sizes": "큰 열은 크기만",
+      "sizesHint": "큰 열은 길이로 비교합니다. 훨씬 빠르지만 크기가 같은 변경은 감지하지 못합니다.",
+      "keys": "키만",
+      "keysHint": "새 행과 삭제된 행은 찾지만 수정된 행은 찾지 못합니다."
+    },
+    "maxCores": "서버 코어 수",
+    "maxCoresHint": "(0: 서버가 결정)",
+    "keysTitle": "동기화할 키",
+    "keysSummary": "테이블 {{tables}}개 · 키 없음 {{unsyncable}}개",
+    "keysHelp": "각 테이블은 기본 키로 비교합니다. 기본 키가 없으면 고유 키를 선택하세요.",
+    "pickKey": "키를 선택하세요",
+    "primaryKey": "기본 키({{columns}})",
+    "uniqueKey": "고유 키({{columns}})"
+  },
+  "panes": {
+    "preview": "미리 보기",
+    "run": "실행"
+  },
+  "runFilter": {
+    "all": "모두",
+    "pending": "대기 중",
+    "active": "진행 중",
+    "done": "완료됨",
+    "failed": "오류 있음",
+    "cancelled": "취소됨",
+    "search": "테이블 검색…",
+    "none": "필터와 일치하는 테이블이 없습니다."
+  },
+  "saved": {
+    "untitled": "새 마이그레이션",
+    "mode": {
+      "convert": "변환",
+      "clone": "복제",
+      "sync": "동기화"
+    },
+    "notSaved": "저장되지 않음: 첫 변경 시 자동으로 저장됩니다",
+    "renameHint": "마이그레이션 이름(클릭하여 변경)",
+    "renameTitle": "마이그레이션 이름 바꾸기",
+    "renamePrompt": "마이그레이션의 새 이름",
+    "delete": "삭제",
+    "deleteTitle": "마이그레이션 삭제",
+    "deleteConfirm": "마이그레이션 「{{name}}」과 그 설정이 삭제됩니다. 원본과 대상은 건드리지 않으며 이미 복사된 내용은 그대로 남습니다. 계속할까요?",
+    "resume": "재개",
+    "history": "이 마이그레이션의 실행 기록",
+    "runElsewhere": "이 마이그레이션에는 실행 기록이 있지만 이 컴퓨터에는 없습니다. 여기서는 설정만 볼 수 있습니다.",
+    "state": {
+      "draft": "초안",
+      "elsewhere": "이 컴퓨터에서 실행 기록 없음",
+      "running": "진행 중",
+      "done": "완료됨",
+      "failed": "오류 있음",
+      "interrupted": "중단됨",
+      "cancelled": "취소됨"
+    }
+  }
+}

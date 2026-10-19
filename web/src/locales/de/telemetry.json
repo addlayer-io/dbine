@@ -1,0 +1,14 @@
+{
+  "consent": {
+    "title": "Anonyme Nutzungsdaten",
+    "text": "DBine sendet anonyme Nutzungsdaten. Sie helfen uns zu wissen, wie viel es genutzt wird und woran wir arbeiten sollen.",
+    "sent": "Was gesendet wird: die DBine-Version, das Betriebssystem, die Sprache, welche Datenbank-Engines und welche DBine-Module und -Funktionen Sie nutzen (zum Beispiel PostgreSQL, der Monitor oder der KI-Assistent und ob es ein lokales oder externes Modell ist) und das ungefähre Land.",
+    "notSent": "Nie gesendet: Servernamen, Benutzer, Datenbanken, Abfragen oder Daten. Es gibt keine Kennung von Ihnen.",
+    "change": "Wenn Sie es ausschalten möchten, gehen Sie zu Einstellungen › Allgemein › Anonyme Nutzungsdaten teilen.",
+    "ok": "Verstanden"
+  },
+  "settings": {
+    "label": "Anonyme Nutzungsdaten teilen",
+    "help": "Version, Betriebssystem, Sprache, Engines, Module und Funktionen, die Sie nutzen, und ungefähres Land. Nie Server, Abfragen oder Daten."
+  }
+}

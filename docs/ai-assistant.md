@@ -214,8 +214,8 @@ It is built in `src-tauri/src/commands/ai.rs`:
 
 A small model sometimes answers "Sorry, I can't help you with that" to a
 legitimate request about the user's own database. If the answer is short,
-brings no code and apologizes or says it can't (in Spanish, English,
-Portuguese, French or Italian), DBine asks again just once, adding to the
+brings no code and apologizes or says it can't (in any of DBine's ten UI
+languages), DBine asks again just once, adding to the
 prompt that the request is legitimate and that the user decides what to run.
 The chat shows "Asking again…" and replaces the refusal with the new answer.
 

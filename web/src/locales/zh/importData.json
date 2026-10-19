@@ -1,0 +1,77 @@
+{
+  "title": "导入数据",
+  "steps": {
+    "file": "文件",
+    "preview": "预览",
+    "target": "目标",
+    "import": "导入"
+  },
+  "formats": {
+    "auto": "自动（按扩展名）",
+    "csv": "CSV（逗号）",
+    "csvSemicolon": "CSV（分号）",
+    "tsv": "TSV（制表符）",
+    "json": "JSON（对象数组）",
+    "jsonLines": "JSON Lines（每行一个对象）"
+  },
+  "types": {
+    "integer": "整数",
+    "number": "数字",
+    "boolean": "布尔值",
+    "date": "日期",
+    "datetime": "日期时间",
+    "text": "文本"
+  },
+  "file": {
+    "filterData": "数据（CSV、TSV、JSON、JSONL、XLSX、XML）",
+    "pickHint": "请选择 CSV、TSV、JSON、JSON Lines、Excel 或 XML 文件。",
+    "format": "格式",
+    "delimiter": "分隔符",
+    "tab": "制表符",
+    "commaDefault": ", （或该格式的分隔符）",
+    "sheet": "工作表",
+    "firstSheet": "第一个工作表",
+    "header": "第一行是列名",
+    "detected_other": "检测到 {{count}} 列 · 格式 {{format}}"
+  },
+  "preview": {
+    "caption_other": "{file} 的前 {{rows}} 行 · {{count}} 列",
+    "empty": "文件中没有数据行。"
+  },
+  "target": {
+    "existing": "现有表",
+    "new": "新表",
+    "pickTable": "选择表",
+    "schema": "架构",
+    "tableName": "表名",
+    "batch": "每批行数",
+    "sourceColumn": "文件列",
+    "detectedType": "检测到的类型",
+    "targetColumn": "目标列",
+    "ignore": "（忽略）",
+    "name": "名称",
+    "type": "类型",
+    "nulls": "空值",
+    "toImport_other": "要导入 {{count}} 列",
+    "errors": {
+      "pickTable": "请选择目标表",
+      "mapOne": "请至少映射一列",
+      "mappedTwice": "部分目标列被映射了两次",
+      "newName": "请输入新表的名称",
+      "exists": "已存在同名的表",
+      "includeOne": "请至少包含一列",
+      "nameAndType": "每一列都需要名称和类型",
+      "duplicateNames": "存在重复的列名"
+    }
+  },
+  "run": {
+    "importing": "正在导入 {{file}}…",
+    "rows_other": "行",
+    "rowsPerSecond": "行/秒",
+    "done": "导入完成",
+    "doneDetail_other": "{{n}} 行已导入 {table} · {{seconds}} 秒",
+    "partial_other": "停止前已导入 {{n}} 行。",
+    "cancelledMessage": "导入已取消。",
+    "cancelImport": "取消导入"
+  }
+}

@@ -1,0 +1,117 @@
+{
+  "pair": {
+    "intro": "휴대폰에서 데이터베이스의 잠금과 진행 중인 쿼리를 확인하세요. 연결과 비밀번호는 컴퓨터에만 남습니다.",
+    "name": "이 휴대폰의 이름",
+    "defaultName": "내 휴대폰",
+    "scan": "DBine과 연결",
+    "connecting": "연결하는 중…",
+    "step1": "컴퓨터에서 DBine › 설정 › 장치를 엽니다.",
+    "step2": "「휴대폰 허용」을 켜고 「휴대폰 연결」을 누릅니다.",
+    "step3": "표시된 코드를 스캔하세요. 휴대폰이 같은 네트워크에 없으면 인터넷으로 연결됩니다(DBine이 「로컬 네트워크 외부」에서 허용한 경우).",
+    "confirmOn": "「{{desktop}}」에서 확인하세요.",
+    "compare": "컴퓨터에 이와 같은 코드가 표시되는지 확인하세요:",
+    "noCamera": "카메라 사용 권한이 없으면 코드를 읽을 수 없습니다.",
+    "fromLink": "이 휴대폰을 「{{desktop}}」과(와) 연결합니다. 그런 다음 해당 컴퓨터에서 코드가 같은지 확인합니다.",
+    "pairLink": "연결",
+    "scanInstead": "다른 코드 스캔",
+    "alreadyPaired": "이 휴대폰은 이미 「{{desktop}}」과(와) 연결되어 있습니다. 다른 컴퓨터와 연결하려면 먼저 연결을 해제하세요."
+  },
+  "connections": {
+    "filter": "연결 검색",
+    "none": "DBine에 저장된 연결이 없습니다.",
+    "loading": "불러오는 중…",
+    "thisPhone": "이 휴대폰: {{code}}",
+    "unpair": "연결 해제",
+    "unpairConfirm": "이 휴대폰의 연결을 해제할까요? 다시 사용하려면 새 코드를 스캔해야 합니다.",
+    "via": {
+      "local": "로컬 네트워크",
+      "internet": "인터넷"
+    }
+  },
+  "conn": {
+    "monitor": "모니터",
+    "locks": "잠금",
+    "processes": "진행 중",
+    "health": "상태",
+    "unsupported": "{{engine}}은(는) 상태, 잠금, 프로세스를 제공하지 않습니다.",
+    "noLocks": "차단된 세션이 없습니다.",
+    "noProcesses": "실행 중인 쿼리가 없습니다.",
+    "session": "세션 {{id}}",
+    "blocks_other": "세션 {{count}}개를 차단",
+    "waitsFor": "{{id}} 대기 중",
+    "kill": "종료",
+    "killConfirm": "세션 {{id}}을(를) 종료할까요? 진행 중인 트랜잭션이 롤백됩니다.\n\n{{sql}}",
+    "killReason": "세션 {{id}} 종료",
+    "notConfirmed": "확인되지 않았습니다. 세션이 계속됩니다.",
+    "killed": "세션 {{id}}을(를) 종료했습니다.",
+    "notAllowed": "이 휴대폰에서 세션을 종료하려면 DBine › 설정 › 장치에서 허용하세요.",
+    "engineCantKill": "이 연결은 세션 종료를 허용하지 않습니다(읽기 전용이거나 엔진이 지원하지 않습니다).",
+    "f": {
+      "status": "상태",
+      "user": "사용자",
+      "host": "호스트",
+      "database": "데이터베이스",
+      "client": "클라이언트",
+      "object": "개체",
+      "waitsFor": "대기 대상"
+    },
+    "loading": "{{engine}} 조회 중…"
+  },
+  "nav": {
+    "connections": "연결",
+    "activity": "활동"
+  },
+  "tasks": {
+    "title": "예약된 작업",
+    "none": "DBine에 예약된 작업이 없습니다.",
+    "neverRan": "아직 실행되지 않았습니다.",
+    "next": "다음: {{at}}",
+    "disabled": "비활성",
+    "runNow": "지금 실행",
+    "runConfirm": "컴퓨터에서 「{{name}}」을(를) 지금 실행할까요?",
+    "runReason": "「{{name}}」 실행",
+    "notConfirmed": "확인되지 않았습니다. 작업이 실행되지 않았습니다.",
+    "started": "컴퓨터에서 작업이 시작되었습니다. 끝나면 여기에 표시됩니다.",
+    "needsApproval": "이 작업은 데이터를 변경하며 승인되지 않은 단계가 있습니다. 컴퓨터의 DBine에서 승인하세요.",
+    "notAllowed": "이 휴대폰에서 작업을 실행하려면 DBine › 설정 › 장치에서 허용하세요.",
+    "status": {
+      "running": "진행 중",
+      "ok": "성공",
+      "partial": "오류 있음",
+      "failed": "실패"
+    },
+    "at": "{{total}}단계 중 {{n}}단계: {{name}}",
+    "cancel": "작업 취소",
+    "cancelConfirm": "「{{name}}」을(를) 취소할까요? 진행 중인 단계가 중단되고 다음 단계는 실행되지 않습니다.",
+    "cancelReason": "「{{name}}」 취소",
+    "cancelling": "작업 취소를 요청했습니다. 몇 초 안에 중단됩니다."
+  },
+  "health": {
+    "run": "데이터베이스 점검",
+    "running": "점검하는 중…",
+    "allGood": "문제가 발견되지 않았습니다.",
+    "fine_other": "문제 없는 점검 {{count}}건"
+  },
+  "activity": {
+    "title": "활동",
+    "queries": "쿼리",
+    "tasks": "예약된 작업",
+    "running": "진행 중",
+    "recent": "완료됨",
+    "none": "진행 중이거나 최근에 끝난 쿼리가 없습니다.",
+    "cancel": "취소",
+    "cancelConfirm": "컴퓨터에서 이 쿼리를 취소할까요?\n\n{{sql}}",
+    "cancelReason": "쿼리 취소",
+    "notConfirmed": "확인되지 않았습니다. 쿼리가 계속됩니다.",
+    "cancelled": "쿼리 취소를 요청했습니다.",
+    "done": "정상 종료",
+    "startedAt": "{{at}}에 시작",
+    "hint": "여기에는 DBine 편집기에서 실행하는 쿼리가 실행되는 동안 표시되고, 10초 넘게 걸린 쿼리는 끝났을 때 표시됩니다. 허용하면 휴대폰이 끝났을 때 알려 줍니다. 앱이 열려 있으면 즉시, 앱이 닫혀 있으면 Android의 다음 점검 때(15분마다) 알려 줍니다. 쿼리가 30초 넘게 실행되는 동안 DBine은 컴퓨터가 절전 모드로 들어가지 않게 합니다.",
+    "tapForDetail": "눌러서 자세히 보기",
+    "cancelNotAllowed": "이 휴대폰에서 쿼리를 취소하려면 DBine › 설정 › 장치에서 허용하세요."
+  },
+  "update": {
+    "available": "DBine의 새 버전({{version}})이 있습니다.",
+    "download": "다운로드"
+  }
+}

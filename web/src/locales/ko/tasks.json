@@ -1,0 +1,203 @@
+{
+  "status": {
+    "running_other": "진행 중인 작업 {{count}}개",
+    "title": "진행 중인 작업 보기",
+    "many": "작업 {{count}}개",
+    "line": "{{title}}: {{elapsed}}",
+    "lineEta": "{{title}}: {{elapsed}} · {{eta}}"
+  },
+  "panel": {
+    "title": "작업",
+    "empty": "작업이 없습니다.",
+    "clearFinished": "완료된 항목 제거",
+    "cancel": "취소",
+    "cancelling": "취소하는 중…",
+    "detail": "세부 정보 보기",
+    "remove": "제거",
+    "background": "백그라운드에서 계속"
+  },
+  "state": {
+    "running": "진행 중",
+    "done": "완료됨",
+    "error": "오류 있음",
+    "cancelled": "취소됨"
+  },
+  "progress": {
+    "of": "{{unit}} {{total}}개 중 {{done}}개",
+    "count": "{{done}} {{unit}}"
+  },
+  "unit": {
+    "statements": "문",
+    "rows": "행",
+    "bytes": "바이트",
+    "tables": "테이블",
+    "objects": "개체"
+  },
+  "elapsed": {
+    "seconds": "{{n}}초",
+    "minutes": "{{n}}분 {{s}}초",
+    "hours": "{{n}}시간 {{m}}분",
+    "days": "{{n}}일 {{h}}시간"
+  },
+  "eta": {
+    "calculating": "계산하는 중…",
+    "lessThanMinute": "1분 미만",
+    "minutes": "≈ {{n}}분",
+    "hours": "≈ {{h}}시간 {{m}}분",
+    "hoursExact": "≈ {{h}}시간",
+    "days": "≈ {{d}}일 {{h}}시간",
+    "remaining": "{{eta}} 남음",
+    "phase": "이 단계까지 {{eta}}",
+    "none": "예상 없음",
+    "low": "초기 예상치이며 변경될 수 있습니다"
+  },
+  "detail": {
+    "title": "작업 세부 정보",
+    "messages": "메시지",
+    "noMessages": "메시지가 없습니다.",
+    "result": "결과",
+    "error": "오류",
+    "started": "시작",
+    "elapsed": "경과 시간",
+    "remaining": "예상 남은 시간",
+    "ended": "종료",
+    "duration": "총 소요 시간"
+  },
+  "notify": {
+    "title": {
+      "done": "작업 완료",
+      "error": "오류가 있는 작업",
+      "cancelled": "작업 취소됨"
+    },
+    "done": "{{title}}: {{elapsed}}에 완료되었습니다.",
+    "error": "{{title}}: {{elapsed}}에 오류와 함께 완료되었습니다.",
+    "cancelled": "{{title}}: {{elapsed}} 후 취소되었습니다.",
+    "withSummary": "{{title}}: {{summary}}, {{elapsed}}.",
+    "failed": "{{title}}: {{elapsed}} 후 실패했습니다. {{error}}"
+  },
+  "quit": {
+    "title": "백그라운드 실행",
+    "message_other": "백그라운드 실행이 {{count}}개 있습니다: {{list}}. 앱을 닫으면 취소됩니다. 그래도 닫을까요?",
+    "confirm": "취소하고 닫기",
+    "stay": "계속 작업",
+    "window": "{{title}}(창 {{n}})"
+  },
+  "update": {
+    "title": "백그라운드 실행",
+    "message_other": "백그라운드 실행이 {{count}}개 있습니다: {{list}}. 업데이트를 마치려면 DBine이 다시 시작되며 실행이 취소됩니다. 그래도 다시 시작할까요?",
+    "confirm": "취소하고 다시 시작",
+    "stay": "계속 작업"
+  },
+  "closeWindow": {
+    "title": "이 창의 실행",
+    "message_other": "이 창에 백그라운드 실행이 {{count}}개 있습니다: {{list}}. 창을 닫으면 취소됩니다. 그래도 닫을까요?",
+    "confirm": "취소하고 창 닫기",
+    "stay": "계속 작업"
+  },
+  "dataSync": {
+    "title": "{{table}} 데이터 동기화({{where}})",
+    "unit": "문",
+    "phase": "{{side}}에 적용하는 중: {{parts}}",
+    "applied": "{{sides}}에 이미 적용됨",
+    "nothingApplied": "완전히 적용된 스크립트가 없습니다",
+    "stoppedOn": "{{side}}이(가) 중간에 중단되었습니다. 일부 변경 사항만 적용되었을 수 있습니다",
+    "lateCancel": "스크립트가 이미 끝난 후에 취소가 도착했습니다. 변경 사항이 적용되었습니다.",
+    "stale": "실행이 중간에 중단되었고 데이터가 변경되었을 수 있어 이 스크립트들은 더 이상 실행할 수 없습니다. 비교를 다시 불러왔습니다.",
+    "regenerate": "스크립트 다시 생성"
+  },
+  "compareSync": {
+    "title": "{{target}} 동기화",
+    "sideStart_other": "{{side}}: 문 {{count}}개",
+    "summary": "문 {{total}}개 중 {{count}}개",
+    "summaryAll_other": "문 {{count}}개"
+  },
+  "backups": {
+    "copy": "{{where}} 사본",
+    "copyDone": "{{path}}에 {{size}}",
+    "restoreCopy": "{{where}}에 사본 복원",
+    "statements": "문 {{n}}개",
+    "statementsWithErrors": "문 {{n}}개, 오류 {{errors}}개",
+    "native": {
+      "backup": "{{where}} 백업",
+      "restore": "{{where}}에 복원",
+      "delete": "{{where}}의 백업 삭제"
+    }
+  },
+  "dialogs": {
+    "schemaCreate": "{{db}}에 스키마 {{name}} 만들기",
+    "schemaDrop": "{{db}}에서 스키마 {{name}} 삭제",
+    "dropIndex": "{{table}}의 인덱스 {{name}} 삭제",
+    "cloneTable": "{{table}}을(를) {{name}}(으)로 복제",
+    "runScriptFile": "{{db}}에서 {{file}} 실행",
+    "applyEdits": "{{table}}에 변경 사항 저장",
+    "saving": "저장하는 중…",
+    "rows_other": "{{n}}개 행",
+    "statements_other": "문 {{n}}개",
+    "statementsWithErrors_other": "문 {{n}}개, 오류 {{errors}}개"
+  },
+  "backupsSecurity": {
+    "run": "{{where}}의 사용자 및 권한 변경"
+  },
+  "actions": {
+    "createDatabase": "{{server}}에 데이터베이스 {{name}} 만들기",
+    "dropDatabase": "{{server}}에서 데이터베이스 {{name}} 삭제",
+    "dropOne": "{{db}}에서 {{name}} 삭제",
+    "dropMany": "{{db}}에서 개체 {{count}}개 삭제",
+    "dropped_other": "개체 {{count}}개를 삭제했습니다",
+    "dropFailed": "{{total}}개 중 {{failed}}개를 삭제하지 못했습니다(이유는 세부 정보를 확인하세요)"
+  },
+  "dataCompare": {
+    "buildTitle": "{{table}} 데이터 동기화 스크립트",
+    "buildPhase": "스크립트를 생성하는 중",
+    "applied": "이 스크립트들은 이미 실행되었고 비교를 다시 불러왔으므로 다시 실행할 수 없습니다. 다시 동기화하려면 스크립트를 다시 생성하세요."
+  },
+  "settingsGit": {
+    "git": {
+      "link": "라이브러리를 저장소에 연결",
+      "commit": "라이브러리 커밋",
+      "pull": "라이브러리 Pull",
+      "push": "라이브러리 Push",
+      "sync": "라이브러리를 저장소와 동기화",
+      "resolve": "라이브러리 충돌 해결",
+      "unlink": "라이브러리를 저장소에서 연결 해제",
+      "conflicts_other": "충돌한 스크립트 {{count}}개: 「Git 라이브러리」를 열어 해결하세요"
+    },
+    "sync": {
+      "setupUpload": "동기화를 켜고 백업 업로드",
+      "setupRestore": "이 컴퓨터에 백업 복원",
+      "now": "클라우드와 동기화",
+      "upload": "클라우드에 백업 업로드",
+      "restore": "클라우드에서 복원",
+      "change": "암호 문구를 변경하고 백업 다시 암호화",
+      "disconnect": "동기화를 중단하고 클라우드 백업 삭제",
+      "local": "로컬 사본 복원"
+    },
+    "drivers": {
+      "install": "{{label}} 드라이버 다운로드"
+    }
+  },
+  "genImportExport": {
+    "script": "{{db}} 스크립트",
+    "scriptToFile": "{{file}}에 {{db}} 스크립트",
+    "withRows": "{{objects}}, {{rows}}",
+    "import": "{{file}}을(를) {{table}}에 가져오기",
+    "export": "{{file}} 내보내기"
+  },
+  "nativeBackup": {
+    "phase": {
+      "backup": "데이터를 복사하는 중",
+      "restore": "데이터를 복원하는 중",
+      "verify": "백업을 확인하는 중",
+      "export": "Data Pump로 내보내는 중",
+      "import": "Data Pump로 가져오는 중"
+    }
+  },
+  "importExport": {
+    "phase": {
+      "reading": "파일을 읽는 중",
+      "inserting": "행을 삽입하는 중"
+    },
+    "ofTotal": "/ 전체 {{total}}",
+    "estimated": "/ 예상 ~{{total}}"
+  }
+}

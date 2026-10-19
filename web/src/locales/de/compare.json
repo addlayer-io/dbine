@@ -1,0 +1,186 @@
+{
+  "connectFailed": "Verbindung nicht möglich",
+  "pickLeftDatabase": "Linke Datenbank wählen",
+  "pickRightConnection": "Rechte Verbindung wählen",
+  "pickDifferent": "Wählen Sie zwei verschiedene Datenbanken (oder Schemas)",
+  "kinds": {
+    "table": "Tabellen",
+    "view": "Sichten",
+    "materializedView": "Materialisierte Sichten",
+    "procedure": "Prozeduren",
+    "function": "Funktionen",
+    "trigger": "Trigger",
+    "sequence": "Sequenzen",
+    "synonym": "Synonyme",
+    "type": "Typen",
+    "fulltextCatalog": "Volltextkataloge",
+    "fulltextStoplist": "Stoppwortlisten",
+    "domain": "Domänen",
+    "virtualTable": "Virtuelle Tabellen",
+    "dictionary": "Wörterbücher"
+  },
+  "status": {
+    "equal": "Gleich",
+    "changed": "Unterschiedlich",
+    "onlyLeft": "Nur links",
+    "onlyRight": "Nur rechts"
+  },
+  "objectsSameEngine": "Sichten und Prozeduren lassen sich nur zwischen Datenbanken derselben Engine übertragen",
+  "arrow": {
+    "revert": "Nur diese Änderung rückgängig machen",
+    "table": {
+      "copyLeft": "Tabelle nach links kopieren",
+      "copyRight": "Tabelle nach rechts kopieren",
+      "createLeft": "Tabelle links erstellen",
+      "createRight": "Tabelle rechts erstellen",
+      "deleteLeft": "Tabelle links löschen",
+      "deleteRight": "Tabelle rechts löschen"
+    },
+    "object": {
+      "copyLeft": "Objekt nach links kopieren",
+      "copyRight": "Objekt nach rechts kopieren",
+      "createLeft": "Objekt links erstellen",
+      "createRight": "Objekt rechts erstellen",
+      "deleteLeft": "Objekt links löschen",
+      "deleteRight": "Objekt rechts löschen"
+    },
+    "item": {
+      "copyLeft": "Dies nach links kopieren",
+      "copyRight": "Dies nach rechts kopieren",
+      "createLeft": "Dies links erstellen",
+      "createRight": "Dies rechts erstellen",
+      "deleteLeft": "Dies links löschen",
+      "deleteRight": "Dies rechts löschen"
+    },
+    "pk": {
+      "copyLeft": "Primärschlüssel nach links kopieren",
+      "copyRight": "Primärschlüssel nach rechts kopieren"
+    },
+    "props": {
+      "copyLeft": "Kommentar und Optionen nach links kopieren",
+      "copyRight": "Kommentar und Optionen nach rechts kopieren"
+    }
+  },
+  "autoIncrement": "Auto-Inkrement",
+  "sections": {
+    "columns": "Spalten",
+    "indexes": "Indizes",
+    "foreignKeys": "Fremdschlüssel",
+    "checks": "CHECK-Einschränkungen"
+  },
+  "primaryKey": "Primärschlüssel",
+  "sync": {
+    "button": "Synchronisieren",
+    "readOnly": "Die Verbindung ist schreibgeschützt",
+    "unsupported": "{{engine}} übernimmt keine Schemaänderungen aus DBine",
+    "queryTitle": "{{name}} synchronisieren",
+    "confirm_one": "{{count}} Anweisung wird auf {{where}} ausgeführt.{{warnings}}",
+    "confirm_other": "{{count}} Anweisungen werden auf {{where}} ausgeführt.{{warnings}}",
+    "confirmWarnings": " Prüfen Sie die Warnungen, bevor Sie fortfahren.",
+    "failed": "Anweisung {{n}} von {{total}} fehlgeschlagen ({{done}} ausgeführt): {{message}}",
+    "done": "{{where}} synchronisiert",
+    "generating": "Skript wird erzeugt…",
+    "openAsQuery": "Als Abfrage öffnen",
+    "noChanges": "Nichts zu synchronisieren: Übertragen Sie Änderungen mit den Pfeilen → / ←",
+    "changes_one": "{{count}} Änderung (links: {{left}}, rechts: {{right}}): Skripte ansehen und ausführen",
+    "changes_other": "{{count}} Änderungen (links: {{left}}, rechts: {{right}}): Skripte ansehen und ausführen",
+    "confirmOrder": "Zuerst links, dann rechts; schlägt etwas fehl, wird dort abgebrochen.",
+    "failedSide": "{{side}}: {{message}}",
+    "doneTab": "Bereits ausgeführt",
+    "emptyScript": "Diese Seite hat ausstehende Änderungen, aber das Skript ist leer: Es gibt keine Anweisung, um sie anzuwenden. Hier wird nichts ausgeführt. Prüfen Sie die Änderungen oder verwerfen Sie sie.",
+    "destructiveTables_one": "{{count}} Tabelle wird samt allen Daten gelöscht: {{names}}",
+    "destructiveTables_other": "{{count}} Tabellen werden samt allen Daten gelöscht: {{names}}",
+    "destructiveColumns_one": "{{count}} Spalte wird samt Daten gelöscht: {{names}}",
+    "destructiveColumns_other": "{{count}} Spalten werden samt Daten gelöscht: {{names}}",
+    "destructiveObjects_one": "{{count}} Objekt wird gelöscht: {{names}}",
+    "destructiveObjects_other": "{{count}} Objekte werden gelöscht: {{names}}",
+    "confirmDestructive": "Einige Tabellen, Spalten oder Objekte werden gelöscht und lassen sich nicht wiederherstellen.",
+    "confirmDependents_one": "{{count}} Objekt, das von den gelöschten abhängt, funktioniert möglicherweise nicht mehr.",
+    "confirmDependents_other": "{{count}} Objekte, die von den gelöschten abhängen, funktionieren möglicherweise nicht mehr.",
+    "confirmDepsPending": "Die Abhängigkeiten werden noch geprüft.",
+    "confirmDepsFailed_one": "Die Abhängigkeiten von {{count}} zu löschendem Element konnten nicht geprüft werden.",
+    "confirmDepsFailed_other": "Die Abhängigkeiten von {{count}} zu löschenden Elementen konnten nicht geprüft werden.",
+    "confirmDepsIncomplete_one": "Die Abhängigkeitsprüfung für {{count}} Element ist unvollständig.",
+    "confirmDepsIncomplete_other": "Die Abhängigkeitsprüfung für {{count}} Elemente ist unvollständig."
+  },
+  "left": "Links",
+  "right": "Rechts",
+  "connection": "Verbindung",
+  "database": "Datenbank",
+  "schema": "Schema",
+  "allSchemas": "Alle Schemas",
+  "discard": "Änderungen dieser Seite verwerfen",
+  "swap": "Tauschen",
+  "undo": "Letzte Änderung rückgängig machen",
+  "compare": "Vergleichen",
+  "empty": {
+    "pick": "Wählen Sie die beiden Datenbanken (oder zwei Schemas) und klicken Sie auf {compare}.",
+    "help": "Unterschiede werden mit den Pfeilen von einer Seite auf die andere übertragen und mit {sync} angewendet, das das Skript vor der Ausführung anzeigt."
+  },
+  "onlyDiff": "Nur Unterschiede",
+  "ignoreCase": "Groß-/Kleinschreibung ignorieren",
+  "ignoreComments": "Kommentare ignorieren",
+  "noDifferences": "Keine Unterschiede.",
+  "noObjects": "Keine Objekte.",
+  "pendingChanges": "Hat nicht angewendete Änderungen",
+  "pickItem": "Wählen Sie eine Tabelle oder ein Objekt aus der Liste.",
+  "tableProps": "Tabelleneigenschaften",
+  "indexUsage": {
+    "share": "{{pct}} der Lesezugriffe der Tabelle in dieser Datenbank ({{reads}} Lesezugriffe)",
+    "unused": "Keine Lesezugriffe in dieser Datenbank und {{updates}} Schreibzugriffe seit Beginn der Statistik"
+  },
+  "drop": {
+    "title": "Löschen…",
+    "left": "Links löschen",
+    "right": "Rechts löschen",
+    "both": "Auf beiden Seiten löschen",
+    "undo": "Rückgängig: wieder einsetzen",
+    "missing": "Nicht auf dieser Seite",
+    "inPk": "Löschen Sie zuerst den Primärschlüssel",
+    "lastColumn": "Eine Tabelle braucht mindestens eine Spalte",
+    "clearComment": "Kommentar entfernen",
+    "cascade_one": "{{side}}: {{count}} Fremdschlüssel, der darauf verweist, wird ebenfalls entfernt ({{tables}})",
+    "cascade_other": "{{side}}: {{count}} Fremdschlüssel, die darauf verweisen, werden ebenfalls entfernt ({{tables}})",
+    "usage": "{{side}}: {{usage}}",
+    "referenced": "{{side}}: Der Fremdschlüssel {{fk}} von {{table}} verweist auf diesen Schlüssel; die Engine lehnt das Löschen möglicherweise ab",
+    "referencedColumn": "{{side}}: Der Fremdschlüssel {{fk}} von {{table}} verweist auf diese Spalte; die Engine lehnt das Löschen möglicherweise ab",
+    "withColumn_one": "{{side}}: Was sie verwendet, wird ebenfalls entfernt: {{items}}",
+    "withColumn_other": "{{side}}: {{count}} Elemente, die sie verwenden, werden ebenfalls entfernt: {{items}}",
+    "what": {
+      "index": "Index",
+      "fk": "Fremdschlüssel",
+      "check": "CHECK"
+    },
+    "computed": "{{side}}: Die berechnete Spalte {{column}} verwendet sie; die Engine lehnt das Löschen möglicherweise ab",
+    "pkRequired": "{{engine}} erlaubt keine Tabelle ohne Primärschlüssel",
+    "backsFk": "{{side}}: MySQL verwendet diesen Index für den Fremdschlüssel {{fk}}; das Löschen kann fehlschlagen",
+    "hiddenEqual_one": "· {{count}} identisches ausgeblendet",
+    "hiddenEqual_other": "· {{count}} identische ausgeblendet",
+    "hiddenEqualTip": "Deaktivieren Sie „Nur Unterschiede“, um sie zu sehen und löschen zu können",
+    "pending": {
+      "left": "Wird beim Synchronisieren links gelöscht",
+      "right": "Wird beim Synchronisieren rechts gelöscht",
+      "both": "Wird beim Synchronisieren auf beiden Seiten gelöscht"
+    }
+  },
+  "dropComment": {
+    "left": "Kommentar links entfernen",
+    "right": "Kommentar rechts entfernen",
+    "both": "Kommentar auf beiden Seiten entfernen"
+  },
+  "deps": {
+    "title": "Was vom Gelöschten abhängt",
+    "loading": "Abhängigkeiten werden gesucht…",
+    "failed": "Abhängigkeiten konnten nicht geprüft werden",
+    "tooMany": "Nicht geprüft: Es werden die ersten {{limit}} Elemente jeder Seite geprüft",
+    "stopped": "Nicht geprüft: Der Dialog wurde zuvor geschlossen",
+    "breaks_one": "{{count}} Objekt funktioniert nicht mehr",
+    "breaks_other": "{{count}} Objekte funktionieren nicht mehr",
+    "review_one": "{{count}} zu prüfen (dynamisches SQL)",
+    "review_other": "{{count}} zu prüfen (dynamisches SQL)",
+    "incomplete_one": "unvollständige Liste: {{count}} Objekt konnte nicht gelesen werden",
+    "incomplete_other": "unvollständige Liste: {{count}} Objekte konnten nicht gelesen werden",
+    "none": "Nichts hängt davon ab",
+    "noneFound": "Im Lesbaren wurde nichts gefunden"
+  }
+}

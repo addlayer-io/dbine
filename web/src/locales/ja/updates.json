@@ -1,0 +1,35 @@
+{
+  "dialog": {
+    "title": "DBine の新しいバージョンがあります",
+    "text": "バージョン {{latest}} が利用可能です。現在のバージョンは {{current}} です。",
+    "skip": "このバージョンをスキップ",
+    "later": "後で",
+    "download": "ダウンロード",
+    "updateNow": "今すぐ更新",
+    "downloading": "DBine {{latest}} をダウンロードしています…",
+    "progress": "{{total}} 中 {{done}}",
+    "progressUnknown": "{{done}} ダウンロード済み",
+    "verifying": "署名を確認しています…",
+    "cancel": "キャンセル",
+    "readyTitle": "DBine {{latest}} の準備ができました",
+    "ready": "更新のダウンロードと検証が完了しました。インストールを完了するには DBine を再起動してください。",
+    "restart": "再起動して完了",
+    "failedTitle": "DBine を更新できませんでした",
+    "failed": "新しいバージョンはダウンロードページから入手できます。",
+    "openPage": "ダウンロードページを開く",
+    "close": "閉じる"
+  },
+  "reason": {
+    "package": "DBine はシステムのパッケージでインストールされています。新しいバージョンはダウンロードページから入手してください。",
+    "location": "自動で更新されるように、DBine をアプリケーションフォルダーに移動してください。"
+  },
+  "settings": {
+    "installed": "インストール済みのバージョン: {{version}}",
+    "help": "DBine は起動時に新しいバージョンを自動で確認し、そこから更新します。",
+    "check": "更新を確認"
+  },
+  "upToDate": "最新バージョン({{version}})です。",
+  "managedByFlatpak": "バージョン {{version}} です。このインストールは Flathub 版のため、Flatpak が更新します(ソフトウェアセンターまたは「flatpak update」で)。",
+  "busyInWindow": "更新はウィンドウ {{n}} で進行中です。",
+  "failed": "更新を確認できませんでした: {{error}}"
+}

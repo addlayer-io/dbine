@@ -1,0 +1,57 @@
+{
+  "query": "쿼리 {{n}}",
+  "actualPlan": "실제 실행 계획",
+  "estimatedPlan": "예상 실행 계획",
+  "diagram": "다이어그램",
+  "rawPlan": "원본 실행 계획",
+  "statementTitle": "클릭하여 전체 보기",
+  "hint": "끌어서 이동 · ⌘/핀치 + 휠로 확대/축소 · F로 맞춤",
+  "summary": {
+    "operators": "연산자",
+    "cost": "비용",
+    "time": "시간",
+    "rows": "행",
+    "firstWarning": "첫 번째 경고로 이동",
+    "warnings_other": "경고 {{count}}개"
+  },
+  "edge": {
+    "actualRows": "실제 행: {{rows}}",
+    "estimatedRows": "예상 행: {{rows}}"
+  },
+  "node": {
+    "operatorCost": "연산자 비용: {{pct}}%",
+    "noCost": "비용 없음",
+    "actualEstimatedRows": "실제 / 예상 행",
+    "estimatedRows": "예상 행",
+    "estimatedShort": "예상 {{rows}}",
+    "expand_other": "펼치기(연산자 {{count}}개)",
+    "collapse": "접기"
+  },
+  "zoom": {
+    "zoomOut": "축소(−)",
+    "actualSize": "실제 크기(0)",
+    "zoomIn": "확대(+)",
+    "fit": "화면에 맞춤(F)",
+    "expandAll": "모두 펼치기",
+    "collapseBelow": "3단계 아래 접기",
+    "minimap": "미니맵"
+  },
+  "props": {
+    "close": "닫기(Esc)",
+    "operator": "연산자",
+    "self": "자체",
+    "subtree": "하위 트리",
+    "rowsAndTime": "행 및 시간",
+    "estimatedPerExecution": "예상(실행당)",
+    "actualTotal": "실제(합계)",
+    "executions": "실행 횟수",
+    "actualTime": "실제 시간",
+    "object": "개체",
+    "properties": "속성"
+  },
+  "raw": {
+    "save": "저장…",
+    "sqlServerPlan": "SQL Server 실행 계획",
+    "ssmsHint": "SQL Server Management Studio(.sqlplan)에서 열립니다"
+  }
+}

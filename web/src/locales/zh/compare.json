@@ -1,0 +1,172 @@
+{
+  "connectFailed": "无法连接",
+  "pickLeftDatabase": "选择左侧数据库",
+  "pickRightConnection": "选择右侧连接",
+  "pickDifferent": "请选择两个不同的数据库（或架构）",
+  "kinds": {
+    "table": "表",
+    "view": "视图",
+    "materializedView": "物化视图",
+    "procedure": "存储过程",
+    "function": "函数",
+    "trigger": "触发器",
+    "sequence": "序列",
+    "synonym": "同义词",
+    "type": "类型",
+    "fulltextCatalog": "全文目录",
+    "fulltextStoplist": "停用词表",
+    "domain": "域",
+    "virtualTable": "虚拟表",
+    "dictionary": "字典"
+  },
+  "status": {
+    "equal": "相同",
+    "changed": "不同",
+    "onlyLeft": "仅在左侧",
+    "onlyRight": "仅在右侧"
+  },
+  "objectsSameEngine": "视图和存储过程只能在同一引擎的数据库之间迁移",
+  "arrow": {
+    "revert": "仅撤销这项更改",
+    "table": {
+      "copyLeft": "将表复制到左侧",
+      "copyRight": "将表复制到右侧",
+      "createLeft": "在左侧创建表",
+      "createRight": "在右侧创建表",
+      "deleteLeft": "删除左侧的表",
+      "deleteRight": "删除右侧的表"
+    },
+    "object": {
+      "copyLeft": "将对象复制到左侧",
+      "copyRight": "将对象复制到右侧",
+      "createLeft": "在左侧创建对象",
+      "createRight": "在右侧创建对象",
+      "deleteLeft": "删除左侧的对象",
+      "deleteRight": "删除右侧的对象"
+    },
+    "item": {
+      "copyLeft": "将此项复制到左侧",
+      "copyRight": "将此项复制到右侧",
+      "createLeft": "在左侧创建此项",
+      "createRight": "在右侧创建此项",
+      "deleteLeft": "删除左侧的此项",
+      "deleteRight": "删除右侧的此项"
+    },
+    "pk": {
+      "copyLeft": "将主键复制到左侧",
+      "copyRight": "将主键复制到右侧"
+    },
+    "props": {
+      "copyLeft": "将注释和选项复制到左侧",
+      "copyRight": "将注释和选项复制到右侧"
+    }
+  },
+  "autoIncrement": "自增",
+  "sections": {
+    "columns": "列",
+    "indexes": "索引",
+    "foreignKeys": "外键",
+    "checks": "CHECK 约束"
+  },
+  "primaryKey": "主键",
+  "sync": {
+    "button": "同步",
+    "readOnly": "该连接为只读",
+    "unsupported": "{{engine}} 不支持由 DBine 应用架构更改",
+    "queryTitle": "同步 {{name}}",
+    "confirm_other": "将在 {{where}} 上运行 {{count}} 条语句。{{warnings}}",
+    "confirmWarnings": "继续之前请检查警告。",
+    "failed": "第 {{n}} 条语句（共 {{total}} 条）失败（已运行 {{done}} 条）：{{message}}",
+    "done": "{{where}} 已同步",
+    "generating": "正在生成脚本…",
+    "openAsQuery": "作为查询打开",
+    "noChanges": "没有可同步的内容：请用 → / ← 箭头迁移更改",
+    "changes_other": "{{count}} 项更改（左侧：{{left}}，右侧：{{right}}）：查看脚本并运行",
+    "confirmOrder": "先左侧后右侧；如有失败，则在该处停止。",
+    "failedSide": "{{side}}：{{message}}",
+    "doneTab": "已运行",
+    "emptyScript": "这一侧有待处理的更改，但脚本为空：没有可应用它们的语句。此处不会运行任何内容。请检查这些更改或放弃它们。",
+    "destructiveTables_other": "{{count}} 张表将连同其所有数据一起删除：{{names}}",
+    "destructiveColumns_other": "{{count}} 个列将连同其数据一起删除：{{names}}",
+    "destructiveObjects_other": "{{count}} 个对象将被删除：{{names}}",
+    "confirmDestructive": "部分表、列或对象将被删除，且无法恢复。",
+    "confirmDependents_other": "依赖于被删除内容的 {{count}} 个对象可能无法再工作。",
+    "confirmDepsPending": "仍在检查依赖项。",
+    "confirmDepsFailed_other": "无法检查 {{count}} 个待删除项的依赖项。",
+    "confirmDepsIncomplete_other": "对 {{count}} 项的依赖项检查不完整。"
+  },
+  "left": "左侧",
+  "right": "右侧",
+  "connection": "连接",
+  "database": "数据库",
+  "schema": "架构",
+  "allSchemas": "所有架构",
+  "discard": "放弃这一侧的更改",
+  "swap": "交换",
+  "undo": "撤销上一项更改",
+  "compare": "比较",
+  "empty": {
+    "pick": "选择两个数据库（或两个架构），然后点击{compare}。",
+    "help": "通过箭头将差异从一侧迁移到另一侧，并用{sync}应用；它会在运行前显示脚本。"
+  },
+  "onlyDiff": "仅显示差异",
+  "ignoreCase": "忽略大小写",
+  "ignoreComments": "忽略注释",
+  "noDifferences": "没有差异。",
+  "noObjects": "没有对象。",
+  "pendingChanges": "有未应用的更改",
+  "pickItem": "请从列表中选择一张表或一个对象。",
+  "tableProps": "表属性",
+  "indexUsage": {
+    "share": "占此数据库中该表读取量的 {{pct}}（{{reads}} 次读取）",
+    "unused": "自统计开始以来，此数据库中没有读取，写入 {{updates}} 次"
+  },
+  "drop": {
+    "title": "删除…",
+    "left": "在左侧删除",
+    "right": "在右侧删除",
+    "both": "在两侧删除",
+    "undo": "撤销：恢复",
+    "missing": "不在该侧",
+    "inPk": "请先删除主键",
+    "lastColumn": "表至少需要一列",
+    "clearComment": "移除注释",
+    "cascade_other": "{{side}}：引用它的 {{count}} 个外键也将被移除（{{tables}}）",
+    "usage": "{{side}}：{{usage}}",
+    "referenced": "{{side}}：{{table}} 的外键 {{fk}} 指向此键；引擎可能拒绝删除",
+    "referencedColumn": "{{side}}：{{table}} 的外键 {{fk}} 指向此列；引擎可能拒绝删除",
+    "withColumn_other": "{{side}}：使用它的 {{count}} 项也将被移除：{{items}}",
+    "what": {
+      "index": "索引",
+      "fk": "外键",
+      "check": "CHECK"
+    },
+    "computed": "{{side}}：计算列 {{column}} 使用了它；引擎可能拒绝删除",
+    "pkRequired": "{{engine}} 不允许没有主键的表",
+    "backsFk": "{{side}}：MySQL 将此索引用于外键 {{fk}}；删除可能失败",
+    "hiddenEqual_other": "· 已隐藏 {{count}} 项相同的内容",
+    "hiddenEqualTip": "取消勾选“仅显示差异”即可查看并删除它们",
+    "pending": {
+      "left": "同步时将在左侧删除",
+      "right": "同步时将在右侧删除",
+      "both": "同步时将在两侧删除"
+    }
+  },
+  "dropComment": {
+    "left": "移除左侧的注释",
+    "right": "移除右侧的注释",
+    "both": "移除两侧的注释"
+  },
+  "deps": {
+    "title": "依赖于被删除内容的项",
+    "loading": "正在查找依赖项…",
+    "failed": "无法检查依赖项",
+    "tooMany": "未检查：每侧只检查前 {{limit}} 项",
+    "stopped": "未检查：对话框已先关闭",
+    "breaks_other": "{{count}} 个对象将无法工作",
+    "review_other": "{{count}} 项待检查（动态 SQL）",
+    "incomplete_other": "列表不完整：有 {{count}} 个对象无法读取",
+    "none": "没有任何内容依赖于此",
+    "noneFound": "在已读取的内容中未发现任何内容"
+  }
+}

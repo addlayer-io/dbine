@@ -1,0 +1,20 @@
+{
+  "menu": "ヘルスチェック",
+  "tab": "ヘルス",
+  "title": "ヘルスチェック · {{name}}",
+  "checkedAt": "確認日時 {{at}}",
+  "run": "再チェック",
+  "running": "データベースを確認しています…",
+  "showOk": "問題のない項目も表示",
+  "severity": {
+    "critical": "重大",
+    "warning": "警告",
+    "info": "情報",
+    "ok": "正常"
+  },
+  "openFix": "クエリで開く",
+  "fixName": "修正: {{title}}",
+  "more": "ほか {{count}} 件",
+  "allOk": "問題は見つかりませんでした。",
+  "skipped": "確認できなかった項目:"
+}

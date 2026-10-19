@@ -1,0 +1,10 @@
+{
+  "name": "名前",
+  "advanced": "詳細オプション",
+  "default": "サーバーの既定値",
+  "serverDefault": "既定値: {{value}}",
+  "showScript": "スクリプトを表示",
+  "script": "スクリプト",
+  "openInQuery": "クエリで開く",
+  "scriptName": "{{name}} を作成"
+}

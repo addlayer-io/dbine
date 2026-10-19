@@ -1,0 +1,31 @@
+{
+  "couldNotConnect": "无法连接。",
+  "duration": {
+    "s": "{{s}} 秒",
+    "dh": "{{d}} 天 {{h}} 小时",
+    "hm": "{{h}} 小时 {{m}} 分钟",
+    "ms": "{{m}} 分钟 {{s}} 秒"
+  },
+  "level": {
+    "warn": "高",
+    "crit": "严重"
+  },
+  "justNow": "刚刚",
+  "secondsAgo": "{{s}} 秒前",
+  "connection": "连接",
+  "paused": "已暂停",
+  "every": "每 {{s}} 秒",
+  "resume": "恢复",
+  "pause": "暂停",
+  "refresh": "刷新",
+  "unsupported": "{{engine}} 不提供监控。",
+  "thisEngine": "此引擎",
+  "measuring": "测量中…",
+  "of": "共 {{max}}",
+  "filter": "筛选…",
+  "noMatch": "没有匹配的行。",
+  "noRows": "没有行。",
+  "sparkline": {
+    "noData": "无数据"
+  }
+}

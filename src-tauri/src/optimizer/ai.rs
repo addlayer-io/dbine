@@ -213,7 +213,8 @@ mod tests {
         assert!(en.contains("PostgreSQL") && en.contains("English") && !en.contains("Respondé"), "{en}");
         for l in prompts::LANGS {
             let s = system_prompt(prompts::get(l), "PostgreSQL", "SQL");
-            assert!(["<alternative>", "<title>", "<explanation>", "<query>", "NONE", " 3 "].iter().all(|t| s.contains(t)), "{l}: {s}");
+            // The limit of 3 alternatives ("as many as 3", "최대 3개", "最多 3 个"…).
+            assert!(["<alternative>", "<title>", "<explanation>", "<query>", "NONE", "3"].iter().all(|t| s.contains(t)), "{l}: {s}");
         }
         let c = parse("<alternative><query>SELECT b FROM t</query></alternative>", "SELECT a FROM t");
         let r = repair_prompt(prompts::get("en"), &[(c[0].clone(), "Invalid column name 'b'.".into())]);

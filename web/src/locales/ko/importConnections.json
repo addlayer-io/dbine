@@ -1,0 +1,43 @@
+{
+  "title": "연결 가져오기",
+  "source": {
+    "ssmsHint": "등록된 서버 또는 내보낸 .regsrvr",
+    "pasteUrls": "URL 붙여넣기",
+    "found": "이 컴퓨터에서 찾음",
+    "notFound": "찾을 수 없음: 위치를 선택하세요"
+  },
+  "urlsPlaceholder": "한 줄에 하나씩: postgres://user:password@host:5432/db, mongodb+srv://…, jdbc:sqlserver://…, Server=host;Database=db;User Id=… 또는 SQLite 파일 경로",
+  "read": "읽기",
+  "chooseFolder": "폴더 선택…",
+  "chooseFile": "파일 선택…",
+  "dialogFolder": "연결 폴더",
+  "dialogFile": "연결 파일",
+  "reading": "연결을 읽는 중…",
+  "noneInText": "텍스트에서 연결을 찾지 못했습니다.",
+  "noneAtPath": "해당 위치에 연결이 없습니다.",
+  "columns": {
+    "name": "이름",
+    "engine": "엔진",
+    "server": "서버",
+    "user": "사용자"
+  },
+  "hasSecret": "저장된 비밀번호 있음",
+  "inKeychain": "비밀번호가 시스템 키체인에 있습니다. 가져올 때 시스템에서 읽기 권한을 요청할 수 있습니다",
+  "existsTitle": "같은 서버에 대한 연결이 이미 있습니다: 「{{name}}」",
+  "exists": "이미 있음",
+  "passwords": "비밀번호 가져오기(시스템 키체인에 저장됨)",
+  "importN": "{{n}}개 가져오기",
+  "imported_other": "연결 {{count}}개를 가져왔습니다",
+  "andFolders_other": " 및 폴더 {{count}}개",
+  "failedTitle": "가져오지 못함",
+  "gotIt": "확인",
+  "suggestion": {
+    "title": "연결을 가져올까요?",
+    "found": "이 컴퓨터에서 다른 도구의 연결을 찾았습니다:",
+    "count_other": "연결 {{count}}개",
+    "hintBefore": "폴더와 비밀번호가 함께 가져오며, 비밀번호는 시스템 키체인에 저장됩니다. 지금 가져오지 않아도 탐색기의 다음 버튼에서 언제든 가져올 수 있습니다:",
+    "hintAfter": "(탐색기).",
+    "notNow": "나중에",
+    "viewAndImport": "보고 가져오기…"
+  }
+}

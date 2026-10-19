@@ -1,0 +1,60 @@
+{
+  "primaryKey": "主键",
+  "foreignKey": "外键",
+  "unnamedForeignKey": "未命名外键",
+  "exportFailed": "无法导出图像：{{error}}",
+  "busy": "正在排布 {{tables}} 张表和 {{relations}} 个关系…",
+  "hint": "拖动以平移 · ⌘/双指缩放 + 滚轮以缩放 · 双击打开表",
+  "tab": {
+    "connectFailed": "无法连接。",
+    "reading": "正在读取数据库结构…",
+    "drawFailed": "无法绘制关系图：{{error}}",
+    "fileName": "diagram-{{name}}",
+    "fileNameDefault": "数据库"
+  },
+  "toolbar": {
+    "tables": "表",
+    "relations": "关系",
+    "simplifiedLayout": "简化布局",
+    "simplifiedLayoutTitle": "此结构的自动布局失败：表以网格形式显示（可手动移动）。",
+    "searchPlaceholder": "搜索表…",
+    "allSchemas": "所有架构",
+    "allColumns": "所有列",
+    "keysOnly": "仅键",
+    "relayout": "重新排列",
+    "relayoutTitle": "再次自动排列表",
+    "svgImage": "SVG 图像",
+    "pngImage": "PNG 图像"
+  },
+  "card": {
+    "openHint": "双击打开",
+    "nullable": "允许 NULL",
+    "noColumns": "无列",
+    "moreColumns_other": "+{{count}} 列",
+    "showLess": "收起"
+  },
+  "empty": {
+    "title": "没有可显示的表",
+    "text": "数据库中没有表，或引擎不报告其结构。",
+    "noRelations": "没有关系：数据库未声明外键（或引擎不报告）。仅显示表。"
+  },
+  "zoom": {
+    "zoomOut": "缩小（−）",
+    "actualSize": "实际大小（0）",
+    "zoomIn": "放大（+）",
+    "fit": "适应视图（F）",
+    "minimap": "缩略图"
+  },
+  "props": {
+    "table": "表",
+    "openTable": "打开表",
+    "close": "关闭（Esc）",
+    "columns": "列",
+    "unnamed": "（未命名）",
+    "indexes": "索引",
+    "unique": "唯一",
+    "references": "引用",
+    "referencedBy": "被引用于",
+    "outside": "不在关系图中"
+  }
+}

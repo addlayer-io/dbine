@@ -1,0 +1,57 @@
+{
+  "nav": "Tastenkürzel",
+  "help": "Die Tasten jeder Aktion. Klicken Sie eine Kombination an und drücken Sie die neue (Esc bricht ab). Die Änderung gilt sofort und wandert mit den übrigen Einstellungen.",
+  "search": "Nach Aktion oder Taste suchen",
+  "none": "Keine Aktion entspricht der Suche.",
+  "resetAll": "Alle zurücksetzen",
+  "reset": "Zurück zur ursprünglichen Kombination",
+  "remove": "Die Kombination entfernen",
+  "change": "Die Kombination ändern",
+  "recording": "Drücken Sie die Kombination…",
+  "unbound": "Kein Kürzel",
+  "conflict": "Auch verwendet von: {{names}}",
+  "reserved": "Es ist ein Systemkürzel (Kopieren, Einfügen, Widerrufen…): Dort, wo die Aktion läuft, funktioniert es nicht mehr.",
+  "group": {
+    "general": "Allgemein",
+    "view": "Ansicht",
+    "editor": "Editor",
+    "results": "Ergebnisse",
+    "database": "Datenbank",
+    "connection": "Verbindung",
+    "settings": "Einstellungen",
+    "help": "Hilfe"
+  },
+  "cmd": {
+    "file": {
+      "newQuery": "Neue Abfrage",
+      "newWindow": "Neues Fenster",
+      "closeTab": "Tab schließen",
+      "save": "Speichern",
+      "open": "Datei öffnen…"
+    },
+    "app": {
+      "settings": "Einstellungen",
+      "quit": "DBine beenden"
+    },
+    "view": {
+      "explorer": "Explorer ein- oder ausblenden",
+      "output": "Unteres Panel ein- oder ausblenden",
+      "ai": "KI-Assistenten ein- oder ausblenden"
+    },
+    "editor": {
+      "run": "Auswahl oder alles ausführen",
+      "runStatement": "Anweisung am Cursor ausführen",
+      "planEstimated": "Geschätzter Plan",
+      "planActual": "Mit tatsächlichem Plan ausführen",
+      "format": "Formatieren",
+      "comment": "Kommentieren oder Kommentar entfernen",
+      "find": "Suchen und ersetzen",
+      "gotoLine": "Gehe zu Zeile…",
+      "autocomplete": "Autovervollständigungsvorschläge",
+      "toggleVim": "Vim-Modus ein- oder ausschalten"
+    },
+    "results": {
+      "export": "Ergebnisse exportieren…"
+    }
+  }
+}

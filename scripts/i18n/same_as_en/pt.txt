@@ -1,0 +1,209 @@
+# Values of the pt translation that are legitimately the same as English (see scripts/i18n/check.py).
+# Seeded from the translations as they were when the untranslated check was added.
+ai.json:context.editor
+ai.json:approval.local
+backups.json:tab
+backups.json:menu
+backups.json:title
+compare.json:kinds.view
+compare.json:kinds.trigger
+connection.json:family.streaming
+connection.json:form.tags
+connection.json:source.kind.vault
+connection.json:source.kind.aws
+connection.json:source.kind.azure
+connection.json:source.kind.gcp
+connection.json:source.kind.zoho
+connection.json:source.kind.conjur
+connection.json:source.kind.ccp
+connection.json:source.kind.delinea
+connection.json:source.kind.bitwarden
+connection.json:source.kind.bitwarden_sm
+connection.json:source.kind.ssm
+connection.json:source.input.data_center
+connection.json:source.input.role_id
+connection.json:source.input.approle_secret_id
+connection.json:source.input.role
+connection.json:source.dataCenter.com_cn
+connection.json:source.vaultAuth.token
+core.json:families.streaming
+createDatabase.json:script
+dataGen.json:gen.decimal
+dbDocs.json:formats.markdown
+dbDocs.json:parts.views
+dbDocs.json:parts.triggers
+dbDocs.json:doc.triggers
+dbDocs.json:doc.kinds.view
+dbDocs.json:doc.kinds.trigger
+dependencies.json:kind.view
+dependencies.json:kind.trigger
+explorer.json:menu.monitor
+explorer.json:menu.profiler
+explorer.json:indexes.drop.script
+explorer.json:indexes.col.seekShare
+history.json:tl.commit
+history.json:tl.filterCommits
+history.json:tl.commitOf
+library.json:git.branch
+lint.json:groups.oracle
+lint.json:groups.etcd
+lint.json:rules.select-star.title
+lint.json:rules.global-identity.title
+lint.json:rules.where-operator.title
+map.json:latLon
+map.json:lat
+map.json:lon
+mcp.json:token
+mcp.json:forClaude
+mcp.json:forCodex
+menu.json:window.zoom
+migration.json:severity.info
+migration.json:grid.perSecond
+monitor.json:duration.s
+monitor.json:duration.dh
+monitor.json:duration.hm
+monitor.json:duration.ms
+notebook.json:untitled
+notebook.json:settings.nav
+notebook.json:settings.title
+notebook.json:settings.awsProfilePlaceholder
+notebook.json:summary.ms
+notebook.json:summary.seconds
+notebook.json:summary.minutes
+notebook.json:save.filter
+notebook.json:toolbar.exportMarkdown
+optimizer.json:source.original
+optimizer.json:table.speed
+optimizer.json:rules.not_in_to_not_exists.title
+optimizer.json:rules.exists_to_in.title
+optimizer.json:rules.count_to_exists.title
+palette.json:cmd.database.profiler
+palette.json:cmd.database.backups
+palette.json:cmd.settings.drivers
+plan.json:node.estimatedShort
+processes.json:col.status
+processes.json:col.host
+processes.json:own
+projects.json:clone.branch
+projects.json:changes.commit
+projects.json:operation.merge
+projects.json:operation.rebase
+projects.json:operation.cherry-pick
+projects.json:operation.revert
+projects.json:op.pull
+projects.json:op.push
+projects.json:op.fetch
+projects.json:op.commit
+projects.json:menu.commit
+query.json:tx.auto
+query.json:tx.manual
+queryBuilder.json:alias
+queryBuilder.json:grid.alias
+rename.json:script
+results.json:export.format.json_lines
+results.json:export.format.xlsx
+results.json:messages.elapsed
+results.json:grid.copyFormat.json_lines.name
+results.json:grid.copyFormat.sql_insert.name
+results.json:grid.copyFormat.sql_update.name
+results.json:grid.copyFormat.mongo_insert.name
+scheduled.json:kinds.backup
+scheduled.json:step.script
+scheduled.json:formats.xlsx
+scheduled.json:formats.json_lines
+scheduled.json:trigger.manual
+scheduled.json:notebook.file
+scheduled.json:notebook.filter
+scheduled.json:notebook.formats.markdown
+schemas.json:script
+secretAccounts.json:kind.zoho
+secretAccounts.json:dataCenter
+secretAccounts.json:wizard.client_id
+secretAccounts.json:wizard.client_secret
+secretAccounts.json:facts.namespace
+secretAccounts.json:facts.dataCenter
+secretAccounts.json:acct.steps.token
+secretAccounts.json:acct.input.client_id
+secretAccounts.json:acct.input.client_secret
+secretAccounts.json:acct.input.namespace
+secretAccounts.json:acct.input.role_id
+secretAccounts.json:acct.input.secret_id
+secretAccounts.json:acct.placeholder.url_delinea
+secretAccounts.json:acct.placeholder.url_conjur
+secretAccounts.json:acct.placeholder.url_ccp
+security.json:login
+security.json:kind.view
+security.json:kind.procedure
+settings.json:nav.drivers
+shortcuts.json:group.editor
+snippets.json:nav
+snippets.json:families.oracle
+snippets.json:families.db2
+snippets.json:families.flux
+snippets.json:families.etcd
+subset.json:rules.hash
+subset.json:status
+tasks.json:unit.bytes
+tasks.json:elapsed.seconds
+tasks.json:elapsed.minutes
+tasks.json:elapsed.hours
+tasks.json:elapsed.days
+tasks.json:eta.minutes
+tasks.json:eta.hours
+tasks.json:eta.hoursExact
+tasks.json:eta.days
+workbench.json:welcome.family.streaming
+workbench.json:tabs.designer
+workbench.json:tabs.monitor
+backend:CPU en línea
+backend:Caché
+backend:Caché / buffer pool
+backend:Cachés
+backend:Clon
+backend:Clúster
+backend:Clúster (ON CLUSTER)
+backend:Confirmar
+backend:Copia (nbackup)
+backend:Corrientes
+backend:Códec
+backend:Delta (en línea)
+backend:Delta (fuera de línea)
+backend:Diseño
+backend:En línea
+backend:En línea (ONLINE)
+backend:Equipo
+backend:Espacio de tablas
+backend:Espacios de tablas
+backend:Espacios de tablas (MON_GET_TABLESPACE)
+backend:Estado
+backend:Estado (_up)
+backend:Etiquetas
+backend:Fuera de línea (OFFLINE)
+backend:Fuera de línea (offline)
+backend:Hilos
+backend:Hilos (threads)
+backend:Incremental (en línea)
+backend:Incremental (fuera de línea)
+backend:Ingreso
+backend:Intercalación
+backend:Intercalación (COLLATE)
+backend:Intercalación (LC_COLLATE)
+backend:París
+backend:Perú
+backend:Rama / commit
+backend:Reflexiones
+backend:Registro
+backend:Rendimiento
+backend:Trabajo
+backend:Vista
+backend:Vistas
+backend:caché
+backend:caché (bytes)
+backend:ejecutor
+backend:espacio de nombres
+backend:estado
+backend:hilo
+backend:intercalación
+backend:{0} espacios de tablas
+mobile:conn.monitor
+mobile:conn.f.host

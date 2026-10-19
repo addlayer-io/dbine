@@ -1,0 +1,22 @@
+{
+  "title": "쿼리 매개변수",
+  "intro": "쿼리에 매개변수가 있습니다. 각 값은 엔진의 리터럴로 적절한 따옴표와 함께 텍스트에 입력되며, 오른쪽에서 결과를 볼 수 있습니다.",
+  "type": "유형",
+  "types": {
+    "text": "텍스트",
+    "number": "숫자",
+    "date": "날짜",
+    "null": "NULL"
+  },
+  "placeholder": {
+    "text": "값",
+    "number": "예: 42 또는 3.5",
+    "date": "YYYY-MM-DD 또는 YYYY-MM-DD hh:mm:ss"
+  },
+  "invalid": {
+    "number": "숫자가 아닙니다.",
+    "date": "날짜를 YYYY-MM-DD 형식으로 입력하세요. 시간은 선택 사항입니다(hh:mm 또는 hh:mm:ss)."
+  },
+  "disable": "이 탭에서 매개변수 묻지 않기",
+  "disableTip": "텍스트를 그대로 실행하고 이 탭에서 매개변수를 더 이상 찾지 않습니다. 편집기 메뉴에서 다시 켤 수 있습니다."
+}

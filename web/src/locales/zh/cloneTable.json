@@ -1,0 +1,25 @@
+{
+  "menu": "克隆…",
+  "title": "克隆 {{name}}",
+  "name": "新表名",
+  "nameHelp": "将在同一架构中创建，结构相同。其索引和约束的名称基于新名称生成。",
+  "withData": "复制数据",
+  "withIndexes": "包含索引",
+  "clone": "克隆",
+  "stop": "停止",
+  "starting": "正在启动…",
+  "rows": "已复制 {{done}} 行",
+  "rowsOf": "已复制 {{done}} / {{total}} 行",
+  "done": "已克隆“{{name}}”，共 {{rows}} 行",
+  "cancelled": "克隆已停止；新表未留下任何内容",
+  "notes": "注意事项",
+  "phase": {
+    "read": "正在读取表结构…",
+    "create": "正在创建新表…",
+    "copy": "正在复制数据…",
+    "identity": "正在调整标识计数器…",
+    "indexes": "正在创建索引…",
+    "foreign_keys": "正在创建外键…",
+    "cleanup": "正在删除未完成的表…"
+  }
+}

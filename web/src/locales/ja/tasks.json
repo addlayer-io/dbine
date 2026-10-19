@@ -1,0 +1,203 @@
+{
+  "status": {
+    "running_other": "{{count}} 件のタスクを実行中",
+    "title": "実行中のタスクを表示",
+    "many": "{{count}} 件のタスク",
+    "line": "{{title}}: {{elapsed}}",
+    "lineEta": "{{title}}: {{elapsed}} · {{eta}}"
+  },
+  "panel": {
+    "title": "タスク",
+    "empty": "タスクはありません。",
+    "clearFinished": "完了したものを削除",
+    "cancel": "キャンセル",
+    "cancelling": "キャンセル中…",
+    "detail": "詳細を表示",
+    "remove": "削除",
+    "background": "バックグラウンドで続行"
+  },
+  "state": {
+    "running": "実行中",
+    "done": "完了",
+    "error": "エラーあり",
+    "cancelled": "キャンセル済み"
+  },
+  "progress": {
+    "of": "{{total}} {{unit}}中 {{done}}",
+    "count": "{{done}} {{unit}}"
+  },
+  "unit": {
+    "statements": "件の文",
+    "rows": "行",
+    "bytes": "バイト",
+    "tables": "個のテーブル",
+    "objects": "個のオブジェクト"
+  },
+  "elapsed": {
+    "seconds": "{{n}} 秒",
+    "minutes": "{{n}} 分 {{s}} 秒",
+    "hours": "{{n}} 時間 {{m}} 分",
+    "days": "{{n}} 日 {{h}} 時間"
+  },
+  "eta": {
+    "calculating": "計算中…",
+    "lessThanMinute": "1 分未満",
+    "minutes": "約 {{n}} 分",
+    "hours": "約 {{h}} 時間 {{m}} 分",
+    "hoursExact": "約 {{h}} 時間",
+    "days": "約 {{d}} 日 {{h}} 時間",
+    "remaining": "残り {{eta}}",
+    "phase": "この段階はあと {{eta}}",
+    "none": "見積もりなし",
+    "low": "初期の見積もりです。変わる可能性があります"
+  },
+  "detail": {
+    "title": "タスクの詳細",
+    "messages": "メッセージ",
+    "noMessages": "メッセージはありません。",
+    "result": "結果",
+    "error": "エラー",
+    "started": "開始",
+    "elapsed": "経過時間",
+    "remaining": "残り時間(推定)",
+    "ended": "終了",
+    "duration": "合計時間"
+  },
+  "notify": {
+    "title": {
+      "done": "タスクが完了しました",
+      "error": "タスクがエラーで終了しました",
+      "cancelled": "タスクがキャンセルされました"
+    },
+    "done": "{{title}}: {{elapsed}} で完了しました。",
+    "error": "{{title}}: {{elapsed}} でエラーとともに完了しました。",
+    "cancelled": "{{title}}: {{elapsed}} 後にキャンセルされました。",
+    "withSummary": "{{title}}: {{summary}}、{{elapsed}}。",
+    "failed": "{{title}}: {{elapsed}} 後に失敗しました。{{error}}"
+  },
+  "quit": {
+    "title": "バックグラウンドの実行",
+    "message_other": "バックグラウンドで {{count}} 件の実行中のものがあります: {{list}}。アプリケーションを閉じるとキャンセルされます。それでも閉じますか？",
+    "confirm": "キャンセルして閉じる",
+    "stay": "作業を続ける",
+    "window": "{{title}}(ウィンドウ {{n}})"
+  },
+  "update": {
+    "title": "バックグラウンドの実行",
+    "message_other": "バックグラウンドで {{count}} 件の実行中のものがあります: {{list}}。更新を完了するために DBine を再起動すると、それらはキャンセルされます。それでも再起動しますか？",
+    "confirm": "キャンセルして再起動",
+    "stay": "作業を続ける"
+  },
+  "closeWindow": {
+    "title": "このウィンドウの実行",
+    "message_other": "このウィンドウでバックグラウンドの実行中のものが {{count}} 件あります: {{list}}。ウィンドウを閉じるとキャンセルされます。それでも閉じますか？",
+    "confirm": "キャンセルしてウィンドウを閉じる",
+    "stay": "作業を続ける"
+  },
+  "dataSync": {
+    "title": "{{table}} のデータ同期({{where}})",
+    "unit": "件の文",
+    "phase": "{{side}} に適用中: {{parts}}",
+    "applied": "{{sides}} には適用済み",
+    "nothingApplied": "完了したスクリプトは 1 つも適用されませんでした",
+    "stoppedOn": "{{side}} は途中で停止しました。一部の変更が適用されている可能性があります",
+    "lateCancel": "キャンセルが届いたときには既にスクリプトが完了していたため、変更は適用されています。",
+    "stale": "実行が途中で停止し、データが変更されている可能性があります。これらのスクリプトはもう実行できません。比較を再読み込みしました。",
+    "regenerate": "スクリプトを再生成"
+  },
+  "compareSync": {
+    "title": "{{target}} の同期",
+    "sideStart_other": "{{side}}: {{count}} 件の文",
+    "summary": "{{total}} 件中 {{count}} 件の文",
+    "summaryAll_other": "{{count}} 件の文"
+  },
+  "backups": {
+    "copy": "{{where}} のコピー",
+    "copyDone": "{{path}} に {{size}}",
+    "restoreCopy": "{{where}} にコピーを復元",
+    "statements": "{{n}} 件の文",
+    "statementsWithErrors": "{{n}} 件の文、うち {{errors}} 件がエラー",
+    "native": {
+      "backup": "{{where}} のバックアップ",
+      "restore": "{{where}} への復元",
+      "delete": "{{where}} のバックアップを削除"
+    }
+  },
+  "dialogs": {
+    "schemaCreate": "{{db}} にスキーマ {{name}} を作成",
+    "schemaDrop": "{{db}} のスキーマ {{name}} を削除",
+    "dropIndex": "{{table}} のインデックス {{name}} を削除",
+    "cloneTable": "{{table}} を {{name}} としてクローン",
+    "runScriptFile": "{{db}} で {{file}} を実行",
+    "applyEdits": "{{table}} への変更を保存",
+    "saving": "保存中…",
+    "rows_other": "{{n}} 行",
+    "statements_other": "{{n}} 件の文",
+    "statementsWithErrors_other": "{{n}} 件の文、うち {{errors}} 件がエラー"
+  },
+  "backupsSecurity": {
+    "run": "{{where}} でのユーザーと権限の変更"
+  },
+  "actions": {
+    "createDatabase": "{{server}} にデータベース {{name}} を作成",
+    "dropDatabase": "{{server}} のデータベース {{name}} を削除",
+    "dropOne": "{{db}} の {{name}} を削除",
+    "dropMany": "{{db}} の {{count}} 個のオブジェクトを削除",
+    "dropped_other": "{{count}} 個のオブジェクトを削除しました",
+    "dropFailed": "{{total}} 件中 {{failed}} 件を削除できませんでした(詳細に理由があります)"
+  },
+  "dataCompare": {
+    "buildTitle": "{{table}} のデータ同期スクリプト",
+    "buildPhase": "スクリプトを生成中",
+    "applied": "これらのスクリプトは既に実行され、比較は再読み込みされました。再実行はできません。別の同期を行うには、再生成してください。"
+  },
+  "settingsGit": {
+    "git": {
+      "link": "ライブラリをリポジトリに関連付け",
+      "commit": "ライブラリのコミット",
+      "pull": "ライブラリのプル",
+      "push": "ライブラリのプッシュ",
+      "sync": "ライブラリをリポジトリと同期",
+      "resolve": "ライブラリの競合を解決",
+      "unlink": "ライブラリとリポジトリの関連付けを解除",
+      "conflicts_other": "競合しているスクリプトが {{count}} 件あります。「git のライブラリ」を開いて解決してください"
+    },
+    "sync": {
+      "setupUpload": "同期を有効にしてバックアップをアップロード",
+      "setupRestore": "このマシンにバックアップを復元",
+      "now": "クラウドと同期",
+      "upload": "バックアップをクラウドにアップロード",
+      "restore": "クラウドから復元",
+      "change": "パスフレーズを変更してバックアップを再暗号化",
+      "disconnect": "同期を停止してクラウドのバックアップを削除",
+      "local": "ローカルコピーを復元"
+    },
+    "drivers": {
+      "install": "{{label}} のドライバーをダウンロード"
+    }
+  },
+  "genImportExport": {
+    "script": "{{db}} のスクリプト",
+    "scriptToFile": "{{file}} への {{db}} のスクリプト",
+    "withRows": "{{objects}}、{{rows}}",
+    "import": "{{file}} を {{table}} にインポート",
+    "export": "{{file}} をエクスポート"
+  },
+  "nativeBackup": {
+    "phase": {
+      "backup": "データをコピー中",
+      "restore": "データを復元中",
+      "verify": "バックアップを確認中",
+      "export": "Data Pump でエクスポート中",
+      "import": "Data Pump でインポート中"
+    }
+  },
+  "importExport": {
+    "phase": {
+      "reading": "ファイルを読み込み中",
+      "inserting": "行を挿入中"
+    },
+    "ofTotal": "/ {{total}}",
+    "estimated": "/ 推定約 {{total}}"
+  }
+}

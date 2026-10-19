@@ -1,0 +1,85 @@
+{
+  "couldNotConnect": "接続できませんでした。",
+  "connection": "接続",
+  "thisEngine": "このエンジン",
+  "unsupported": "{{engine}} では、他のクライアントのクエリを表示できません。",
+  "hint": {
+    "duration": "> 500 · < 1s · >= 2.5s",
+    "text": "含む… · !含まない · =等しい",
+    "database": "含む… · !含まない"
+  },
+  "menu": {
+    "filter": {
+      "user": "ユーザー「{{value}}」でフィルター",
+      "client": "クライアント「{{value}}」でフィルター",
+      "application": "アプリケーション「{{value}}」でフィルター",
+      "database": "データベース「{{value}}」でフィルター"
+    },
+    "filterSame": "このクエリと同じものでフィルター",
+    "copy": "クエリをコピー"
+  },
+  "openInQuery": "クエリで開く",
+  "column": {
+    "time": "時刻",
+    "duration": "所要時間",
+    "query": "クエリ",
+    "database": "データベース",
+    "user": "ユーザー",
+    "client": "クライアント",
+    "application": "アプリケーション",
+    "rows": "行",
+    "cpu": "CPU",
+    "reads": "読み取り",
+    "writes": "書き込み"
+  },
+  "columns": "列",
+  "columnsHint": "列の表示/非表示",
+  "showAll": "すべて表示",
+  "status": {
+    "starting": "開始中…",
+    "capturing": "キャプチャ中",
+    "stopped": "停止",
+    "notStarted": "未開始"
+  },
+  "source": "ソース: {{source}}",
+  "mode": {
+    "complete": "完全キャプチャ",
+    "sampled": "サンプリング"
+  },
+  "clearFilters": "フィルターを解除",
+  "resume": "再開",
+  "sampledNote": "このエンジンは実行中のものだけを表示します。約 100 ms 未満のクエリは表示されない場合があります。",
+  "enabled": "サーバーで {{source}} を有効にしました。",
+  "disabled": "{{source}} を無効にしました。",
+  "stats": {
+    "title": "このクエリ",
+    "runs_other": "{n} 回実行",
+    "avg": "平均",
+    "min": "最小",
+    "max": "最大"
+  },
+  "filtersHint": "フィルターを通過したクエリのみ保存されます",
+  "sameAs": "同じもの: {{label}}",
+  "removeFilter": "このフィルターを削除",
+  "noneYet": "まだ何も現れていません",
+  "noValues": "値なし",
+  "empty": {
+    "noMatch": "一致するクエリはありません。",
+    "waitingFiltered": "フィルターを通過するクエリを待っています…",
+    "waiting": "クエリを待っています…",
+    "none": "キャプチャされたクエリはありません。"
+  },
+  "dragHint": "ドラッグして高さを変更",
+  "detail": {
+    "rows_other": "{{n}} 行"
+  },
+  "foot": {
+    "queries_other": "{{n}} 件のクエリ",
+    "passing": "{{n}} 件がフィルターを通過",
+    "skipped": "{{n}} 件がフィルターで除外",
+    "dropped": "古い {{n}} 件を破棄しました(直近 {{max}} 件を保持)",
+    "arrivalOrder": "到着順に戻す",
+    "toEnd": "末尾へ移動"
+  },
+  "unitHint": "単位: {{unit}}"
+}

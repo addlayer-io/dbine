@@ -1,0 +1,105 @@
+{
+  "cmd": {
+    "file": {
+      "newConnection": "新しい接続…",
+      "newFolder": "新しい接続フォルダー…",
+      "newScheduledTask": "新しいスケジュールタスク",
+      "newNotebook": "新しいノートブック",
+      "closeOtherTabs": "ほかのタブを閉じる",
+      "closeAllTabs": "すべてのタブを閉じる"
+    },
+    "palette": {
+      "open": "すべてのコマンドを表示"
+    },
+    "goto": {
+      "open": "移動…"
+    },
+    "view": {
+      "showExplorer": "エクスプローラーを表示",
+      "showProjects": "プロジェクトを表示",
+      "showLibrary": "スクリプトライブラリを表示",
+      "showHistory": "履歴を表示",
+      "showScheduled": "スケジュールタスクを表示",
+      "revealActive": "エクスプローラーでタブを表示"
+    },
+    "editor": {
+      "runSelection": "選択範囲を実行",
+      "cancel": "実行をキャンセル",
+      "optimize": "クエリを最適化",
+      "runMultiDb": "複数のデータベースで実行…",
+      "saveToLibrary": "ライブラリに保存",
+      "showProblems": "問題を表示",
+      "commit": "トランザクションをコミット",
+      "rollback": "トランザクションをロールバック",
+      "toggleManualTx": "手動トランザクションの切り替え",
+      "toggleContinueOnError": "「エラー時も続行」の切り替え"
+    },
+    "database": {
+      "reveal": "エクスプローラーで表示",
+      "search": "データベース内を検索…",
+      "healthCheck": "ヘルスチェック",
+      "designer": "テーブルデザイナーを開く",
+      "newFromTemplate": "テンプレートから新しいオブジェクト…",
+      "diagram": "データベースダイアグラム",
+      "queryBuilder": "クエリを設計…",
+      "document": "データベースをドキュメント化…",
+      "profiler": "Profiler",
+      "scriptGenerator": "スクリプトを生成…",
+      "migrate": "移行…",
+      "compareSchemas": "スキーマを比較…",
+      "compareData": "データを比較…",
+      "usersAndPermissions": "ユーザーと権限…",
+      "backups": "バックアップ…",
+      "importData": "データをインポート…",
+      "runScriptFile": "スクリプトファイルを実行…",
+      "linkProject": "プロジェクトを関連付け…"
+    },
+    "connection": {
+      "connect": "接続",
+      "disconnect": "切断",
+      "monitor": "サーバーモニター",
+      "serverBackups": "サーバーのバックアップ…",
+      "newDatabase": "新しいデータベース…",
+      "edit": "接続を編集…",
+      "duplicate": "接続を複製"
+    },
+    "settings": {
+      "sync": "同期",
+      "drivers": "ドライバー",
+      "mcp": "MCP クライアント(AI アシスタント)",
+      "devices": "ペアリング済みのスマートフォン",
+      "mail": "メール",
+      "lint": "コードアナライザーのルール",
+      "snippets": "コードスニペット",
+      "shortcuts": "キーボードショートカット"
+    },
+    "help": {
+      "checkUpdates": "更新を確認…",
+      "support": "プロジェクトを応援する",
+      "feedback": "フィードバックを送信"
+    }
+  },
+  "commands": {
+    "placeholder": "コマンド名を入力",
+    "empty": "一致するコマンドがありません",
+    "recent": "最近使用",
+    "other": "その他のコマンド"
+  },
+  "goto": {
+    "placeholder": "接続、データベース、テーブル、ビュー、ルーチン、クエリ、タブを検索(\">\" でコマンド)",
+    "empty": "その名前のものはありません",
+    "tabs": "開いているタブ",
+    "connections": "接続",
+    "tab": "タブ",
+    "connection": "接続",
+    "database": "データベース",
+    "query": "クエリ"
+  },
+  "pick": {
+    "connection": "接続を選択",
+    "database": "{{connection}} のデータベースを選択",
+    "noConnection": "この操作ができる接続がありません",
+    "noDatabases": "選択できるデータベースがありません",
+    "template": "テンプレートを選択"
+  }
+}

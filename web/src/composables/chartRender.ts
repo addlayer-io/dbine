@@ -9,6 +9,7 @@ import {
 import { CanvasRenderer } from 'echarts/renderers';
 import type { Cell, ResultColumn } from '../api/types';
 import { locale, t } from '../i18n';
+import { CJK_FONTS } from '../styles/fonts';
 import { chartOption, INKS, type Theme } from './chartOption';
 import { resolveChartSettings, type ChartPoints, type ChartSettings } from './chartSettings';
 import { numericColumns, shapeFromPoints, shapeRows, type ResolvedChart, type Shaped, type ShapeLabels } from './chartShape';
@@ -77,7 +78,7 @@ export function chartPng(
     kind: settings.kind,
     shaped,
     theme,
-    fontFamily: '-apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif',
+    fontFamily: `-apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, ${CJK_FONTS}, sans-serif`,
     fmt: fmtNumber,
     others: L.others,
     xName: settings.x ?? '',

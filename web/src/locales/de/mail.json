@@ -1,0 +1,30 @@
+{
+  "nav": "E-Mail",
+  "title": "E-Mail",
+  "intro": "Der Server, den geplante Aufgaben zum Versenden von E-Mails verwenden. Er wird nur auf diesem Computer gespeichert, da die Aufgaben hier laufen. Das Passwort landet im Systemschlüsselbund.",
+  "host": "SMTP-Server",
+  "port": "Port",
+  "security": "Sicherheit",
+  "securities": {
+    "starttls": "STARTTLS (Port 587)",
+    "tls": "SSL/TLS (Port 465)",
+    "none": "Unverschlüsselt"
+  },
+  "noneWarning": "Unverschlüsselt reisen Benutzer, Passwort und E-Mails lesbar durchs Netzwerk. Verwenden Sie es nur mit einem Server in Ihrem lokalen Netzwerk.",
+  "user": "Benutzer",
+  "userPlaceholder": "Leer, wenn der Server keine Anmeldung verlangt",
+  "password": "Passwort",
+  "passwordSaved": "Gespeichert (leer lassen, um es beizubehalten)",
+  "passwordHelp": "Lassen Sie das Passwort leer, wird das gespeicherte beibehalten. Ohne Benutzer wird keines gespeichert.",
+  "fromAddress": "Absenderadresse",
+  "fromName": "Absendername",
+  "save": "Speichern",
+  "saved": "E-Mail-Einstellungen gespeichert.",
+  "notConfigured": "Es wurde noch kein Server gespeichert.",
+  "test": "Test-E-Mail senden",
+  "testPrompt": "An welche Adresse sollen wir sie senden?",
+  "testSend": "Senden",
+  "testInvalid": "Geben Sie eine E-Mail-Adresse ein",
+  "testOk": "Fertig. {{summary}}",
+  "testFailed": "Senden nicht möglich: {{error}}"
+}

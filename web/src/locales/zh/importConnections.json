@@ -1,0 +1,43 @@
+{
+  "title": "导入连接",
+  "source": {
+    "ssmsHint": "已注册的服务器或导出的 .regsrvr",
+    "pasteUrls": "粘贴 URL",
+    "found": "在这台电脑上找到",
+    "notFound": "未找到：请选择位置"
+  },
+  "urlsPlaceholder": "每行一个：postgres://user:password@host:5432/db、mongodb+srv://…、jdbc:sqlserver://…、Server=host;Database=db;User Id=…，或 SQLite 文件的路径",
+  "read": "读取",
+  "chooseFolder": "选择文件夹…",
+  "chooseFile": "选择文件…",
+  "dialogFolder": "连接文件夹",
+  "dialogFile": "连接文件",
+  "reading": "正在读取连接…",
+  "noneInText": "文本中没有找到连接。",
+  "noneAtPath": "该位置没有连接。",
+  "columns": {
+    "name": "名称",
+    "engine": "引擎",
+    "server": "服务器",
+    "user": "用户"
+  },
+  "hasSecret": "有已保存的密码",
+  "inKeychain": "密码保存在系统钥匙串中：导入时，系统可能会请求读取权限",
+  "existsTitle": "已存在到同一服务器的连接：“{{name}}”",
+  "exists": "已存在",
+  "passwords": "导入密码（保存到系统钥匙串）",
+  "importN": "导入 {{n}} 个",
+  "imported_other": "已导入 {{count}} 个连接",
+  "andFolders_other": "，以及 {{count}} 个文件夹",
+  "failedTitle": "未导入",
+  "gotIt": "知道了",
+  "suggestion": {
+    "title": "要带上你的连接吗？",
+    "found": "我们在这台电脑上发现了其他工具的连接：",
+    "count_other": "{{count}} 个连接",
+    "hintBefore": "它们会连同文件夹和密码一起导入，密码会进入系统钥匙串。你也可以随时通过资源管理器中的",
+    "hintAfter": "按钮来导入。",
+    "notNow": "暂不",
+    "viewAndImport": "查看并导入…"
+  }
+}

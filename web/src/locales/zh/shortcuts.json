@@ -1,0 +1,57 @@
+{
+  "nav": "键盘快捷键",
+  "help": "每个操作的按键。点击一个组合键并按下新的按键（Esc 取消）。更改会立即生效，并随其他设置一起同步。",
+  "search": "按操作或按键搜索",
+  "none": "没有与搜索匹配的操作。",
+  "resetAll": "全部重置",
+  "reset": "恢复为原始组合键",
+  "remove": "移除组合键",
+  "change": "更改组合键",
+  "recording": "请按下组合键…",
+  "unbound": "无快捷键",
+  "conflict": "也被以下使用：{{names}}",
+  "reserved": "这是系统快捷键（复制、粘贴、撤销…）：在该操作运行的位置它将失效。",
+  "group": {
+    "general": "常规",
+    "view": "视图",
+    "editor": "编辑器",
+    "results": "结果",
+    "database": "数据库",
+    "connection": "连接",
+    "settings": "偏好设置",
+    "help": "帮助"
+  },
+  "cmd": {
+    "file": {
+      "newQuery": "新建查询",
+      "newWindow": "新建窗口",
+      "closeTab": "关闭标签页",
+      "save": "保存",
+      "open": "打开文件…"
+    },
+    "app": {
+      "settings": "设置",
+      "quit": "退出 DBine"
+    },
+    "view": {
+      "explorer": "显示或隐藏资源管理器",
+      "output": "显示或隐藏底部面板",
+      "ai": "显示或隐藏 AI 助手"
+    },
+    "editor": {
+      "run": "运行所选内容或全部",
+      "runStatement": "运行光标所在语句",
+      "planEstimated": "预估计划",
+      "planActual": "运行并获取实际计划",
+      "format": "格式化",
+      "comment": "注释或取消注释",
+      "find": "查找和替换",
+      "gotoLine": "转到行…",
+      "autocomplete": "自动补全建议",
+      "toggleVim": "开启或关闭 Vim 模式"
+    },
+    "results": {
+      "export": "导出结果…"
+    }
+  }
+}

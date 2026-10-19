@@ -1,10 +1,6 @@
 <script setup lang="ts">
 import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue';
-import elEn from 'element-plus/es/locale/lang/en.mjs';
-import elEs from 'element-plus/es/locale/lang/es.mjs';
-import elPt from 'element-plus/es/locale/lang/pt-br.mjs';
-import elFr from 'element-plus/es/locale/lang/fr.mjs';
-import elIt from 'element-plus/es/locale/lang/it.mjs';
+import { ELEMENT_LOCALES } from './i18n/element';
 import { SETTING_KEY, isLang, language, setLanguage, t } from './i18n';
 import { ElMessage } from 'element-plus';
 import FolderDialog from './components/FolderDialog.vue';
@@ -200,7 +196,7 @@ useAppMenu({ newQuery: newQueryHere, toggleExplorer: () => { sidebarOpen.value =
 // Element Plus's own texts (date pickers, "no data"…) in the app's language;
 // the synced preference wins over this machine's once settings load.
 const settingsStore = useSettingsStore();
-const elLocale = computed(() => ({ en: elEn, es: elEs, pt: elPt, fr: elFr, it: elIt })[language.value]);
+const elLocale = computed(() => ELEMENT_LOCALES[language.value]);
 watch(
   () => settingsStore.get<string | null>(SETTING_KEY, null),
   (lang) => { if (isLang(lang)) setLanguage(lang); },

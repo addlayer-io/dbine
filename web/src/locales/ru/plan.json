@@ -1,0 +1,63 @@
+{
+  "query": "Запрос {{n}}",
+  "actualPlan": "Фактический план",
+  "estimatedPlan": "Предполагаемый план",
+  "diagram": "Диаграмма",
+  "rawPlan": "Исходный план",
+  "statementTitle": "Щёлкните, чтобы увидеть всё",
+  "hint": "Перетаскивайте для перемещения · ⌘/щипок + колесо — масштаб · F — вписать",
+  "summary": {
+    "operators": "Операторы",
+    "cost": "Стоимость",
+    "time": "Время",
+    "rows": "Строк",
+    "firstWarning": "Перейти к первому предупреждению",
+    "warnings_one": "{{count}} предупреждение",
+    "warnings_few": "{{count}} предупреждения",
+    "warnings_other": "{{count}} предупреждения",
+    "warnings_many": "Предупреждений: {{count}}"
+  },
+  "edge": {
+    "actualRows": "Фактически строк: {{rows}}",
+    "estimatedRows": "Ожидаемо строк: {{rows}}"
+  },
+  "node": {
+    "operatorCost": "Стоимость оператора: {{pct}}%",
+    "noCost": "Без стоимости",
+    "actualEstimatedRows": "Фактически / ожидаемо строк",
+    "estimatedRows": "Ожидаемо строк",
+    "estimatedShort": "{{rows}} ожид.",
+    "expand_one": "Развернуть ({{count}} оператор)",
+    "expand_few": "Развернуть ({{count}} оператора)",
+    "expand_other": "Развернуть ({{count}} оператора)",
+    "collapse": "Свернуть",
+    "expand_many": "Развернуть ({{count}} операторов)"
+  },
+  "zoom": {
+    "zoomOut": "Уменьшить (−)",
+    "actualSize": "Реальный размер (0)",
+    "zoomIn": "Увеличить (+)",
+    "fit": "Вписать в окно (F)",
+    "expandAll": "Развернуть все",
+    "collapseBelow": "Свернуть ниже уровня 3",
+    "minimap": "Миникарта"
+  },
+  "props": {
+    "close": "Закрыть (Esc)",
+    "operator": "Оператор",
+    "self": "Собственная",
+    "subtree": "Поддерево",
+    "rowsAndTime": "Строки и время",
+    "estimatedPerExecution": "Предполагаемое (на одно выполнение)",
+    "actualTotal": "Фактическое (всего)",
+    "executions": "Выполнений",
+    "actualTime": "Фактическое время",
+    "object": "Объект",
+    "properties": "Свойства"
+  },
+  "raw": {
+    "save": "Сохранить…",
+    "sqlServerPlan": "План SQL Server",
+    "ssmsHint": "Открывается в SQL Server Management Studio (.sqlplan)"
+  }
+}

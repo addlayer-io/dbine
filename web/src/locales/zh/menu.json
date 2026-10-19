@@ -1,0 +1,52 @@
+{
+  "app": {
+    "about": "关于 DBine",
+    "settings": "设置…",
+    "services": "服务",
+    "hide": "隐藏 DBine",
+    "hideOthers": "隐藏其他",
+    "showAll": "全部显示",
+    "quit": "退出 DBine"
+  },
+  "file": {
+    "title": "文件",
+    "newConnection": "新建连接",
+    "newQuery": "新建查询",
+    "newNotebook": "新建笔记本",
+    "newWindow": "新建窗口",
+    "closeTab": "关闭标签页",
+    "open": "打开文件…"
+  },
+  "edit": {
+    "title": "编辑",
+    "undo": "撤销",
+    "redo": "重做",
+    "cut": "剪切",
+    "copy": "复制",
+    "paste": "粘贴",
+    "selectAll": "全选"
+  },
+  "view": {
+    "title": "视图",
+    "explorer": "资源管理器",
+    "output": "输出",
+    "ai": "AI 助手",
+    "fullscreen": "全屏"
+  },
+  "window": {
+    "title": "窗口",
+    "minimize": "最小化",
+    "zoom": "缩放"
+  },
+  "help": {
+    "title": "帮助",
+    "checkUpdates": "检查更新…",
+    "support": "支持本项目"
+  },
+  "palette": {
+    "open": "命令面板…"
+  },
+  "goto": {
+    "open": "转到…"
+  }
+}

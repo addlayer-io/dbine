@@ -1,0 +1,262 @@
+{
+  "migrate": "Migrieren",
+  "preview": "Vorschau",
+  "pickEngine": "Wählen Sie die Ziel-Engine",
+  "pickTable": "Wählen Sie mindestens eine Tabelle",
+  "intro": "Verschiebt die Tabellen von {database} ({{engine}}) in die von Ihnen gewählte Zieldatenbank, auch auf einer anderen Engine: Es erstellt die konvertierten Tabellen (Typen, Standardwerte, Schlüssel, Indizes und Namen), kopiert die Daten mit Bulk-Loads und mehreren Tabellen gleichzeitig und fügt die Fremdschlüssel am Ende hinzu. Wird die App mittendrin geschlossen, kann die Migration fortgesetzt werden. Die Vorschau zeigt zuerst den Bericht aller Änderungen und das Skript, ohne etwas anzufassen.",
+  "severity": {
+    "dropped": "Weggelassen",
+    "droppedHint": "Das Ziel kann es nicht ausdrücken: Es wird ausgelassen",
+    "loss": "Verlust",
+    "lossHint": "Werte passen eventuell nicht oder verlieren an Detail",
+    "warning": "Warnung",
+    "warningHint": "Gleiche Werte, anderes Verhalten",
+    "info": "Info",
+    "infoHint": "Verlustfreie Änderung, die man kennen sollte"
+  },
+  "confirm": {
+    "message": "{{count}} Tabelle(n) werden in {{where}} ({{engine}}) erstellt{{data}}{{drop}}. Fortfahren?",
+    "data": " und alle ihre Daten kopiert",
+    "drop": ", wobei vorhandene gleichnamige zuvor gelöscht werden",
+    "clone": "{{count}} Tabelle(n) werden mit ihrer vollständigen Struktur{{data}} in {{where}} ({{engine}}) geklont. Fortfahren?",
+    "cloneData": " und alle ihre Daten",
+    "sync": "{{count}} Tabelle(n) werden in {{where}} ({{engine}}) synchronisiert: Die Zeilen, die sich von der Quelle unterscheiden, werden eingefügt, aktualisiert und gelöscht. Fortfahren?"
+  },
+  "run": {
+    "cancelled": "Migration abgebrochen",
+    "finishedWithErrors": "Migration mit {{count}} Fehler(n) abgeschlossen: Prüfen Sie die Zusammenfassung",
+    "finished": "Migration abgeschlossen",
+    "running": "Migration läuft…",
+    "stopped": "Die Migration wurde angehalten",
+    "stepOf": "{{step}} von {{total}}",
+    "fkErrors": "Fremdschlüssel, die nicht erstellt werden konnten:",
+    "withErrors": "Migration mit Fehlern abgeschlossen",
+    "progress": "{{done}} von {{total}} Tabelle(n) · {{rows}} Zeile(n) · {{elapsed}}",
+    "parallel": "Gleichzeitige Tabellen",
+    "cancelAll": "Alle abbrechen",
+    "retryFailed": "Fehlgeschlagene wiederholen",
+    "synced": "Synchronisierung abgeschlossen",
+    "cloned": "Klonen abgeschlossen",
+    "afterErrors": "Abschließende Anweisungen, die nicht ausgeführt werden konnten:"
+  },
+  "phase": {
+    "drop": "Vorhandene Tabellen werden gelöscht",
+    "create": "Tabellen werden erstellt",
+    "foreignKeys": "Fremdschlüssel werden erstellt",
+    "done": "Abschluss",
+    "schemas": "Schemas werden erstellt",
+    "identity": "Identität der Tabellen wird angepasst",
+    "script": "Quellstruktur wird gelesen",
+    "before": "Ziel wird vorbereitet",
+    "check": "Zieltabellen werden geprüft",
+    "after": "Einschränkungen, Code und andere Objekte werden erstellt"
+  },
+  "script": {
+    "pickConnection": "Wählen Sie eine Zielverbindung (der gewählten Engine), um das Skript dort zu öffnen",
+    "queryTitle": "Migration von {{name}}",
+    "copied": "Skript kopiert",
+    "fileName": "migration-{{database}}-nach-{{engine}}",
+    "fileNameDatabase": "datenbank",
+    "title": "Strukturskript für {{engine}}",
+    "previewTag": "(Vorschau)",
+    "openInQuery": "In einer Abfrage öffnen",
+    "saveAs": "Als Datei speichern…",
+    "help": "Das erstellt „Migrieren“ im Ziel, bevor die Daten kopiert werden. Sie können es auch in einer Abfrage öffnen, kopieren oder speichern."
+  },
+  "target": {
+    "title": "Ziel",
+    "engine": "Ziel-Engine",
+    "pickEngine": "Engine wählen",
+    "connection": "Zielverbindung",
+    "connectionHint": "(wo alles erstellt wird)",
+    "connectionPlaceholder": "Verbindung",
+    "noConnections": "Keine {{engine}}-Verbindungen",
+    "thatEngine": "diese Engine",
+    "database": "Datenbank",
+    "keepSchemas": "Quellschemas beibehalten (im Ziel erstellt)",
+    "singleSchema": "Einzelnes Schema",
+    "singleSchemaHint": "(optional: Jede Tabelle geht in dieses Schema)",
+    "eachInOwnSchema": "Jede Tabelle in ihrem eigenen Schema",
+    "engineDefault": "Standard der Engine"
+  },
+  "tables": {
+    "title": "Tabellen",
+    "pickedOf": "{{picked}} von {{total}}",
+    "all": "Alle",
+    "none": "Keine",
+    "loading": "Tabellen werden gelesen…",
+    "empty": "Diese Datenbank hat keine Tabellen."
+  },
+  "options": {
+    "title": "Optionen",
+    "data": "Daten kopieren",
+    "indexes": "Indizes",
+    "foreignKeys": "Fremdschlüssel",
+    "foldCase": "Groß-/Kleinschreibung der Namen ans Ziel anpassen",
+    "drop": "Tabellen im Ziel vor dem Erstellen löschen (DROP)",
+    "ifExists": "IF EXISTS / IF NOT EXISTS verwenden",
+    "needConnection": "Wählen Sie zum Migrieren die Zielverbindung. Die Vorschau zeigt Bericht und Skript, ohne etwas anzufassen.",
+    "needConnectionSame": "Wählen Sie zum Klonen oder Synchronisieren die Zielverbindung."
+  },
+  "cols": {
+    "table": "Tabelle",
+    "rows": "Zeilen",
+    "column": "Spalte",
+    "sourceType": "Quelltyp",
+    "targetType": "Zieltyp",
+    "new": "(neu)"
+  },
+  "report": {
+    "title": "Konvertierungsbericht",
+    "summary": "{{tables}} Tabelle(n) · {{issues}} Hinweis(e)",
+    "clean": "Die Konvertierung ist unkompliziert: Es gibt keine Hinweise.",
+    "byColumn": "Konvertierung pro Spalte ({{count}})",
+    "filterColumns": "Spalten filtern"
+  },
+  "status": {
+    "pending": "In Warteschlange",
+    "running": "Kopieren",
+    "check": "Prüfen",
+    "truncate": "Leeren",
+    "indexes": "Indizes",
+    "copied": "Indizes",
+    "done": "Kopiert",
+    "failed": "Fehler",
+    "cancelled": "Abgebrochen",
+    "summary": "Zusammenfassen",
+    "compare": "Vergleichen",
+    "apply": "Anwenden",
+    "syncing": "Synchronisieren",
+    "synced": "Synchronisiert"
+  },
+  "path": {
+    "native": "Direktkopie",
+    "bulkLoad": "Bulk-Load",
+    "insertScript": "INSERT in Batches",
+    "delta": "Zeilenweise"
+  },
+  "grid": {
+    "status": "Status",
+    "speed": "Zeilen/s",
+    "path": "Pfad",
+    "bottleneck": "Engpass",
+    "source": "Quelle",
+    "destination": "Ziel",
+    "perSecond": "{{n}}/s",
+    "runNow": "Jetzt ausführen",
+    "cancel": "Diese Tabelle abbrechen",
+    "reviewed": "Geprüfte Zeilen",
+    "changes": "Änderungen",
+    "changesValue": "{{inserted}} neu · {{updated}} geändert · {{deleted}} gelöscht"
+  },
+  "advanced": {
+    "title": "Erweiterte Optionen",
+    "parallel": "Gleichzeitige Tabellen",
+    "parallelHint": "(1 bis 32; kann sich während des Kopierens ändern)",
+    "order": "Reihenfolge",
+    "largestFirst": "Größte zuerst",
+    "smallestFirst": "Kleinste zuerst",
+    "alphabetical": "Alphabetisch",
+    "commitRows": "Commit alle",
+    "commitRowsHint": "(Zeilen)"
+  },
+  "interrupted": {
+    "title": "Unterbrochen",
+    "hint": "Durch Schließen der App abgebrochene Migrationen: Sie werden dort fortgesetzt, wo sie aufgehört haben",
+    "tables": "{{done}} von {{total}} Tabelle(n) kopiert",
+    "resume": "Fortsetzen",
+    "forget": "Verwerfen",
+    "forgetConfirm": "Diese Migration wird vergessen und kann nicht mehr fortgesetzt werden. Was kopiert wurde, bleibt im Ziel. Fortfahren?"
+  },
+  "mode": {
+    "title": "Modus",
+    "pickEngineFirst": "Wählen Sie zuerst die Ziel-Engine",
+    "noConvert": "Es gibt keine Schemakonvertierung zu dieser Engine",
+    "noClone": "Diese Engines lassen sich nicht ineinander klonen",
+    "noSync": "Diese Engines lassen sich nicht miteinander synchronisieren",
+    "label": {
+      "convert": "Migrieren (konvertieren)",
+      "clone": "Klonen",
+      "sync": "Synchronisieren"
+    },
+    "hint": {
+      "convert": "Konvertiert die Struktur in die Ziel-Engine, erstellt die Tabellen und kopiert die Daten.",
+      "clone": "Klonen (das Ziel identisch machen): Zwischen Datenbanken derselben Engine wird alles mit dem eigenen Skript der Engine erstellt und werden die Daten kopiert.",
+      "sync": "Nur das Geänderte synchronisieren: In bereits vorhandenen Tabellen werden nur die abweichenden Zeilen eingefügt, aktualisiert und gelöscht."
+    },
+    "action": {
+      "convert": "Migrieren",
+      "clone": "Klonen",
+      "sync": "Synchronisieren"
+    }
+  },
+  "clone": {
+    "needConnection": "Wählen Sie die Zielverbindung, um das Klon-Skript zu sehen: Das Skript passt sich an das an, was dieser Server unterstützt (er wird nur abgefragt).",
+    "help": "Das Ziel entspricht am Ende der Quelle: Tabellen mit ihrem Speicher, Indizes, Einschränkungen, Sequenzen, Code und anderen Objekten, mit dem eigenen Skript der Engine. Was im Ziel bereits existiert, bleibt unangetastet.",
+    "clean": "Das Ziel kann identisch gemacht werden: keine Anmerkungen.",
+    "reportTitle": "Klon-Anmerkungen",
+    "scriptTitle": "Klon-Skript für {{engine}}",
+    "scriptHelp": "Das führt «Klonen» im Ziel aus: zuerst, was vor die Tabellen gehört, dann jede Tabelle mit ihren Indizes und am Ende Einschränkungen, Code und andere Objekte."
+  },
+  "sync": {
+    "help": "Die Tabellen müssen im Ziel mit denselben Spalten existieren: Es wird nichts erstellt oder geleert. Nur die abweichenden Zeilen werden eingefügt, aktualisiert und gelöscht, in einer Transaktion pro Tabelle.",
+    "depth": "Was verglichen wird",
+    "depths": {
+      "full": "Vollständig",
+      "fullHint": "Der gesamte Inhalt jeder Zeile.",
+      "sizes": "Große Spalten nur nach Größe",
+      "sizesHint": "Große Spalten werden nach ihrer Länge verglichen: viel schneller, aber eine Änderung bei gleicher Größe bleibt unbemerkt.",
+      "keys": "Nur Schlüssel",
+      "keysHint": "Findet neue und gelöschte Zeilen, keine geänderten."
+    },
+    "maxCores": "Server-Kerne",
+    "maxCoresHint": "(0: der Server entscheidet)",
+    "keysTitle": "Schlüssel zur Synchronisierung",
+    "keysSummary": "{{tables}} Tabelle(n) · {{unsyncable}} ohne Schlüssel",
+    "keysHelp": "Jede Tabelle wird über ihren Primärschlüssel verglichen; hat sie keinen, wählen Sie einen eindeutigen Schlüssel.",
+    "pickKey": "Schlüssel wählen",
+    "primaryKey": "Primärschlüssel ({{columns}})",
+    "uniqueKey": "Eindeutiger Schlüssel ({{columns}})"
+  },
+  "panes": {
+    "preview": "Vorschau",
+    "run": "Ausführen"
+  },
+  "runFilter": {
+    "all": "Alle",
+    "pending": "In Warteschlange",
+    "active": "In Arbeit",
+    "done": "Abgeschlossen",
+    "failed": "Fehlgeschlagen",
+    "cancelled": "Abgebrochen",
+    "search": "Tabelle suchen…",
+    "none": "Keine Tabelle entspricht dem Filter."
+  },
+  "saved": {
+    "untitled": "Neue Migration",
+    "mode": {
+      "convert": "Konvertieren",
+      "clone": "Klonen",
+      "sync": "Synchronisieren"
+    },
+    "notSaved": "Nicht gespeichert: Es speichert sich bei der ersten Änderung selbst",
+    "renameHint": "Migrationsname (zum Ändern klicken)",
+    "renameTitle": "Migration umbenennen",
+    "renamePrompt": "Neuer Migrationsname",
+    "delete": "Löschen",
+    "deleteTitle": "Migration löschen",
+    "deleteConfirm": "Die Migration «{{name}}» und ihre Konfiguration werden gelöscht. Weder die Quelle noch das Ziel werden angefasst: Was kopiert wurde, bleibt, wo es ist. Fortfahren?",
+    "resume": "Fortsetzen",
+    "history": "Läufe dieser Migration",
+    "runElsewhere": "Diese Migration hat Läufe, aber nicht auf diesem Rechner: Hier wird nur ihre Konfiguration angezeigt.",
+    "state": {
+      "draft": "Entwurf",
+      "elsewhere": "Keine Läufe auf diesem Rechner",
+      "running": "Läuft",
+      "done": "Abgeschlossen",
+      "failed": "Mit Fehlern",
+      "interrupted": "Unterbrochen",
+      "cancelled": "Abgebrochen"
+    }
+  }
+}

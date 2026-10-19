@@ -1,0 +1,144 @@
+{
+  "action": "优化",
+  "actionTip": "优化查询：等价改写、建议的索引和耗时对比（所选内容或光标所在语句）",
+  "tab": "优化",
+  "title": "优化查询 · {{name}}",
+  "queryName": "已优化：{{title}}",
+  "indexQueryName": "建议的索引：{{table}}",
+  "noStatement": "请将光标放在查询中，或选中一个查询。",
+  "reanalyze": "重新分析",
+  "analyzing": "正在分析查询…",
+  "original": "原始查询",
+  "writesNote": "此查询会修改数据：绝不会运行它。“比较”只会比较它们的预估计划。",
+  "skipped": "无法读取：",
+  "alternatives": "备选方案",
+  "noAlternatives": "规则没有为此查询找到安全的改写。你可以请 AI 提供备选方案，或添加自己的。",
+  "noRulesEngine": "改写规则不适用于此引擎的语言。你可以请 AI 提供备选方案，或添加自己的。",
+  "source": {
+    "rule": "规则",
+    "ai": "AI",
+    "user": "你的",
+    "original": "原始"
+  },
+  "verify": "无法证明在所有情况下都等价：使用前请先比较。",
+  "showSql": "显示查询",
+  "hideSql": "隐藏查询",
+  "remove": "移除",
+  "askAi": "请 AI 提供备选方案",
+  "askingAi": "正在询问 AI…",
+  "aiMissing": "尚未配置 AI 助手。请打开助手选择一个：DBine 内置的模型、Ollama 或 LM Studio（在这台电脑上运行），或使用你自己账号的 Claude Code 或 Codex。",
+  "openAssistant": "打开助手",
+  "aiNone": "AI 没有为此查询找到改进。",
+  "aiNothing": "AI 的回复中没有符合要求格式的备选方案。请重试或换一个模型。",
+  "aiDiscarded_other": "有 {{count}} 个备选方案被舍弃，因为它们无法在该数据库上编译，即使已请 AI 修复。",
+  "aiSent": "查询和{{what}}已发送给 {{provider}}。绝不会发送行数据。",
+  "aiSentOnly": "只有查询已发送给 {{provider}}。绝不会发送行数据。",
+  "aiTables": "{{count}} 张表",
+  "aiPlan": "计划",
+  "addOwn": "添加备选方案",
+  "ownTitle": "你的备选方案",
+  "ownHint": "编写查询的一个等价版本：它会与其他方案一样进行比较。",
+  "ownName": "备选方案 {{n}}",
+  "add": "添加",
+  "compare": "比较",
+  "comparing": "比较中… {{done}} / {{total}}",
+  "compareTip": "在只读会话中运行原始查询和每个备选方案（先预热一次，再按指定次数运行），并比较耗时、行数和结果。会修改数据的查询不会运行：改为比较其预估计划。",
+  "runs": "运行次数",
+  "runsTip": "预热运行之后，每个版本运行的次数",
+  "maxRows": "最大行数",
+  "maxRowsTip": "从每个版本读取并比较的行数。如果某个版本返回的行更多，则不验证其结果。",
+  "table": {
+    "version": "版本",
+    "min": "最小",
+    "avg": "平均",
+    "rows": "行数",
+    "cost": "成本",
+    "result": "结果",
+    "speed": "相对原始"
+  },
+  "result": {
+    "same": "结果相同",
+    "different": "不等价",
+    "unverified": "未验证",
+    "truncated": "超过 {{count}} 行：未比较",
+    "error": "错误",
+    "planOnly": "仅计划",
+    "pending": "未比较"
+  },
+  "recommended": "推荐",
+  "faster": "快 {{x}} 倍",
+  "slower": "慢 {{x}} 倍",
+  "cheaper": "成本低 {{x}} 倍",
+  "viewPlan": "查看计划",
+  "use": "使用此版本",
+  "useNew": "在新查询中打开",
+  "useReplace": "替换其编辑器中的查询",
+  "replaceGone": "源编辑器中已没有此查询（已关闭或文本已更改）：已在新查询中打开。",
+  "replaced": "编辑器中的查询已被替换。未运行。",
+  "confirmUse": {
+    "title": "使用此版本",
+    "different": "此版本返回的结果与原始查询不同。仍要使用吗？",
+    "unverified": "此版本尚未与原始查询对比验证。仍要使用吗？",
+    "go": "仍然使用"
+  },
+  "planTitle": "计划 · {{name}}",
+  "hints": "建议的索引",
+  "hintsNone": "计划中没有可通过索引避免的全表扫描。",
+  "hintsNoPlan": "此引擎不显示执行计划，因此没有索引建议。",
+  "hint": {
+    "missing_index": "引擎建议在 {{table}} 上（{{columns}}）创建索引",
+    "full_scan": "{{table}} 被全表扫描；在（{{columns}}）上创建索引可以避免",
+    "scan": "{{table}} 被全表扫描",
+    "impact": "预估影响 {{impact}} %",
+    "rows": "约 {{rows}} 预估行"
+  },
+  "hintsNote": "脚本只会在查询中打开：请检查，如有帮助再自行运行。索引会加快读取，但会减慢写入。",
+  "openScript": "在查询中打开",
+  "notes": "观察",
+  "planWarnings": "计划警告",
+  "rules": {
+    "in_to_exists": {
+      "title": "IN（子查询）→ EXISTS",
+      "explain": "{{column}} IN（子查询）会改为将条件放入子查询的 EXISTS：引擎可以在第一个匹配处停止，而不必构建完整列表。"
+    },
+    "not_in_to_not_exists": {
+      "title": "NOT IN → NOT EXISTS",
+      "explain": "由于 {{column}} 和子查询列都不允许 NULL，NOT EXISTS 返回相同的结果，并且通常会作为更高效的反连接来处理。"
+    },
+    "exists_to_in": {
+      "title": "EXISTS → IN",
+      "explain": "使用 {{column}} 的相关子查询会改为只计算一次的 IN 列表。某些引擎用这种方式处理得更好。"
+    },
+    "scalar_to_join": {
+      "title": "逐行子查询 → 分组 LEFT JOIN",
+      "explain": "SELECT 中的子查询（{{count}} 个）本来要对每一行运行；现改为与只计算一次的分组表做 LEFT JOIN。没有行的 COUNT 仍然得到 0。"
+    },
+    "or_to_union": {
+      "title": "跨不同列的 OR → UNION ALL",
+      "explain": "对 {{columns}} 的 OR 会使每一列都无法使用索引。UNION ALL 的每个分支可以使用各自的索引，并且每个分支排除前面分支已返回的行，因此不会重复。"
+    },
+    "redundant_distinct": {
+      "title": "不必要的 DISTINCT",
+      "explain": "列表中包含 {{tables}} 的键：行本来就是唯一的，DISTINCT 只会增加排序或分组。"
+    },
+    "function_to_range": {
+      "title": "对已建索引列的函数 → 范围",
+      "explain": "{{function}} 对 {{column}} 应用了函数，因此无法使用它的索引。等价的日期范围可以使用。"
+    },
+    "count_to_exists": {
+      "title": "COUNT(*) > 0 → EXISTS",
+      "explain": "要知道是否有行，不需要全部计数：EXISTS 在第一行就会停止。"
+    },
+    "mongo_where": {
+      "title": "$where → 查询运算符",
+      "explain": "$where 对每个文档运行 JavaScript，且不使用索引；等价的运算符则会使用。对于数组或混合类型的字段，结果可能改变：使用前请先比较。"
+    }
+  },
+  "notesText": {
+    "select_star": "SELECT * 会获取 {{table}} 的全部 {{count}} 列。只请求你用到的列，读取的数据更少，并能利用可覆盖查询的索引。",
+    "select_starOpen": "按这些列打开",
+    "not_in_nullable": "NOT IN 与 {{column}}：如果子查询返回任何 NULL，查询将不返回任何行。如果这不是你想要的，请使用 NOT EXISTS。",
+    "text_vs_number": "{{column}} 是 {{type}}，并与数字 {{value}} 比较：引擎会对每一行转换该列，无法使用其索引。如果这些值是文本，请与 '{{value}}' 比较（请确认结果相同）。",
+    "nvarchar_literal": "{{column}} 是 {{type}}，并与 N'…'（Unicode）文本比较：SQL Server 会转换该列，可能无法使用其索引。如果值中没有该列代码页之外的字符，请去掉 N。"
+  }
+}

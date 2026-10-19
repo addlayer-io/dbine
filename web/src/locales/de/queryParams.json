@@ -1,0 +1,22 @@
+{
+  "title": "Abfrageparameter",
+  "intro": "Die Abfrage hat Parameter. Jeder Wert wird als Literal der Engine mit den richtigen Anführungszeichen in den Text geschrieben; rechts sehen Sie, wie er am Ende aussieht.",
+  "type": "Typ",
+  "types": {
+    "text": "Text",
+    "number": "Zahl",
+    "date": "Datum",
+    "null": "NULL"
+  },
+  "placeholder": {
+    "text": "Wert",
+    "number": "Zum Beispiel 42 oder 3.5",
+    "date": "JJJJ-MM-TT oder JJJJ-MM-TT hh:mm:ss"
+  },
+  "invalid": {
+    "number": "Keine Zahl.",
+    "date": "Schreiben Sie das Datum als JJJJ-MM-TT, optional mit Uhrzeit (hh:mm oder hh:mm:ss)."
+  },
+  "disable": "In diesem Tab nicht nach Parametern fragen",
+  "disableTip": "Führt den Text unverändert aus und sucht in diesem Tab nicht mehr nach Parametern. Lässt sich im Editormenü wieder einschalten."
+}

@@ -1,0 +1,52 @@
+{
+  "app": {
+    "about": "Über DBine",
+    "settings": "Einstellungen…",
+    "services": "Dienste",
+    "hide": "DBine ausblenden",
+    "hideOthers": "Andere ausblenden",
+    "showAll": "Alle einblenden",
+    "quit": "DBine beenden"
+  },
+  "file": {
+    "title": "Datei",
+    "newConnection": "Neue Verbindung",
+    "newQuery": "Neue Abfrage",
+    "newNotebook": "Neues Notebook",
+    "newWindow": "Neues Fenster",
+    "closeTab": "Tab schließen",
+    "open": "Datei öffnen…"
+  },
+  "edit": {
+    "title": "Bearbeiten",
+    "undo": "Widerrufen",
+    "redo": "Wiederholen",
+    "cut": "Ausschneiden",
+    "copy": "Kopieren",
+    "paste": "Einfügen",
+    "selectAll": "Alles auswählen"
+  },
+  "view": {
+    "title": "Ansicht",
+    "explorer": "Explorer",
+    "output": "Ausgabe",
+    "ai": "KI-Assistent",
+    "fullscreen": "Vollbild"
+  },
+  "window": {
+    "title": "Fenster",
+    "minimize": "Im Dock ablegen",
+    "zoom": "Zoomen"
+  },
+  "help": {
+    "title": "Hilfe",
+    "checkUpdates": "Nach Updates suchen…",
+    "support": "Projekt unterstützen"
+  },
+  "palette": {
+    "open": "Befehlspalette…"
+  },
+  "goto": {
+    "open": "Gehe zu…"
+  }
+}

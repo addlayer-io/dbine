@@ -1,0 +1,16 @@
+{
+  "_comment": "DBine's UI languages, the one list the scripts read (scripts/i18n/check.py, scripts/changelog.py). Spanish is the source. 'plurals' are the CLDR plural categories i18next uses for the language (Intl.PluralRules). 'changelog_after': the language's changelog/CHANGELOG.<code>.md must have every version newer than this one (the language shipped with the next release); without it, every version. check.py also verifies that the lists in the code (web/src/i18n, crates/dbine-ai, src-tauri updates) match this file.",
+  "source": "es",
+  "languages": [
+    { "code": "es", "name": "Español", "tag": "es", "plurals": ["one", "many", "other"] },
+    { "code": "en", "name": "English", "tag": "en", "plurals": ["one", "other"] },
+    { "code": "pt", "name": "Português", "tag": "pt-BR", "plurals": ["one", "many", "other"] },
+    { "code": "fr", "name": "Français", "tag": "fr", "plurals": ["one", "many", "other"] },
+    { "code": "it", "name": "Italiano", "tag": "it", "plurals": ["one", "many", "other"] },
+    { "code": "de", "name": "Deutsch", "tag": "de", "plurals": ["one", "other"], "changelog_after": "1.0.0" },
+    { "code": "ru", "name": "Русский", "tag": "ru", "plurals": ["one", "few", "many", "other"], "changelog_after": "1.0.0" },
+    { "code": "zh", "name": "中文（简体）", "tag": "zh-CN", "plurals": ["other"], "changelog_after": "1.0.0" },
+    { "code": "ja", "name": "日本語", "tag": "ja", "plurals": ["other"], "changelog_after": "1.0.0" },
+    { "code": "ko", "name": "한국어", "tag": "ko", "plurals": ["other"], "changelog_after": "1.0.0" }
+  ]
+}

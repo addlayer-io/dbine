@@ -1,0 +1,60 @@
+{
+  "primaryKey": "主キー",
+  "foreignKey": "外部キー",
+  "unnamedForeignKey": "名前のない外部キー",
+  "exportFailed": "画像をエクスポートできませんでした: {{error}}",
+  "busy": "{{tables}} 個のテーブルと {{relations}} 個のリレーションを配置しています…",
+  "hint": "ドラッグで移動 · ⌘/ピンチ + ホイールでズーム · ダブルクリックでテーブルを開く",
+  "tab": {
+    "connectFailed": "接続できませんでした。",
+    "reading": "データベースの構造を読み込んでいます…",
+    "drawFailed": "ダイアグラムを描画できませんでした: {{error}}",
+    "fileName": "diagram-{{name}}",
+    "fileNameDefault": "database"
+  },
+  "toolbar": {
+    "tables": "テーブル",
+    "relations": "リレーション",
+    "simplifiedLayout": "簡易レイアウト",
+    "simplifiedLayoutTitle": "この構造では自動レイアウトに失敗しました。テーブルはグリッドで表示されます(手動で移動できます)。",
+    "searchPlaceholder": "テーブルを検索…",
+    "allSchemas": "すべてのスキーマ",
+    "allColumns": "すべての列",
+    "keysOnly": "キーのみ",
+    "relayout": "再配置",
+    "relayoutTitle": "テーブルを自動的に並べ直す",
+    "svgImage": "SVG 画像",
+    "pngImage": "PNG 画像"
+  },
+  "card": {
+    "openHint": "ダブルクリックで開く",
+    "nullable": "NULL 可",
+    "noColumns": "列なし",
+    "moreColumns_other": "+{{count}} 列",
+    "showLess": "折りたたむ"
+  },
+  "empty": {
+    "title": "表示するテーブルがありません",
+    "text": "データベースにテーブルがないか、エンジンが構造を報告していません。",
+    "noRelations": "リレーションなし: データベースに外部キーが宣言されていないか、エンジンが報告していません。テーブルのみ表示しています。"
+  },
+  "zoom": {
+    "zoomOut": "縮小(−)",
+    "actualSize": "実寸(0)",
+    "zoomIn": "拡大(+)",
+    "fit": "ビューに合わせる(F)",
+    "minimap": "ミニマップ"
+  },
+  "props": {
+    "table": "テーブル",
+    "openTable": "テーブルを開く",
+    "close": "閉じる(Esc)",
+    "columns": "列",
+    "unnamed": "(名前なし)",
+    "indexes": "インデックス",
+    "unique": "一意",
+    "references": "参照先",
+    "referencedBy": "参照元",
+    "outside": "ダイアグラム外"
+  }
+}

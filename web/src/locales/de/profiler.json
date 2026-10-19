@@ -1,0 +1,88 @@
+{
+  "couldNotConnect": "Verbindung nicht möglich.",
+  "connection": "Verbindung",
+  "thisEngine": "Diese Engine",
+  "unsupported": "{{engine}} erlaubt nicht, die Abfragen anderer Clients zu sehen.",
+  "hint": {
+    "duration": "> 500 · < 1s · >= 2.5s",
+    "text": "enthält… · !enthält nicht · =gleich",
+    "database": "enthält… · !enthält nicht"
+  },
+  "menu": {
+    "filter": {
+      "user": "Nach Benutzer „{{value}}“ filtern",
+      "client": "Nach Client „{{value}}“ filtern",
+      "application": "Nach Anwendung „{{value}}“ filtern",
+      "database": "Nach Datenbank „{{value}}“ filtern"
+    },
+    "filterSame": "Nach ähnlichen wie diese Abfrage filtern",
+    "copy": "Abfrage kopieren"
+  },
+  "openInQuery": "In einer Abfrage öffnen",
+  "column": {
+    "time": "Zeit",
+    "duration": "Dauer",
+    "query": "Abfrage",
+    "database": "Datenbank",
+    "user": "Benutzer",
+    "client": "Client",
+    "application": "Anwendung",
+    "rows": "Zeilen",
+    "cpu": "CPU",
+    "reads": "Lesezugriffe",
+    "writes": "Schreibzugriffe"
+  },
+  "columns": "Spalten",
+  "columnsHint": "Spalten ein- oder ausblenden",
+  "showAll": "Alle anzeigen",
+  "status": {
+    "starting": "Wird gestartet…",
+    "capturing": "Erfassung läuft",
+    "stopped": "Gestoppt",
+    "notStarted": "Nicht gestartet"
+  },
+  "source": "Quelle: {{source}}",
+  "mode": {
+    "complete": "Vollständige Erfassung",
+    "sampled": "Stichproben"
+  },
+  "clearFilters": "Filter zurücksetzen",
+  "resume": "Fortsetzen",
+  "sampledNote": "Diese Engine zeigt nur, was gerade läuft: Abfragen unter ~100 ms erscheinen möglicherweise nicht.",
+  "enabled": "{{source}} wurde auf dem Server aktiviert.",
+  "disabled": "{{source}} wurde deaktiviert.",
+  "stats": {
+    "title": "Diese Abfrage",
+    "runs_one": "{n} Ausführung",
+    "runs_other": "{n} Ausführungen",
+    "avg": "Durchschnitt",
+    "min": "Min.",
+    "max": "Max."
+  },
+  "filtersHint": "Es werden nur Abfragen behalten, die die Filter passieren",
+  "sameAs": "Ähnlich: {{label}}",
+  "removeFilter": "Diesen Filter entfernen",
+  "noneYet": "Noch keiner aufgetreten",
+  "noValues": "Keine Werte",
+  "empty": {
+    "noMatch": "Keine Abfragen entsprechen.",
+    "waitingFiltered": "Warten auf Abfragen, die die Filter passieren…",
+    "waiting": "Warten auf Abfragen…",
+    "none": "Keine Abfragen erfasst."
+  },
+  "dragHint": "Ziehen, um die Höhe zu ändern",
+  "detail": {
+    "rows_one": "{{n}} Zeile",
+    "rows_other": "{{n}} Zeilen"
+  },
+  "foot": {
+    "queries_one": "{{n}} Abfrage",
+    "queries_other": "{{n}} Abfragen",
+    "passing": "{{n}} passieren die Filter",
+    "skipped": "{{n}} durch die Filter verworfen",
+    "dropped": "die {{n}} ältesten wurden verworfen (die letzten {{max}} bleiben erhalten)",
+    "arrivalOrder": "Zurück zur Eingangsreihenfolge",
+    "toEnd": "Zum Ende springen"
+  },
+  "unitHint": "In {{unit}}"
+}

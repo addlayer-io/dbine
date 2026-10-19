@@ -7,6 +7,7 @@ import { usePanZoom } from '../composables/usePanZoom';
 import { resolvedTheme } from '../composables/appearance';
 import { useTranslation } from 'i18next-vue';
 import { language } from '../i18n';
+import { CJK_FONTS } from '../styles/fonts';
 
 // Entity-relationship diagram of a whole database: tables as cards (keys,
 // types, NOT NULL), foreign keys as curves from the FK column to the
@@ -35,8 +36,8 @@ const MAX_W = 380;
 const LIMIT = 14;
 const SHOW = 10;
 const STUB = 14;
-const SANS = '-apple-system, BlinkMacSystemFont, "Segoe UI", system-ui, Ubuntu, sans-serif';
-const MONO = '"SF Mono", Menlo, Monaco, Consolas, "JetBrains Mono", monospace';
+const SANS = `-apple-system, BlinkMacSystemFont, "Segoe UI", system-ui, Ubuntu, ${CJK_FONTS}, sans-serif`;
+const MONO = `"SF Mono", Menlo, Monaco, Consolas, "JetBrains Mono", ${CJK_FONTS}, monospace`;
 const F_HEAD = `600 12.5px ${SANS}`;
 const F_SCHEMA = `400 12.5px ${SANS}`;
 const F_COL = `400 12px ${SANS}`;

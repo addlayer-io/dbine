@@ -1,0 +1,23 @@
+{
+  "menu": "데이터베이스에서 검색…",
+  "tab": "검색",
+  "placeholder": "이름과 뷰, 프로시저, 함수, 트리거 등의 코드에서 검색할 텍스트…",
+  "search": "검색",
+  "names": "이름",
+  "code": "코드",
+  "caseSensitive": "대소문자 구분",
+  "wholeWord": "단어 단위",
+  "allKinds": "모든 유형",
+  "starting": "검색하는 중…",
+  "progress": "개체 {{total}}개 중 {{done}}개 검토 중",
+  "found_other": "개체 {{count}}개",
+  "scanned_other": "정의 {{count}}개 검토함",
+  "cancelled": "취소됨: 일부 결과",
+  "truncated": "최대 결과 수에서 잘렸습니다",
+  "unreadable_other": "개체 {{count}}개를 읽지 못했습니다",
+  "inName": "이름에서",
+  "lines_other": "{{count}}줄",
+  "none": "결과 없음.",
+  "column": "열",
+  "columns": "열"
+}

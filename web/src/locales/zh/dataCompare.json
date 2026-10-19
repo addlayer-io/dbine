@@ -1,0 +1,65 @@
+{
+  "tab": "数据",
+  "menu": "比较数据…",
+  "left": "左侧",
+  "right": "右侧",
+  "table": "表",
+  "key": "键（主键）",
+  "compare": "比较",
+  "pickBoth": "请在两侧各选择一张表。",
+  "same": "相同",
+  "changed": "不同",
+  "onlyLeft": "仅在左侧",
+  "onlyRight": "仅在右侧",
+  "syncRight": "使右侧与之一致 →",
+  "syncLeft": "← 使左侧与之一致",
+  "truncated": "每侧只比较了前 {{limit}} 行：该表还有更多行。",
+  "duplicates_other": "{{count}} 行键重复的行只比较了一次。",
+  "onlyLeftColumns": "仅左侧拥有的列（未比较）：{{list}}",
+  "onlyRightColumns": "仅右侧拥有的列（未比较）：{{list}}",
+  "nothing": "这里没有行。",
+  "showingFirst": "显示 {{total}} 行中的前 {{shown}} 行；“全部”按钮也会标记你看不到的行。",
+  "hint": "在两侧各选择表，然后点击比较。行按主键匹配，即使位于其他连接或其他引擎。",
+  "syncTitle": "应用所选更改",
+  "scriptSummary": "{{parts}}，使用目标的语言。运行前请检查。",
+  "noChanges": "没有可应用的内容。",
+  "copied": "已复制",
+  "openInQuery": "在查询中打开",
+  "run": "运行",
+  "applied": "更改已应用",
+  "scriptName": "同步数据",
+  "keyLabel": "键",
+  "matchHint": "标记不同的行和该侧缺少的行。需要删除的行在各自的视图中单独选择。",
+  "bulk_other": "此视图中已标记 {{n}} 行。",
+  "allLeft": "← 全部",
+  "allRight": "全部 →",
+  "allNone": "无",
+  "arrow": {
+    "update": {
+      "left": "左侧采用右侧的值",
+      "right": "右侧采用左侧的值"
+    },
+    "insert": {
+      "left": "在左侧插入此行",
+      "right": "在右侧插入此行"
+    },
+    "delete": {
+      "left": "从左侧删除此行",
+      "right": "从右侧删除此行"
+    }
+  },
+  "bothSides": "两侧都会更改：运行时先运行左侧脚本，再运行右侧脚本。如果其中一个失败，另一个不会运行。",
+  "failedOn": "{{side}}失败：{{error}}",
+  "mismatch": {
+    "title": "不是同一张表",
+    "name": "注意：你比较的不是同一张表（{{left}} 对 {{right}}）。同步会更改另一张表的数据。",
+    "schema": "注意：这是另一个架构中的同名不同表（{{left}} 对 {{right}}）。同步会更改另一张表的数据。",
+    "runAnyway": "仍然运行"
+  },
+  "count": {
+    "insert_other": "{{n}} 次插入",
+    "update_other": "{{n}} 次更新",
+    "delete_other": "{{n}} 次删除",
+    "and": "和"
+  }
+}

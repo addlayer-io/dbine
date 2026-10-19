@@ -1,0 +1,25 @@
+{
+  "menu": "Klonen…",
+  "title": "{{name}} klonen",
+  "name": "Neuer Tabellenname",
+  "nameHelp": "Sie wird im selben Schema mit derselben Struktur erstellt. Ihre Indizes und Einschränkungen erhalten Namen auf Basis des neuen Namens.",
+  "withData": "Daten kopieren",
+  "withIndexes": "Indizes einschließen",
+  "clone": "Klonen",
+  "stop": "Stoppen",
+  "starting": "Wird gestartet…",
+  "rows": "{{done}} Zeilen kopiert",
+  "rowsOf": "{{done}} von {{total}} Zeilen kopiert",
+  "done": "«{{name}}» mit {{rows}} Zeilen geklont",
+  "cancelled": "Klonen gestoppt; von der neuen Tabelle ist nichts übrig geblieben",
+  "notes": "Gut zu wissen",
+  "phase": {
+    "read": "Tabellenstruktur wird gelesen…",
+    "create": "Neue Tabelle wird erstellt…",
+    "copy": "Daten werden kopiert…",
+    "identity": "Identitätszähler wird angepasst…",
+    "indexes": "Indizes werden erstellt…",
+    "foreign_keys": "Fremdschlüssel werden erstellt…",
+    "cleanup": "Halbfertige Tabelle wird gelöscht…"
+  }
+}

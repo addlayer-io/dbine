@@ -1,0 +1,31 @@
+{
+  "couldNotConnect": "연결할 수 없습니다.",
+  "duration": {
+    "s": "{{s}}초",
+    "dh": "{{d}}일 {{h}}시간",
+    "hm": "{{h}}시간 {{m}}분",
+    "ms": "{{m}}분 {{s}}초"
+  },
+  "level": {
+    "warn": "높음",
+    "crit": "심각"
+  },
+  "justNow": "방금",
+  "secondsAgo": "{{s}}초 전",
+  "connection": "연결",
+  "paused": "일시 중지됨",
+  "every": "{{s}}초마다",
+  "resume": "재개",
+  "pause": "일시 중지",
+  "refresh": "새로 고침",
+  "unsupported": "{{engine}}은(는) 모니터링을 제공하지 않습니다.",
+  "thisEngine": "이 엔진",
+  "measuring": "측정 중…",
+  "of": "/ {{max}}",
+  "filter": "필터…",
+  "noMatch": "일치하는 행이 없습니다.",
+  "noRows": "행 없음.",
+  "sparkline": {
+    "noData": "데이터 없음"
+  }
+}

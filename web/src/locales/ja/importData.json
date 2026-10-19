@@ -1,0 +1,77 @@
+{
+  "title": "データをインポート",
+  "steps": {
+    "file": "ファイル",
+    "preview": "プレビュー",
+    "target": "インポート先",
+    "import": "インポート"
+  },
+  "formats": {
+    "auto": "自動(拡張子で判定)",
+    "csv": "CSV(カンマ)",
+    "csvSemicolon": "CSV(セミコロン)",
+    "tsv": "TSV(タブ)",
+    "json": "JSON(オブジェクトの配列)",
+    "jsonLines": "JSON Lines(1 行 1 オブジェクト)"
+  },
+  "types": {
+    "integer": "整数",
+    "number": "数値",
+    "boolean": "真偽値",
+    "date": "日付",
+    "datetime": "日時",
+    "text": "テキスト"
+  },
+  "file": {
+    "filterData": "データ(CSV、TSV、JSON、JSONL、XLSX、XML)",
+    "pickHint": "CSV、TSV、JSON、JSON Lines、Excel、XML のいずれかのファイルを選択してください。",
+    "format": "形式",
+    "delimiter": "区切り文字",
+    "tab": "タブ",
+    "commaDefault": ",(または形式の既定値)",
+    "sheet": "シート",
+    "firstSheet": "最初のシート",
+    "header": "先頭行が列名",
+    "detected_other": "{{count}} 列を検出 · 形式 {{format}}"
+  },
+  "preview": {
+    "caption_other": "{file} の先頭 {{rows}} 行 · {{count}} 列",
+    "empty": "ファイルにデータ行がありません。"
+  },
+  "target": {
+    "existing": "既存のテーブル",
+    "new": "新しいテーブル",
+    "pickTable": "テーブルを選択",
+    "schema": "スキーマ",
+    "tableName": "テーブル名",
+    "batch": "バッチあたりの行数",
+    "sourceColumn": "ファイルの列",
+    "detectedType": "検出された型",
+    "targetColumn": "インポート先の列",
+    "ignore": "(無視)",
+    "name": "名前",
+    "type": "型",
+    "nulls": "NULL",
+    "toImport_other": "インポートする列: {{count}} 個",
+    "errors": {
+      "pickTable": "インポート先のテーブルを選択してください",
+      "mapOne": "少なくとも 1 つの列を割り当ててください",
+      "mappedTwice": "インポート先の列が重複して割り当てられています",
+      "newName": "新しいテーブルの名前を入力してください",
+      "exists": "その名前のテーブルは既に存在します",
+      "includeOne": "少なくとも 1 つの列を含めてください",
+      "nameAndType": "各列に名前と型が必要です",
+      "duplicateNames": "列名が重複しています"
+    }
+  },
+  "run": {
+    "importing": "{{file}} をインポートしています…",
+    "rows_other": "行",
+    "rowsPerSecond": "行/秒",
+    "done": "インポートが完了しました",
+    "doneDetail_other": "{table} に {{n}} 行 · {{seconds}} 秒",
+    "partial_other": "停止するまでに {{n}} 行がインポートされました。",
+    "cancelledMessage": "インポートをキャンセルしました。",
+    "cancelImport": "インポートをキャンセル"
+  }
+}

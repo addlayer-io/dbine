@@ -1,0 +1,83 @@
+{
+  "title": "Daten importieren",
+  "steps": {
+    "file": "Datei",
+    "preview": "Vorschau",
+    "target": "Ziel",
+    "import": "Importieren"
+  },
+  "formats": {
+    "auto": "Automatisch (nach Endung)",
+    "csv": "CSV (Komma)",
+    "csvSemicolon": "CSV (Semikolon)",
+    "tsv": "TSV (Tabulator)",
+    "json": "JSON (Array von Objekten)",
+    "jsonLines": "JSON Lines (ein Objekt pro Zeile)"
+  },
+  "types": {
+    "integer": "Ganzzahl",
+    "number": "Zahl",
+    "boolean": "Boolean",
+    "date": "Datum",
+    "datetime": "Datum und Uhrzeit",
+    "text": "Text"
+  },
+  "file": {
+    "filterData": "Daten (CSV, TSV, JSON, JSONL, XLSX, XML)",
+    "pickHint": "Wählen Sie eine CSV-, TSV-, JSON-, JSON-Lines-, Excel- oder XML-Datei.",
+    "format": "Format",
+    "delimiter": "Trennzeichen",
+    "tab": "Tabulator",
+    "commaDefault": ", (oder das des Formats)",
+    "sheet": "Blatt",
+    "firstSheet": "Erstes Blatt",
+    "header": "Die erste Zeile enthält die Spaltennamen",
+    "detected_one": "{{count}} Spalte erkannt · Format {{format}}",
+    "detected_other": "{{count}} Spalten erkannt · Format {{format}}"
+  },
+  "preview": {
+    "caption_one": "Erste {{rows}} Zeilen von {file} · {{count}} Spalte",
+    "caption_other": "Erste {{rows}} Zeilen von {file} · {{count}} Spalten",
+    "empty": "Die Datei enthält keine Datenzeilen."
+  },
+  "target": {
+    "existing": "Vorhandene Tabelle",
+    "new": "Neue Tabelle",
+    "pickTable": "Tabelle wählen",
+    "schema": "Schema",
+    "tableName": "Tabellenname",
+    "batch": "Zeilen pro Batch",
+    "sourceColumn": "Dateispalte",
+    "detectedType": "Erkannter Typ",
+    "targetColumn": "Zielspalte",
+    "ignore": "(ignorieren)",
+    "name": "Name",
+    "type": "Typ",
+    "nulls": "Nullwerte",
+    "toImport_one": "{{count}} Spalte zu importieren",
+    "toImport_other": "{{count}} Spalten zu importieren",
+    "errors": {
+      "pickTable": "Wählen Sie die Zieltabelle",
+      "mapOne": "Ordnen Sie mindestens eine Spalte zu",
+      "mappedTwice": "Einige Zielspalten sind doppelt zugeordnet",
+      "newName": "Geben Sie den Namen der neuen Tabelle ein",
+      "exists": "Eine Tabelle mit diesem Namen existiert bereits",
+      "includeOne": "Schließen Sie mindestens eine Spalte ein",
+      "nameAndType": "Jede Spalte braucht einen Namen und einen Typ",
+      "duplicateNames": "Es gibt doppelte Spaltennamen"
+    }
+  },
+  "run": {
+    "importing": "{{file}} wird importiert…",
+    "rows_one": "Zeile",
+    "rows_other": "Zeilen",
+    "rowsPerSecond": "Zeilen/s",
+    "done": "Import abgeschlossen",
+    "doneDetail_one": "{{n}} Zeile in {table} · {{seconds}} s",
+    "doneDetail_other": "{{n}} Zeilen in {table} · {{seconds}} s",
+    "partial_one": "{{n}} Zeile wurde importiert, bevor gestoppt wurde.",
+    "partial_other": "{{n}} Zeilen wurden importiert, bevor gestoppt wurde.",
+    "cancelledMessage": "Import abgebrochen.",
+    "cancelImport": "Import abbrechen"
+  }
+}

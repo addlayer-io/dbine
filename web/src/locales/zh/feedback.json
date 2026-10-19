@@ -1,0 +1,53 @@
+{
+  "button": "发送反馈",
+  "title": "发送反馈",
+  "lead": "提出改进建议、报告问题、请求新引擎或提问。",
+  "kindLabel": "反馈类型",
+  "kinds": {
+    "bug": {
+      "name": "报告错误",
+      "hint": "某些功能没有按预期工作",
+      "titlePlaceholder": "例如：导出到 Excel 时编辑器关闭",
+      "placeholder": "你做了什么、期望发生什么以及实际发生了什么。如果有错误消息，请复制过来。"
+    },
+    "enhancement": {
+      "name": "提出改进建议",
+      "hint": "让 DBine 更好的想法",
+      "titlePlaceholder": "例如：能够在结果网格中固定列",
+      "placeholder": "你希望 DBine 做什么，以及这对你有什么帮助。"
+    },
+    "driver-request": {
+      "name": "请求新引擎",
+      "hint": "DBine 尚不支持的数据库",
+      "titlePlaceholder": "例如：Firebird 5",
+      "placeholder": "你如何使用这个引擎，以及你最先需要什么：浏览、查询、编辑数据、迁移…"
+    },
+    "question": {
+      "name": "提问",
+      "hint": "如何在 DBine 中完成某件事",
+      "titlePlaceholder": "例如：如何比较两个数据库？",
+      "placeholder": "你想做什么，以及你尝试过什么。"
+    }
+  },
+  "titleField": "标题",
+  "engine": "引擎",
+  "description": "描述",
+  "steps": "复现步骤",
+  "stepsPlaceholder": "1. 连接到…\n2. 打开…\n3. …",
+  "optional": "（可选）",
+  "diagnostics": "包含诊断数据",
+  "diagnosticsNever": "以下就是包含的全部内容。绝不包含服务器、用户、数据库或连接名称、查询或密码。",
+  "truncated": "描述太长，无法完整发送：将被截断。你可以在创建 issue 之前在 GitHub 上补全。",
+  "publicNote": "GitHub 会打开并填好所有内容：你只需点击“Create”。需要有 GitHub 账号。issue 是公开的：请勿包含私人数据。",
+  "continue": "在 GitHub 上继续",
+  "openAgain": "再次打开",
+  "done": {
+    "title": "已在浏览器中打开 GitHub。",
+    "text": "请检查已填写的内容，然后点击“Create”发布。感谢你帮助我们改进 DBine！"
+  },
+  "needs": {
+    "title": "标题至少需要 {{n}} 个字符。",
+    "engine": "请输入引擎名称。",
+    "description": "描述至少需要 {{n}} 个字符。"
+  }
+}

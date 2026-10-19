@@ -1,0 +1,20 @@
+{
+  "menu": "Zustandsprüfung",
+  "tab": "Zustand",
+  "title": "Zustandsprüfung · {{name}}",
+  "checkedAt": "Geprüft am {{at}}",
+  "run": "Erneut prüfen",
+  "running": "Datenbank wird geprüft…",
+  "showOk": "Zeigen, was in Ordnung ist",
+  "severity": {
+    "critical": "Kritisch",
+    "warning": "Warnungen",
+    "info": "Informationen",
+    "ok": "OK"
+  },
+  "openFix": "In einer Abfrage öffnen",
+  "fixName": "Beheben: {{title}}",
+  "more": "und {{count}} weitere",
+  "allOk": "Keine Probleme gefunden.",
+  "skipped": "Konnte nicht geprüft werden:"
+}

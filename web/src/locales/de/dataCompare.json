@@ -1,0 +1,70 @@
+{
+  "tab": "Daten",
+  "menu": "Daten vergleichen…",
+  "left": "Links",
+  "right": "Rechts",
+  "table": "Tabelle",
+  "key": "Schlüssel (der primäre)",
+  "compare": "Vergleichen",
+  "pickBoth": "Wählen Sie auf jeder Seite eine Tabelle.",
+  "same": "gleich",
+  "changed": "unterschiedlich",
+  "onlyLeft": "nur links",
+  "onlyRight": "nur rechts",
+  "syncRight": "Rechte Seite angleichen →",
+  "syncLeft": "← Linke Seite angleichen",
+  "truncated": "Es wurden die ersten {{limit}} Zeilen jeder Seite verglichen: Die Tabelle hat mehr.",
+  "duplicates_one": "1 Zeile mit wiederholtem Schlüssel wurde einmal verglichen.",
+  "duplicates_other": "{{count}} Zeilen mit wiederholtem Schlüssel wurden einmal verglichen.",
+  "onlyLeftColumns": "Spalten, die nur links vorhanden sind (nicht verglichen): {{list}}",
+  "onlyRightColumns": "Spalten, die nur rechts vorhanden sind (nicht verglichen): {{list}}",
+  "nothing": "Hier gibt es keine Zeilen.",
+  "showingFirst": "Angezeigt werden die ersten {{shown}} von {{total}}; die Schaltflächen „Alle“ markieren auch die nicht sichtbaren.",
+  "hint": "Wählen Sie auf jeder Seite die Tabelle und klicken Sie auf Vergleichen. Zeilen werden über ihren Primärschlüssel zugeordnet, auch über eine andere Verbindung oder eine andere Engine.",
+  "syncTitle": "Ausgewählte Änderungen anwenden",
+  "scriptSummary": "{{parts}}, in der Sprache des Ziels. Prüfen Sie es vor dem Ausführen.",
+  "noChanges": "Nichts anzuwenden.",
+  "copied": "Kopiert",
+  "openInQuery": "In einer Abfrage öffnen",
+  "run": "Ausführen",
+  "applied": "Änderungen angewendet",
+  "scriptName": "Daten synchronisieren",
+  "keyLabel": "Schlüssel",
+  "matchHint": "Markiert die unterschiedlichen und die auf dieser Seite fehlenden Zeilen. Die zu löschenden werden separat in ihrer eigenen Ansicht ausgewählt.",
+  "bulk_one": "{{n}} Zeile in dieser Ansicht markiert.",
+  "bulk_other": "{{n}} Zeilen in dieser Ansicht markiert.",
+  "allLeft": "← Alle",
+  "allRight": "Alle →",
+  "allNone": "Keine",
+  "arrow": {
+    "update": {
+      "left": "Die linke Seite erhält die Werte der rechten",
+      "right": "Die rechte Seite erhält die Werte der linken"
+    },
+    "insert": {
+      "left": "Diese Zeile links einfügen",
+      "right": "Diese Zeile rechts einfügen"
+    },
+    "delete": {
+      "left": "Diese Zeile links löschen",
+      "right": "Diese Zeile rechts löschen"
+    }
+  },
+  "bothSides": "Beide Seiten ändern sich: Beim Ausführen läuft zuerst das linke Skript, dann das rechte. Schlägt eines fehl, wird das andere nicht ausgeführt.",
+  "failedOn": "Fehlgeschlagen auf {{side}}: {{error}}",
+  "mismatch": {
+    "title": "Nicht dieselbe Tabelle",
+    "name": "Achtung: Sie vergleichen nicht dieselbe Tabelle ({{left}} gegen {{right}}). Eine Synchronisierung würde die Daten einer anderen Tabelle ändern.",
+    "schema": "Achtung: Es ist eine andere Tabelle mit demselben Namen in einem anderen Schema ({{left}} gegen {{right}}). Eine Synchronisierung würde die Daten einer anderen Tabelle ändern.",
+    "runAnyway": "Trotzdem ausführen"
+  },
+  "count": {
+    "insert_one": "{{n}} Einfügung",
+    "insert_other": "{{n}} Einfügungen",
+    "update_one": "{{n}} Aktualisierung",
+    "update_other": "{{n}} Aktualisierungen",
+    "delete_one": "{{n}} Löschung",
+    "delete_other": "{{n}} Löschungen",
+    "and": "und"
+  }
+}

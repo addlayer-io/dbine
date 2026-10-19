@@ -1,0 +1,61 @@
+{
+  "primaryKey": "Primärschlüssel",
+  "foreignKey": "Fremdschlüssel",
+  "unnamedForeignKey": "Unbenannter Fremdschlüssel",
+  "exportFailed": "Das Bild konnte nicht exportiert werden: {{error}}",
+  "busy": "{{tables}} Tabellen und {{relations}} Beziehungen werden angeordnet…",
+  "hint": "Ziehen zum Verschieben · ⌘/Pinch + Rad zum Zoomen · Doppelklick öffnet die Tabelle",
+  "tab": {
+    "connectFailed": "Verbindung nicht möglich.",
+    "reading": "Datenbankstruktur wird gelesen…",
+    "drawFailed": "Das Diagramm konnte nicht gezeichnet werden: {{error}}",
+    "fileName": "diagramm-{{name}}",
+    "fileNameDefault": "datenbank"
+  },
+  "toolbar": {
+    "tables": "Tabellen",
+    "relations": "Beziehungen",
+    "simplifiedLayout": "vereinfachtes Layout",
+    "simplifiedLayoutTitle": "Das automatische Layout ist mit dieser Struktur fehlgeschlagen: Die Tabellen werden in einem Raster angezeigt (Sie können sie von Hand verschieben).",
+    "searchPlaceholder": "Tabelle suchen…",
+    "allSchemas": "Alle Schemas",
+    "allColumns": "Alle Spalten",
+    "keysOnly": "Nur Schlüssel",
+    "relayout": "Neu anordnen",
+    "relayoutTitle": "Die Tabellen erneut automatisch anordnen",
+    "svgImage": "SVG-Bild",
+    "pngImage": "PNG-Bild"
+  },
+  "card": {
+    "openHint": "Doppelklick zum Öffnen",
+    "nullable": "Erlaubt NULL",
+    "noColumns": "keine Spalten",
+    "moreColumns_one": "+{{count}} Spalte",
+    "moreColumns_other": "+{{count}} Spalten",
+    "showLess": "Weniger anzeigen"
+  },
+  "empty": {
+    "title": "Keine Tabellen anzuzeigen",
+    "text": "Die Datenbank hat keine Tabellen, oder die Engine meldet ihre Struktur nicht.",
+    "noRelations": "Keine Beziehungen: Die Datenbank deklariert keine Fremdschlüssel (oder die Engine meldet sie nicht). Es werden nur die Tabellen angezeigt."
+  },
+  "zoom": {
+    "zoomOut": "Verkleinern (−)",
+    "actualSize": "Originalgröße (0)",
+    "zoomIn": "Vergrößern (+)",
+    "fit": "An Ansicht anpassen (F)",
+    "minimap": "Minimap"
+  },
+  "props": {
+    "table": "tabelle",
+    "openTable": "Tabelle öffnen",
+    "close": "Schließen (Esc)",
+    "columns": "Spalten",
+    "unnamed": "(ohne Namen)",
+    "indexes": "Indizes",
+    "unique": "eindeutig",
+    "references": "Referenziert",
+    "referencedBy": "Referenziert von",
+    "outside": "außerhalb des Diagramms"
+  }
+}

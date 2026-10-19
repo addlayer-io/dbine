@@ -1,0 +1,12 @@
+{
+  "menu": "Eigenschaften…",
+  "title": "Eigenschaften von „{{name}}“",
+  "apply": "Anwenden",
+  "confirmTitle": "Änderungen auf „{{name}}“ anwenden",
+  "warningsTitle": "Warnung:",
+  "applied": "Eigenschaften von „{{name}}“ aktualisiert",
+  "scriptName": "Eigenschaften von {{name}}",
+  "nothing": "Diese Engine hat auf diesem Tab nichts anzuzeigen oder zu ändern.",
+  "readOnly": "Schreibgeschützte Verbindung: Eigenschaften können angezeigt, aber nicht geändert werden.",
+  "noChanges": "(keine Änderungen)"
+}

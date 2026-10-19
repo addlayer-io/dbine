@@ -1,0 +1,138 @@
+{
+  "actions": {
+    "createQueryFailed": "クエリを作成できませんでした: {{error}}",
+    "nameRequired": "名前を入力してください",
+    "create": "作成",
+    "renameQuery": {
+      "prompt": "クエリ名:",
+      "title": "名前を変更"
+    },
+    "copyName": "{{name}}(コピー)",
+    "copyNameN": "{{name}}(コピー {{n}})",
+    "deleteQuery": {
+      "confirm": "クエリ \"{{name}}\" を削除しますか？ この操作は元に戻せません。",
+      "title": "クエリを削除"
+    },
+    "newObjectPrefix": "new_",
+    "createDatabase": {
+      "prompt": "新しいデータベースの名前:",
+      "title": "新しいデータベース",
+      "done": "データベース「{{name}}」を作成しました"
+    },
+    "dropObjects": {
+      "more": "{{list}} ほか {{count}} 件",
+      "confirmOne": "{{where}} の「{{name}}」を削除しますか？ すべてのデータごと削除され、元に戻せません。",
+      "confirmMany": "{{where}} から {{count}} 個のオブジェクトをデータごと削除します: {{list}}。\n\n元に戻せません。確認のため「{{word}}」と入力してください:",
+      "titleMany": "{{count}} 個のオブジェクトを削除",
+      "word": "削除",
+      "typeWord": "「{{word}}」と入力してください",
+      "failed": "{{total}} 件中 {{failed}} 件を削除できませんでした",
+      "droppedOne": "「{{name}}」を削除しました",
+      "droppedMany": "{{count}} 個のオブジェクトを削除しました"
+    },
+    "dropDatabase": {
+      "confirm": "{{server}} のデータベース「{{name}}」を、内容もすべて削除します。元に戻せません。\n\n確認のため、データベース名を入力してください:",
+      "title": "データベースを削除",
+      "mismatch": "名前が一致しません",
+      "done": "データベース「{{name}}」を削除しました"
+    }
+  },
+  "files": {
+    "saved": "保存しました",
+    "saveFailed": "保存できませんでした: {{error}}"
+  },
+  "format": {
+    "redis": "Redis のコマンドは 1 行に 1 つです。整形するものはありません。",
+    "unavailable": "この言語のフォーマッターはまだありません。"
+  },
+  "copy": {
+    "withHeadersLabel": "ヘッダー付きでコピー",
+    "withHeaders": "ヘッダー付き",
+    "withoutHeadersLabel": "ヘッダーなしでコピー",
+    "withoutHeaders": "ヘッダーなし",
+    "headersOnlyLabel": "ヘッダーのみコピー",
+    "headersOnly": "ヘッダーのみ",
+    "as": "{{format}} としてコピー"
+  },
+  "export": {
+    "csvSemicolon": "CSV(セミコロン区切り)",
+    "csvExcel": "MS Excel 用 CSV",
+    "tsv": "TSV(タブ区切り)",
+    "defaultTable": "table",
+    "defaultSheet": "結果",
+    "defaultFile": "result"
+  },
+  "filter": {
+    "clear": "フィルターを解除",
+    "values": "複数の値でフィルター…",
+    "isNull": "NULL である",
+    "notNull": "NULL ではない",
+    "isTrue": "真である",
+    "isFalse": "偽である",
+    "trueOrNull": "真または NULL",
+    "falseOrNull": "偽または NULL",
+    "isEmpty": "空である",
+    "notEmpty": "空ではない",
+    "eq": "次と等しい…",
+    "ne": "次と等しくない…",
+    "contains": "次を含む…",
+    "notContains": "次を含まない…",
+    "startsWith": "次で始まる…",
+    "endsWith": "次で終わる…",
+    "gt": "次より大きい…",
+    "ge": "次以上…",
+    "lt": "次より小さい…",
+    "le": "次以下…",
+    "sql": "SQL 条件…",
+    "sqlRight": "SQL 条件(右辺)…",
+    "describeTrueOrNull": "TRUE または NULL",
+    "describeFalseOrNull": "FALSE または NULL"
+  },
+  "gridEdit": {
+    "notFind": "クエリはコレクションに対する find ではありません",
+    "engineCantEdit": "このエンジンではクエリ結果を編集できません。エクスプローラーからオブジェクトを開いてください",
+    "queryNotFound": "この結果を生成したクエリが見つかりません",
+    "usesWith": "クエリが WITH を使用しています。テーブルから編集してください",
+    "combinesRows": "結果が行を結合またはグループ化しています。編集できるのは単一のテーブルに対するクエリのみです",
+    "noTable": "クエリはテーブルから読み取っていません",
+    "tableUnknown": "クエリのテーブルを特定できません",
+    "combinesTables": "結果が複数のテーブルを結合しています。編集できるのは単一のテーブルに対するクエリのみです",
+    "missingKey": "結果に主キー({{columns}})が含まれていません。編集するには SELECT に追加してください",
+    "noPrimaryKey": "テーブルに主キーがありません。WHERE はすべての列を使用します(重複がある場合、複数の行に影響する可能性があります)。",
+    "keyNotComparable": "行のキーに「{{column}}」が含まれていますが、バイナリまたは長い値のため WHERE で比較できません",
+    "noComparableColumns": "行のどの列も WHERE で比較できません。すべてバイナリまたは長い値です",
+    "skippedColumns": "バイナリまたは長い列({{columns}})は WHERE から除外されます。"
+  },
+  "connections": {
+    "downloading": "{{component}} をダウンロードしています(初回のみ)… {{pct}} %({{done}} / {{total}} MB)",
+    "connected": "接続しました: {{version}}",
+    "connectFailed": "接続できませんでした: {{error}}",
+    "password": "{{connection}} の {{user}} のパスワード:",
+    "queryName": "クエリ {{n}}"
+  },
+  "ai": {
+    "stopped": "停止しました。",
+    "downloading": "ダウンロード中",
+    "starting": "起動中"
+  },
+  "families": {
+    "relational": "リレーショナル",
+    "analytical": "分析",
+    "document": "ドキュメント",
+    "keyValue": "キーバリュー",
+    "wideColumn": "ワイドカラム",
+    "search": "検索",
+    "timeSeries": "時系列",
+    "streaming": "ストリーミング",
+    "graph": "グラフ"
+  },
+  "openFiles": {
+    "failed": "「{{name}}」を開けませんでした: {{error}}",
+    "opened": "ファイルを開きました: {{name}}",
+    "dialogTitle": "ファイルを開く",
+    "filterName": "データベースとデータファイル",
+    "saved": "「{{name}}」を接続に保存しました",
+    "dropTitle": "ドロップして開く",
+    "dropHint": "SQLite、DuckDB、CSV、TSV、Parquet、JSON、Excel に対応しています。各ファイルは一時的な接続として開かれます。"
+  }
+}

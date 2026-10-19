@@ -1,0 +1,30 @@
+{
+  "nav": "邮件",
+  "title": "邮件",
+  "intro": "计划任务用来发送电子邮件的服务器。仅保存在这台电脑上，因为任务在这里运行。密码会保存到系统钥匙串。",
+  "host": "SMTP 服务器",
+  "port": "端口",
+  "security": "安全性",
+  "securities": {
+    "starttls": "STARTTLS（端口 587）",
+    "tls": "SSL/TLS（端口 465）",
+    "none": "未加密"
+  },
+  "noneWarning": "未加密时，用户、密码和邮件会以明文在网络中传输。仅用于本地网络中的服务器。",
+  "user": "用户",
+  "userPlaceholder": "如果服务器不需要登录，请留空",
+  "password": "密码",
+  "passwordSaved": "已保存（留空则保持不变）",
+  "passwordHelp": "如果密码留空，则保留已保存的密码。没有用户时不保存密码。",
+  "fromAddress": "发件人地址",
+  "fromName": "发件人名称",
+  "save": "保存",
+  "saved": "邮件设置已保存。",
+  "notConfigured": "尚未保存服务器。",
+  "test": "发送测试邮件",
+  "testPrompt": "要发送到哪个地址？",
+  "testSend": "发送",
+  "testInvalid": "请输入电子邮件地址",
+  "testOk": "完成。{{summary}}",
+  "testFailed": "无法发送：{{error}}"
+}

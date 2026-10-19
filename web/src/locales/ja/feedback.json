@@ -1,0 +1,53 @@
+{
+  "button": "フィードバックを送信",
+  "title": "フィードバックを送信",
+  "lead": "改善の提案、問題の報告、新しいエンジンのリクエスト、質問などをお寄せください。",
+  "kindLabel": "フィードバックの種類",
+  "kinds": {
+    "bug": {
+      "name": "バグを報告",
+      "hint": "期待どおりに動作しないことがある",
+      "titlePlaceholder": "例: Excel にエクスポートするとエディターが閉じる",
+      "placeholder": "何をしたか、何が起こると期待したか、実際に何が起こったかを書いてください。エラーメッセージが出た場合はコピーしてください。"
+    },
+    "enhancement": {
+      "name": "改善を提案",
+      "hint": "DBine をもっと良くするアイデア",
+      "titlePlaceholder": "例: 結果グリッドで列を固定できるようにしたい",
+      "placeholder": "DBine にどんなことができるとよいか、どう役立つかを書いてください。"
+    },
+    "driver-request": {
+      "name": "新しいエンジンをリクエスト",
+      "hint": "DBine がまだ対応していないデータベース",
+      "titlePlaceholder": "例: Firebird 5",
+      "placeholder": "このエンジンの使い方と、最初に必要なこと(探索、クエリ、データ編集、移行など)を書いてください。"
+    },
+    "question": {
+      "name": "質問する",
+      "hint": "DBine での操作方法",
+      "titlePlaceholder": "例: 2 つのデータベースを比較するには？",
+      "placeholder": "やりたいことと、試したことを書いてください。"
+    }
+  },
+  "titleField": "タイトル",
+  "engine": "エンジン",
+  "description": "説明",
+  "steps": "再現手順",
+  "stepsPlaceholder": "1. …に接続\n2. …を開く\n3. …",
+  "optional": "(任意)",
+  "diagnostics": "診断データを含める",
+  "diagnosticsNever": "含まれるのは上記のみです。サーバー、ユーザー、データベース名や接続名、クエリ、パスワードは一切含まれません。",
+  "truncated": "説明が長すぎて全文を送信できないため、途中で切り捨てられます。issue を作成する前に GitHub で補足できます。",
+  "publicNote": "内容が入力済みの状態で GitHub が開くので、「Create」を押すだけです。GitHub アカウントが必要です。issue は公開されるため、個人情報は含めないでください。",
+  "continue": "GitHub で続ける",
+  "openAgain": "もう一度開く",
+  "done": {
+    "title": "ブラウザーで GitHub を開きました。",
+    "text": "入力された内容を確認し、「Create」を押して公開してください。DBine の改善にご協力いただきありがとうございます。"
+  },
+  "needs": {
+    "title": "タイトルは {{n}} 文字以上にしてください。",
+    "engine": "エンジン名を入力してください。",
+    "description": "説明は {{n}} 文字以上にしてください。"
+  }
+}

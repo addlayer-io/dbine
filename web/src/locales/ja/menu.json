@@ -1,0 +1,52 @@
+{
+  "app": {
+    "about": "DBine について",
+    "settings": "設定…",
+    "services": "サービス",
+    "hide": "DBine を非表示",
+    "hideOthers": "ほかを非表示",
+    "showAll": "すべて表示",
+    "quit": "DBine を終了"
+  },
+  "file": {
+    "title": "ファイル",
+    "newConnection": "新しい接続",
+    "newQuery": "新しいクエリ",
+    "newNotebook": "新しいノートブック",
+    "newWindow": "新しいウィンドウ",
+    "closeTab": "タブを閉じる",
+    "open": "ファイルを開く…"
+  },
+  "edit": {
+    "title": "編集",
+    "undo": "元に戻す",
+    "redo": "やり直し",
+    "cut": "切り取り",
+    "copy": "コピー",
+    "paste": "貼り付け",
+    "selectAll": "すべて選択"
+  },
+  "view": {
+    "title": "表示",
+    "explorer": "エクスプローラー",
+    "output": "出力",
+    "ai": "AI アシスタント",
+    "fullscreen": "フルスクリーン"
+  },
+  "window": {
+    "title": "ウィンドウ",
+    "minimize": "最小化",
+    "zoom": "ズーム"
+  },
+  "help": {
+    "title": "ヘルプ",
+    "checkUpdates": "更新を確認…",
+    "support": "プロジェクトを応援する"
+  },
+  "palette": {
+    "open": "コマンドパレット…"
+  },
+  "goto": {
+    "open": "移動…"
+  }
+}

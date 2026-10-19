@@ -1,0 +1,55 @@
+{
+  "source": "データ",
+  "latLon": "緯度 / 経度",
+  "lat": "緯度",
+  "lon": "経度",
+  "pick": "列を選択",
+  "count_other": "{{shown}} 件",
+  "fit": "全体表示",
+  "openSettings": "マップを設定",
+  "privacy": "マップのプロバイダーには、表示している地域が見えます(データは見えません)",
+  "notice": {
+    "cap": "先頭の {{cap}} 件を描画します。残りの {{rest}} 行は描画されません。",
+    "srid_other": "SRID {{srid}} の {{rows}} 行は描画されません。マップは WGS 84(4326)と Web Mercator(3857)を表示します。",
+    "range_other": "SRID のない {{rows}} 行の座標が度ではないため、描画されません。",
+    "unreadable_other": "{{rows}} 個の値をジオメトリとして読み取れませんでした。",
+    "basemap": "同梱のベースマップを読み込めませんでした。"
+  },
+  "attribution": {
+    "offline": "ベースマップ: Natural Earth(パブリックドメイン)、オフライン",
+    "custom": "タイル: カスタムプロバイダー"
+  },
+  "popup": {
+    "row": "{{row}} 行目",
+    "rows_other": "{{row}} 行目、およびこの地点にほか {{more}} 件",
+    "geometry": "(ジオメトリ)"
+  },
+  "settings": {
+    "nav": "マップ",
+    "title": "マップ",
+    "help": "結果のマップはこのマシン上でジオメトリを描画します。行のデータがここから外に出ることはありません。",
+    "offline": "オフラインのベースマップ",
+    "offlineHelp": "DBine に同梱された Natural Earth(パブリックドメイン)の国、州・県、海岸線、湖、都市です。",
+    "online": "オンラインタイル",
+    "onlineHelp": "道路や地形を含むタイルプロバイダーを使用します。オフにすると、マップはインターネットにリクエストを送信しません。",
+    "noticeTitle": "オンラインタイル",
+    "noticeOk": "有効にする",
+    "provider": "プロバイダー",
+    "providers": {
+      "osm": "OpenStreetMap(標準)",
+      "maptiler": "MapTiler(キー必須)",
+      "stadia": "Stadia Maps(キー必須)",
+      "custom": "カスタム(XYZ テンプレート)"
+    },
+    "osmPolicy": "OpenStreetMap Foundation のタイルはコミュニティ運営のサービスで、利用ポリシー(operations.osmfoundation.org/policies/tiles)があり、軽い利用向けです。多用する場合は別のプロバイダーか自前のサーバーを使ってください。",
+    "url": "URL テンプレート",
+    "urlHelp": "{z}、{x}、{y} を含む https。{key} はキーに置き換えられます。http はこのマシン上のサーバー(localhost)のみです。",
+    "urlInvalid": "テンプレートは https(または localhost への http)で、{z}、{x}、{y} を含む必要があります。",
+    "attribution": "帰属表示",
+    "attributionHelp": "プロバイダーが求めるテキストで、マップの隅に表示されます。",
+    "key": "API キー",
+    "keyHelp": "このマシンにのみ保存され、同期では送信されません。",
+    "needUrl": "有効な URL テンプレートがありません。それまでマップはオフラインのベースマップを使用します。",
+    "needKey": "API キーがありません。それまでマップはオフラインのベースマップを使用します。"
+  }
+}

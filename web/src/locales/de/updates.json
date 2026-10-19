@@ -1,0 +1,35 @@
+{
+  "dialog": {
+    "title": "Eine neue Version von DBine ist verfügbar",
+    "text": "Version {{latest}} ist verfügbar. Sie haben {{current}}.",
+    "skip": "Diese Version überspringen",
+    "later": "Später",
+    "download": "Herunterladen",
+    "updateNow": "Jetzt aktualisieren",
+    "downloading": "DBine {{latest}} wird heruntergeladen…",
+    "progress": "{{done}} von {{total}}",
+    "progressUnknown": "{{done}} heruntergeladen",
+    "verifying": "Signatur wird geprüft…",
+    "cancel": "Abbrechen",
+    "readyTitle": "DBine {{latest}} ist bereit",
+    "ready": "Das Update wurde heruntergeladen und verifiziert. Starten Sie DBine neu, um die Installation abzuschließen.",
+    "restart": "Neu starten zum Abschließen",
+    "failedTitle": "DBine konnte nicht aktualisiert werden",
+    "failed": "Sie können die neue Version von ihrer Release-Seite herunterladen.",
+    "openPage": "Download-Seite öffnen",
+    "close": "Schließen"
+  },
+  "reason": {
+    "package": "Sie haben DBine mit einem Systempaket installiert: Laden Sie die neue Version von ihrer Release-Seite herunter.",
+    "location": "Verschieben Sie DBine in den Ordner „Programme“, damit es sich selbst aktualisieren kann."
+  },
+  "settings": {
+    "installed": "Installierte Version: {{version}}",
+    "help": "DBine sucht beim Öffnen nach einer neuen Version und aktualisiert sich von dort selbst.",
+    "check": "Nach Updates suchen"
+  },
+  "upToDate": "Sie haben die neueste Version ({{version}}).",
+  "managedByFlatpak": "Sie haben Version {{version}}. Diese Installation stammt von Flathub: Flatpak aktualisiert sie (über Ihr Software-Center oder mit „flatpak update“).",
+  "busyInWindow": "Das Update läuft in Fenster {{n}}.",
+  "failed": "Die Suche nach Updates war nicht möglich: {{error}}"
+}

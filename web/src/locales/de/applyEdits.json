@@ -1,0 +1,14 @@
+{
+  "save": "Speichern",
+  "title": "Änderungen speichern",
+  "hint": "Diese Anweisungen werden auf dem Server ausgeführt ({{cells}} in {{rows}}). Prüfen Sie sie vor dem Speichern.",
+  "run": "Speichern",
+  "done": "Änderungen gespeichert",
+  "doneRows_one": "Änderungen gespeichert: 1 Zeile aktualisiert",
+  "doneRows_other": "Änderungen gespeichert: {{count}} Zeilen aktualisiert",
+  "hintDeletes": "Diese Anweisungen werden auf dem Server ausgeführt ({{deletes}}). Prüfen Sie sie vor dem Speichern.",
+  "hintBoth": "Diese Anweisungen werden auf dem Server ausgeführt ({{deletes}}; {{cells}} in {{rows}}). Zuerst werden Zeilen gelöscht, dann die übrigen aktualisiert. Prüfen Sie sie vor dem Speichern.",
+  "doneAffected_one": "Änderungen gespeichert: 1 Zeile betroffen",
+  "doneAffected_other": "Änderungen gespeichert: {{count}} Zeilen betroffen",
+  "hintInserts": "Diese Anweisungen werden auf dem Server ausgeführt ({{list}}). Zuerst werden Zeilen gelöscht, dann aktualisiert, und die neuen zuletzt eingefügt. Prüfen Sie sie vor dem Speichern."
+}

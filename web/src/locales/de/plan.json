@@ -1,0 +1,59 @@
+{
+  "query": "Abfrage {{n}}",
+  "actualPlan": "Tatsächlicher Plan",
+  "estimatedPlan": "Geschätzter Plan",
+  "diagram": "Diagramm",
+  "rawPlan": "Originalplan",
+  "statementTitle": "Klicken, um alles zu sehen",
+  "hint": "Ziehen zum Verschieben · ⌘/Pinch + Rad zum Zoomen · F passt an",
+  "summary": {
+    "operators": "Operatoren",
+    "cost": "Kosten",
+    "time": "Zeit",
+    "rows": "Zeilen",
+    "firstWarning": "Zur ersten Warnung springen",
+    "warnings_one": "{{count}} Warnung",
+    "warnings_other": "{{count}} Warnungen"
+  },
+  "edge": {
+    "actualRows": "Tatsächliche Zeilen: {{rows}}",
+    "estimatedRows": "Geschätzte Zeilen: {{rows}}"
+  },
+  "node": {
+    "operatorCost": "Operatorkosten: {{pct}}%",
+    "noCost": "Keine Kosten",
+    "actualEstimatedRows": "Tatsächliche / geschätzte Zeilen",
+    "estimatedRows": "Geschätzte Zeilen",
+    "estimatedShort": "{{rows}} gesch.",
+    "expand_one": "Aufklappen ({{count}} Operator)",
+    "expand_other": "Aufklappen ({{count}} Operatoren)",
+    "collapse": "Zuklappen"
+  },
+  "zoom": {
+    "zoomOut": "Verkleinern (−)",
+    "actualSize": "Originalgröße (0)",
+    "zoomIn": "Vergrößern (+)",
+    "fit": "An Ansicht anpassen (F)",
+    "expandAll": "Alle aufklappen",
+    "collapseBelow": "Unterhalb von Ebene 3 zuklappen",
+    "minimap": "Minimap"
+  },
+  "props": {
+    "close": "Schließen (Esc)",
+    "operator": "Operator",
+    "self": "Selbst",
+    "subtree": "Teilbaum",
+    "rowsAndTime": "Zeilen und Zeit",
+    "estimatedPerExecution": "Geschätzt (pro Ausführung)",
+    "actualTotal": "Tatsächlich (gesamt)",
+    "executions": "Ausführungen",
+    "actualTime": "Tatsächliche Zeit",
+    "object": "Objekt",
+    "properties": "Eigenschaften"
+  },
+  "raw": {
+    "save": "Speichern…",
+    "sqlServerPlan": "SQL-Server-Plan",
+    "ssmsHint": "Öffnet sich in SQL Server Management Studio (.sqlplan)"
+  }
+}

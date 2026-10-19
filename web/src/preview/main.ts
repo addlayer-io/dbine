@@ -1,6 +1,6 @@
 // Development only (not part of the app build): renders UI pieces with
 // sample data in a plain browser, to look at them without Tauri or a
-// database. Open http://localhost:<vite port>/dev-preview.html?view=plan|chart|results|export|keys|tabs|split|dependencies
+// database. Open http://localhost:<vite port>/dev-preview.html?view=plan|chart|results|export|keys|tabs|split|dependencies|fonts
 // |connection[&engine=<driver id>]|monitor|profiler[&mode=sampled]|compare|multidb[&running=1][&results=1]
 // |docs (documents with nested fields: the JSON tree view)|docs-edit (the tree alone, editable)
 // |query[&sample=editor] (⌘-click, unknown names, parameters, snippets: preview/editor-samples.ts)
@@ -21,7 +21,7 @@
 // |connection&source=vault-account|bitwarden-account|aws-account|keepass-account|onepassword-account|vault-missing (the account block of each manager)
 import './lang';
 import I18NextVue from 'i18next-vue';
-import i18next from '../i18n';
+import i18next, { i18nReady } from '../i18n';
 import { loadBackendCatalog } from '../i18n/backend';
 import { createApp, h, reactive, ref } from 'vue';
 import { createPinia } from 'pinia';
@@ -277,8 +277,29 @@ if (view === 'feedback') {
   };
 }
 
+// view=fonts[&lang=ja|zh|ko|ru]: CJK and Cyrillic samples in the UI and mono
+// fonts, with the font each one resolves to (`<html lang>` picks the glyph
+// variant: 直 骨 角 differ between Japanese and Chinese).
+function fontsPreview() {
+  const samples = [
+    ['ja', '日本語: 直 骨 角 誤 — 接続をテスト、クエリを実行'],
+    ['zh', '中文: 直 骨 角 误 — 测试连接，运行查询'],
+    ['ko', '한국어: 연결 테스트, 쿼리 실행'],
+    ['ru', 'Русский: Проверить подключение, выполнить запрос'],
+  ];
+  const row = (font: string, text: string) => h('div', { style: `font-family: var(${font}); font-size: 22px; margin: 6px 0; color: var(--nm-text-strong)` }, text);
+  return h('div', { style: 'padding: 20px; background: var(--ide-editor); height: 100vh; box-sizing: border-box' }, [
+    h('div', { style: 'color: var(--nm-text-dim); margin-bottom: 10px' }, `<html lang="${document.documentElement.lang}">  ·  UI: ${i18next.t('common:save')} / ${i18next.t('common:cancel')}`),
+    h('div', { style: 'color: var(--nm-text-dim)' }, '--nm-font'),
+    ...samples.map(([, s]) => row('--nm-font', s)),
+    h('div', { style: 'color: var(--nm-text-dim); margin-top: 14px' }, '--nm-mono'),
+    ...samples.map(([, s]) => row('--nm-mono', `SELECT 1 -- ${s}`)),
+  ]);
+}
+
 const app = createApp({
   render: () =>
+    view === 'fonts' ? fontsPreview() :
     view === 'projects' ? h(App) : view === 'split' ? splitPreview() : view === 'timeline' ? h(TimelinePreview) : h('div', { style: 'height: 100vh; display: flex; flex-direction: column;' }, [
       view === 'tabs' ? h('div', { style: 'width: 1100px; background: var(--ide-editor)' }, [h(EditorTabs)]) :
       view === 'keys' ? h('div', { style: 'width: 340px; height: 640px; background: var(--ide-sidebar)' }, [h(ExplorerSidebar)]) :
@@ -468,4 +489,5 @@ function previewPrefs() {
 previewPrefs();
 setTimeout(previewPrefs, 300);
 for (const [name, comp] of Object.entries(Icons)) app.component(`Ei${name}`, comp as never);
+await i18nReady;
 app.mount('#app');

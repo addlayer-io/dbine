@@ -21,5 +21,16 @@ export default defineConfig({
     sourcemap: !!process.env.TAURI_ENV_DEBUG,
     // A desktop app loads from disk: one big chunk is fine.
     chunkSizeWarningLimit: 4000,
+    rollupOptions: {
+      output: {
+        // One chunk per UI language (its namespaces and backend messages),
+        // loaded when that language is used (src/i18n/index.ts). Spanish,
+        // the fallback, stays in the main chunk.
+        manualChunks(id) {
+          const lang = /\/src\/locales\/([a-z]+)\/[\w-]+\.json$/.exec(id)?.[1];
+          if (lang && lang !== 'es') return `locale-${lang}`;
+        },
+      },
+    },
   },
 });

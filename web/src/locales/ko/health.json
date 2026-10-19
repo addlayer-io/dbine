@@ -1,0 +1,20 @@
+{
+  "menu": "상태 점검",
+  "tab": "상태",
+  "title": "상태 점검 · {{name}}",
+  "checkedAt": "{{at}}에 점검함",
+  "run": "다시 점검",
+  "running": "데이터베이스를 점검하는 중…",
+  "showOk": "정상 항목 표시",
+  "severity": {
+    "critical": "심각",
+    "warning": "경고",
+    "info": "정보",
+    "ok": "정상"
+  },
+  "openFix": "쿼리로 열기",
+  "fixName": "수정: {{title}}",
+  "more": "외 {{count}}개",
+  "allOk": "발견된 문제가 없습니다.",
+  "skipped": "점검하지 못한 항목:"
+}

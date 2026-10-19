@@ -1,0 +1,116 @@
+{
+  "title": "Assistent",
+  "defaultModel": "Standard",
+  "reasoning": "Überlegungen",
+  "head": {
+    "setup": "Modelle und Anbieter",
+    "newChat": "Neue Unterhaltung",
+    "close": "Schließen (⌘I)",
+    "history": "Verlauf"
+  },
+  "context": {
+    "noDatabase": "Keine Datenbank ausgewählt",
+    "openQuery": "offene Abfrage",
+    "sent": "Kontext: {{context}}",
+    "objects_one": "{{count}} Objekt",
+    "objects_other": "{{count}} Objekte",
+    "tables_one": "{{count}} Tabelle",
+    "tables_other": "{{count}} Tabellen",
+    "tablesOf_one": "{{shown}} von {{count}} Tabelle",
+    "tablesOf_other": "{{shown}} von {{count}} Tabellen",
+    "editor": "Editor",
+    "selection": "Auswahl",
+    "lastError": "letzter Fehler"
+  },
+  "suggest": {
+    "whyFails": "Warum schlägt die letzte Ausführung fehl? Beheben Sie es.",
+    "explain": "Erklären Sie die Abfrage im Editor",
+    "optimize": "Prüfen und optimieren Sie die Abfrage im Editor",
+    "largestTables": "Schreiben Sie eine Abfrage, die die größten Tabellen auflistet",
+    "relatedTables": "Welche Tabellen stehen in Beziehung zu Kunden?",
+    "joinAggregate": "Wie schreibe ich einen JOIN mit Aggregation?"
+  },
+  "code": {
+    "appended": "Am Ende der Abfrage angehängt. Prüfen Sie sie und führen Sie sie aus, wann Sie möchten.",
+    "newQueryTitle": "Vom Assistenten",
+    "replaced": "Abfrage ersetzt (⌘Z zum Widerrufen).",
+    "code": "Code",
+    "appendHint": "An das Ende der geöffneten Abfrage anhängen",
+    "newQueryHint": "In neuer Abfrage öffnen",
+    "append": "Zur Abfrage hinzufügen",
+    "newQuery": "Neue Abfrage",
+    "replaceHint": "Den gesamten Editorinhalt ersetzen (⌘Z macht es rückgängig)",
+    "replace": "Ersetzen",
+    "destructive": "Ändert Daten oder Struktur. Es wurde nichts ausgeführt: Prüfen Sie es, bevor Sie es selbst ausführen.",
+    "asText": "Als Text einfügen",
+    "asTextHint": "Die Antwort als Textzelle des Notebooks hinzufügen (führt nichts aus)",
+    "textAdded": "Als Textzelle hinzugefügt.",
+    "cellAdded": "Als neue Zelle hinzugefügt, nicht ausgeführt. Prüfen Sie sie und führen Sie sie aus, wann Sie möchten."
+  },
+  "phase": {
+    "schema": "Datenbankstruktur wird gelesen…",
+    "engine": "KI-Engine wird heruntergeladen, nur dieses eine Mal…",
+    "thinking": "Denkt nach…",
+    "retry": "Fragt erneut…",
+    "tool": "Abfrage der Verbindung:"
+  },
+  "setup": {
+    "detecting": "Suche nach KI-Tools auf diesem Rechner…",
+    "lead": "Der Assistent braucht ein Modell. Am einfachsten: das Modell {model} herunterladen. Es läuft auf diesem Rechner, ohne Installation und ohne dass etwas den Rechner verlässt.",
+    "leadModel": "integriertes Modell",
+    "embedded": "In DBine integriert",
+    "embeddedUnavailable": "Das integrierte Modell ist auf dieser Plattform nicht verfügbar.",
+    "recommended": "für diesen Rechner empfohlen",
+    "use": "Verwenden",
+    "pause": "Pausieren",
+    "pauseHint": "Setzt dort fort, wo es aufgehört hat",
+    "download": "Herunterladen ({{size}})",
+    "detected": "Auf diesem Rechner erkannt",
+    "pull": "{{model}} herunterladen",
+    "cliNote": "Claude Code und Codex verwenden Ihr eigenes Konto (Abonnement oder API). Sie laufen ohne Tools: Sie können weder Dateien lesen noch Befehle ausführen oder sich mit Ihren Datenbanken verbinden.",
+    "redetect": "Erneut erkennen"
+  },
+  "privacy": {
+    "local": "Lokal: Nichts verlässt diesen Rechner.",
+    "remote": "Geht mit Ihrem Konto an {{vendor}}: die Frage, die Struktur und der Editor, nie die Daten."
+  },
+  "empty": {
+    "lead": "Bitten Sie ihn um Abfragen, lassen Sie die Abfrage im Editor erklären oder korrigieren, oder fragen Sie nach der Datenbankstruktur.",
+    "neverRuns": "Der Assistent führt nie etwas aus: Was er schreibt, landet in Ihrer Abfrage, und Sie entscheiden, ob Sie sie ausführen."
+  },
+  "compose": {
+    "placeholder": "Fragen oder eine Abfrage anfordern… (Enter sendet, Umschalt+Enter neue Zeile)",
+    "send": "Senden"
+  },
+  "better": {
+    "text": "Ihr Rechner kann ein größeres Modell verwenden: {{model}}. Es versteht schwierige Anfragen besser und macht weniger SQL-Fehler.",
+    "dismiss": "Jetzt nicht"
+  },
+  "history": {
+    "title": "Frühere Unterhaltungen",
+    "empty": "Noch keine früheren Unterhaltungen: „Neue Unterhaltung“ speichert die aktuelle hier.",
+    "untitled": "(ohne Titel)",
+    "messages_one": "{{count}} Nachricht",
+    "messages_other": "{{count}} Nachrichten",
+    "delete": "Diese Unterhaltung löschen",
+    "clear": "Verlauf leeren",
+    "clearConfirm": "Alle früheren Unterhaltungen werden gelöscht. Die aktuelle bleibt unberührt."
+  },
+  "tools": {
+    "read_one": "Die Verbindung {{count}} Mal abgefragt",
+    "read_other": "Die Verbindung {{count}} Mal abgefragt"
+  },
+  "approval": {
+    "title": "Das Modell ({{model}}) möchte mit dieser Abfrage Daten aus {{connection}} › {{database}} lesen:",
+    "local": "lokal",
+    "approve": "Genehmigen",
+    "reject": "Ablehnen",
+    "approveAll": "Lesezugriffe in dieser Unterhaltung genehmigen",
+    "note": "Schreibgeschützt: DBine führt sie in einer Sitzung aus, die jede Änderung ablehnt. Wenn Sie ablehnen, macht das Modell ohne diese Daten weiter."
+  },
+  "link": {
+    "title": "Link öffnen",
+    "body": "Die Antwort des Assistenten führt zu dieser Adresse. Öffnen Sie sie nur, wenn Sie ihr vertrauen: Ein Link kann Daten aus der Unterhaltung an eine andere Website senden.",
+    "open": "Im Browser öffnen"
+  }
+}

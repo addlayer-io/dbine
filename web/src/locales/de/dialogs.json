@@ -1,0 +1,54 @@
+{
+  "folder": {
+    "new": "Neuer Ordner",
+    "edit": "Ordner bearbeiten · {{name}}",
+    "name": "Name",
+    "namePlaceholder": "Kunde, Umgebung…",
+    "nameRequired": "Geben Sie einen Namen ein",
+    "color": "Farbe",
+    "noColor": "Keine Farbe",
+    "colorHelp": "Verbindungen ohne eigene Farbe übernehmen die ihres Ordners (praktisch, um Produktion zu markieren).",
+    "inside": "Darin",
+    "create": "Erstellen",
+    "topLevel": "(Oberste Ebene)"
+  },
+  "move": {
+    "title": "«{{name}}» verschieben nach…",
+    "move": "Verschieben"
+  },
+  "database": {
+    "scriptTitle": "Skript generieren · {{db}}",
+    "scriptName": "Skript von {{db}}",
+    "scriptNameConverted": "Skript von {{db}} (konvertiert)",
+    "theDatabase": "die Datenbank"
+  },
+  "drivers": {
+    "intro": "Jeder Treiber wird beim ersten Verbinden mit dieser Engine automatisch heruntergeladen. Hier können Sie sie vorab herunterladen (zum Beispiel, um offline zu arbeiten) oder nicht genutzte löschen.",
+    "search": "Engine suchen",
+    "diskTitle": "Von den heruntergeladenen Treibern belegter Speicherplatz",
+    "summary": "{{installed}} von {{total}} heruntergeladen · {{size}} MB",
+    "downloadAll": "Alle herunterladen ({{size}} MB)",
+    "downloading": "Wird heruntergeladen",
+    "download": "Herunterladen",
+    "remove": "Löschen",
+    "checkUpdates": "Nach Updates suchen",
+    "checking": "Wird geprüft…",
+    "upToDateAll": "Treiber sind auf dem neuesten Stand.",
+    "rollback": "Zurücksetzen",
+    "rollbackTitle": "Version {{version}} verwerfen und zu {{previous}} zurückkehren",
+    "rollbackConfirm": "Zu Version {{previous}} des Treibers {{label}} zurückkehren? Version {{version}} wird nicht mehr verwendet. Geöffnete Verbindungen behalten die aktuelle Version, bis Sie sie schließen.",
+    "statusDownloading": "Version {{available}} wird heruntergeladen…",
+    "statusReady": "Version {{version}} wird ab der nächsten Verbindung verwendet",
+    "statusNeedsApp": "Eine neuere Version erfordert DBine {{minApp}} oder höher",
+    "statusRolledBack": "Version {{from}} ist fehlgeschlagen, es wurde auf {{version}} zurückgegangen",
+    "statusRolledBackUser": "Zu Version {{version}} zurückgekehrt; {{from}} wird nicht verwendet",
+    "statusRestart": "Starten Sie DBine neu, um die neuen Optionen dieses Treibers zu sehen"
+  },
+  "support": {
+    "title": "DBine unterstützen",
+    "text": "DBine ist kostenlos und bleibt es. Ihre Unterstützung hilft uns, die App zu pflegen und weitere Funktionen zu ergänzen.",
+    "notPayment": "Es ist Unterstützung, keine Zahlung: Die App funktioniert in beiden Fällen gleich.",
+    "notNow": "Jetzt nicht",
+    "support": "Projekt unterstützen"
+  }
+}

@@ -1,0 +1,138 @@
+{
+  "actions": {
+    "createQueryFailed": "Die Abfrage konnte nicht erstellt werden: {{error}}",
+    "nameRequired": "Geben Sie einen Namen ein",
+    "create": "Erstellen",
+    "renameQuery": {
+      "prompt": "Name der Abfrage:",
+      "title": "Umbenennen"
+    },
+    "copyName": "{{name}} (Kopie)",
+    "copyNameN": "{{name}} (Kopie {{n}})",
+    "deleteQuery": {
+      "confirm": "Abfrage „{{name}}“ löschen? Das kann nicht rückgängig gemacht werden.",
+      "title": "Abfrage löschen"
+    },
+    "newObjectPrefix": "neu_",
+    "createDatabase": {
+      "prompt": "Name der neuen Datenbank:",
+      "title": "Neue Datenbank",
+      "done": "Datenbank „{{name}}“ erstellt"
+    },
+    "dropObjects": {
+      "more": "{{list}} und {{count}} weitere",
+      "confirmOne": "„{{name}}“ aus {{where}} löschen? Das Objekt wird mit allen Daten gelöscht und kann nicht rückgängig gemacht werden.",
+      "confirmMany": "{{count}} Objekte werden aus {{where}} samt allen Daten gelöscht: {{list}}.\n\nDas kann nicht rückgängig gemacht werden. Geben Sie zur Bestätigung „{{word}}“ ein:",
+      "titleMany": "{{count}} Objekte löschen",
+      "word": "löschen",
+      "typeWord": "„{{word}}“ eingeben",
+      "failed": "{{failed}} von {{total}} konnten nicht gelöscht werden",
+      "droppedOne": "„{{name}}“ gelöscht",
+      "droppedMany": "{{count}} Objekte gelöscht"
+    },
+    "dropDatabase": {
+      "confirm": "Dadurch wird die Datenbank „{{name}}“ mit ihrem gesamten Inhalt von {{server}} gelöscht. Das kann nicht rückgängig gemacht werden.\n\nGeben Sie zur Bestätigung den Namen der Datenbank ein:",
+      "title": "Datenbank löschen",
+      "mismatch": "Der Name stimmt nicht überein",
+      "done": "Datenbank „{{name}}“ gelöscht"
+    }
+  },
+  "files": {
+    "saved": "Gespeichert",
+    "saveFailed": "Speichern nicht möglich: {{error}}"
+  },
+  "format": {
+    "redis": "Redis-Befehle stehen einzeln pro Zeile: Es gibt nichts zu formatieren.",
+    "unavailable": "Für diese Sprache gibt es noch keinen Formatierer."
+  },
+  "copy": {
+    "withHeadersLabel": "Mit Überschriften kopieren",
+    "withHeaders": "Mit Überschriften",
+    "withoutHeadersLabel": "Ohne Überschriften kopieren",
+    "withoutHeaders": "Ohne Überschriften",
+    "headersOnlyLabel": "Nur Überschriften kopieren",
+    "headersOnly": "Nur Überschriften",
+    "as": "Als {{format}} kopieren"
+  },
+  "export": {
+    "csvSemicolon": "CSV (durch Semikolon getrennt)",
+    "csvExcel": "CSV für MS Excel",
+    "tsv": "TSV (durch Tabulator getrennt)",
+    "defaultTable": "tabelle",
+    "defaultSheet": "Ergebnis",
+    "defaultFile": "ergebnis"
+  },
+  "filter": {
+    "clear": "Filter zurücksetzen",
+    "values": "Nach mehreren Werten filtern…",
+    "isNull": "Ist NULL",
+    "notNull": "Ist nicht NULL",
+    "isTrue": "Ist wahr",
+    "isFalse": "Ist falsch",
+    "trueOrNull": "Ist wahr oder NULL",
+    "falseOrNull": "Ist falsch oder NULL",
+    "isEmpty": "Ist leer",
+    "notEmpty": "Ist nicht leer",
+    "eq": "Ist gleich…",
+    "ne": "Ist ungleich…",
+    "contains": "Enthält…",
+    "notContains": "Enthält nicht…",
+    "startsWith": "Beginnt mit…",
+    "endsWith": "Endet mit…",
+    "gt": "Größer als…",
+    "ge": "Größer oder gleich…",
+    "lt": "Kleiner als…",
+    "le": "Kleiner oder gleich…",
+    "sql": "SQL-Bedingung…",
+    "sqlRight": "SQL-Bedingung, rechte Seite…",
+    "describeTrueOrNull": "TRUE oder NULL",
+    "describeFalseOrNull": "FALSE oder NULL"
+  },
+  "gridEdit": {
+    "notFind": "die Abfrage ist keine Suche in einer Collection",
+    "engineCantEdit": "diese Engine erlaubt keine Bearbeitung von Abfrageergebnissen: Öffnen Sie das Objekt im Explorer",
+    "queryNotFound": "die Abfrage, die dieses Ergebnis erzeugt hat, wurde nicht gefunden",
+    "usesWith": "die Abfrage verwendet WITH: Bearbeiten Sie in der Tabelle",
+    "combinesRows": "das Ergebnis verbindet oder gruppiert Zeilen: Nur Abfragen auf eine einzelne Tabelle können bearbeitet werden",
+    "noTable": "die Abfrage liest nicht aus einer Tabelle",
+    "tableUnknown": "die Tabelle der Abfrage wird nicht erkannt",
+    "combinesTables": "das Ergebnis verbindet Tabellen: Nur Abfragen auf eine einzelne Tabelle können bearbeitet werden",
+    "missingKey": "das Ergebnis enthält den Primärschlüssel ({{columns}}) nicht: Fügen Sie ihn zum Bearbeiten dem SELECT hinzu",
+    "noPrimaryKey": "Die Tabelle hat keinen Primärschlüssel: Das WHERE verwendet alle Spalten (bei Duplikaten können mehrere Zeilen betroffen sein).",
+    "keyNotComparable": "der Zeilenschlüssel enthält «{{column}}» mit einem binären oder langen Wert, der im WHERE nicht verglichen werden kann",
+    "noComparableColumns": "keine Spalte der Zeile kann im WHERE verglichen werden: Alle sind binär oder lang",
+    "skippedColumns": "Binäre oder lange Spalten ({{columns}}) bleiben im WHERE unberücksichtigt."
+  },
+  "connections": {
+    "downloading": "{{component}} wird heruntergeladen, nur dieses eine Mal… {{pct}} % ({{done}} von {{total}} MB)",
+    "connected": "Verbunden: {{version}}",
+    "connectFailed": "Verbindung nicht möglich: {{error}}",
+    "password": "Passwort für {{user}} auf {{connection}}:",
+    "queryName": "Abfrage {{n}}"
+  },
+  "ai": {
+    "stopped": "Angehalten.",
+    "downloading": "wird heruntergeladen",
+    "starting": "wird gestartet"
+  },
+  "families": {
+    "relational": "Relational",
+    "analytical": "Analytisch",
+    "document": "Dokument",
+    "keyValue": "Key-Value",
+    "wideColumn": "Wide-Column",
+    "search": "Suche",
+    "timeSeries": "Zeitreihen",
+    "streaming": "Streaming",
+    "graph": "Graph"
+  },
+  "openFiles": {
+    "failed": "„{{name}}“ konnte nicht geöffnet werden: {{error}}",
+    "opened": "Datei geöffnet: {{name}}",
+    "dialogTitle": "Datei öffnen",
+    "filterName": "Datenbanken und Datendateien",
+    "saved": "„{{name}}“ ist jetzt in Ihren Verbindungen gespeichert",
+    "dropTitle": "Zum Öffnen ablegen",
+    "dropHint": "SQLite, DuckDB, CSV, TSV, Parquet, JSON oder Excel. Jede Datei wird als temporäre Verbindung geöffnet."
+  }
+}

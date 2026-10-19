@@ -1,0 +1,54 @@
+{
+  "folder": {
+    "new": "新しいフォルダー",
+    "edit": "フォルダーを編集 · {{name}}",
+    "name": "名前",
+    "namePlaceholder": "顧客、環境など…",
+    "nameRequired": "名前を入力してください",
+    "color": "色",
+    "noColor": "色なし",
+    "colorHelp": "独自の色がない接続にはフォルダーの色が使われます(本番環境の目印に便利です)。",
+    "inside": "親フォルダー",
+    "create": "作成",
+    "topLevel": "(最上位)"
+  },
+  "move": {
+    "title": "「{{name}}」の移動先…",
+    "move": "移動"
+  },
+  "database": {
+    "scriptTitle": "スクリプトを生成 · {{db}}",
+    "scriptName": "{{db}} のスクリプト",
+    "scriptNameConverted": "{{db}} のスクリプト(変換済み)",
+    "theDatabase": "データベース"
+  },
+  "drivers": {
+    "intro": "各ドライバーは、そのエンジンに初めて接続するときに自動でダウンロードされます。ここでは事前にダウンロードしたり(オフラインで作業する場合など)、使わないものを削除したりできます。",
+    "search": "エンジンを検索",
+    "diskTitle": "ダウンロード済みドライバーのディスク使用量",
+    "summary": "{{total}} 個中 {{installed}} 個ダウンロード済み · {{size}} MB",
+    "downloadAll": "すべてダウンロード({{size}} MB)",
+    "downloading": "ダウンロード中",
+    "download": "ダウンロード",
+    "remove": "削除",
+    "checkUpdates": "更新を確認",
+    "checking": "確認中…",
+    "upToDateAll": "ドライバーはすべて最新です。",
+    "rollback": "前のバージョンに戻す",
+    "rollbackTitle": "バージョン {{version}} をやめて {{previous}} に戻す",
+    "rollbackConfirm": "{{label}} のドライバーをバージョン {{previous}} に戻しますか？ {{version}} は二度と使用されません。開いている接続は、閉じるまで現在のバージョンのままです。",
+    "statusDownloading": "バージョン {{available}} をダウンロードしています…",
+    "statusReady": "バージョン {{version}} は次回の接続から使用されます",
+    "statusNeedsApp": "DBine {{minApp}} 以降が必要な新しいバージョンがあります",
+    "statusRolledBack": "バージョン {{from}} が失敗したため、{{version}} に戻しました",
+    "statusRolledBackUser": "バージョン {{version}} に戻しました。{{from}} は使用されません",
+    "statusRestart": "このドライバーの新しいオプションを表示するには DBine を再起動してください"
+  },
+  "support": {
+    "title": "DBine を応援する",
+    "text": "DBine は無料で、これからも無料です。いただいた支援は、アプリの維持と機能の追加に役立てます。",
+    "notPayment": "これは支払いではなく支援です。支援しなくてもアプリは同じように動作します。",
+    "notNow": "今はしない",
+    "support": "プロジェクトを応援する"
+  }
+}

@@ -1,0 +1,11 @@
+{
+  "right": "Rechts teilen",
+  "down": "Unten teilen",
+  "moveLeft": "In die linke Gruppe verschieben",
+  "moveRight": "In die rechte Gruppe verschieben",
+  "moveUp": "In die obere Gruppe verschieben",
+  "moveDown": "In die untere Gruppe verschieben",
+  "button": "Editor teilen ({{key}}) · {{alt}}+Klick: unten",
+  "closeGroup": "Gruppe schließen",
+  "empty": "Leere Gruppe: Der nächste Tab, den Sie öffnen, landet hier. Sie können auch einen Tab auf diesen Bereich ziehen."
+}

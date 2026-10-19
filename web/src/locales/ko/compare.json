@@ -1,0 +1,172 @@
+{
+  "connectFailed": "연결할 수 없음",
+  "pickLeftDatabase": "왼쪽 데이터베이스를 선택하세요",
+  "pickRightConnection": "오른쪽 연결을 선택하세요",
+  "pickDifferent": "서로 다른 데이터베이스(또는 스키마) 두 개를 선택하세요",
+  "kinds": {
+    "table": "테이블",
+    "view": "뷰",
+    "materializedView": "구체화된 뷰",
+    "procedure": "프로시저",
+    "function": "함수",
+    "trigger": "트리거",
+    "sequence": "시퀀스",
+    "synonym": "시노님",
+    "type": "타입",
+    "fulltextCatalog": "전체 텍스트 카탈로그",
+    "fulltextStoplist": "전체 텍스트 중지 단어 목록",
+    "domain": "도메인",
+    "virtualTable": "가상 테이블",
+    "dictionary": "딕셔너리"
+  },
+  "status": {
+    "equal": "동일",
+    "changed": "다름",
+    "onlyLeft": "왼쪽에만 있음",
+    "onlyRight": "오른쪽에만 있음"
+  },
+  "objectsSameEngine": "뷰와 프로시저는 같은 엔진의 데이터베이스 사이에서만 옮길 수 있습니다",
+  "arrow": {
+    "revert": "이 변경만 되돌리기",
+    "table": {
+      "copyLeft": "테이블을 왼쪽으로 복사",
+      "copyRight": "테이블을 오른쪽으로 복사",
+      "createLeft": "왼쪽에 테이블 만들기",
+      "createRight": "오른쪽에 테이블 만들기",
+      "deleteLeft": "왼쪽의 테이블 삭제",
+      "deleteRight": "오른쪽의 테이블 삭제"
+    },
+    "object": {
+      "copyLeft": "개체를 왼쪽으로 복사",
+      "copyRight": "개체를 오른쪽으로 복사",
+      "createLeft": "왼쪽에 개체 만들기",
+      "createRight": "오른쪽에 개체 만들기",
+      "deleteLeft": "왼쪽의 개체 삭제",
+      "deleteRight": "오른쪽의 개체 삭제"
+    },
+    "item": {
+      "copyLeft": "이 항목을 왼쪽으로 복사",
+      "copyRight": "이 항목을 오른쪽으로 복사",
+      "createLeft": "이 항목을 왼쪽에 만들기",
+      "createRight": "이 항목을 오른쪽에 만들기",
+      "deleteLeft": "왼쪽에서 이 항목 삭제",
+      "deleteRight": "오른쪽에서 이 항목 삭제"
+    },
+    "pk": {
+      "copyLeft": "기본 키를 왼쪽으로 복사",
+      "copyRight": "기본 키를 오른쪽으로 복사"
+    },
+    "props": {
+      "copyLeft": "주석과 옵션을 왼쪽으로 복사",
+      "copyRight": "주석과 옵션을 오른쪽으로 복사"
+    }
+  },
+  "autoIncrement": "자동 증가",
+  "sections": {
+    "columns": "열",
+    "indexes": "인덱스",
+    "foreignKeys": "외래 키",
+    "checks": "CHECK 제약 조건"
+  },
+  "primaryKey": "기본 키",
+  "sync": {
+    "button": "동기화",
+    "readOnly": "읽기 전용 연결입니다",
+    "unsupported": "{{engine}}은(는) DBine에서 스키마 변경을 적용하지 않습니다",
+    "queryTitle": "{{name}} 동기화",
+    "confirm_other": "{{where}}에서 문 {{count}}개를 실행합니다.{{warnings}}",
+    "confirmWarnings": " 계속하기 전에 경고를 검토하세요.",
+    "failed": "문 {{total}}개 중 {{n}}번째가 실패했습니다({{done}}개 실행됨): {{message}}",
+    "done": "{{where}} 동기화됨",
+    "generating": "스크립트를 생성하는 중…",
+    "openAsQuery": "쿼리로 열기",
+    "noChanges": "변경 사항 없음: → / ← 화살표로 옮기세요",
+    "changes_other": "변경 {{count}}개(왼쪽: {{left}}, 오른쪽: {{right}}): 스크립트를 보고 실행",
+    "confirmOrder": "왼쪽을 먼저 실행하고 오른쪽을 실행합니다. 문제가 생기면 그 지점에서 중단됩니다.",
+    "failedSide": "{{side}}: {{message}}",
+    "doneTab": "이미 실행됨",
+    "emptyScript": "이쪽에는 보류 중인 변경 사항이 있지만 스크립트가 비어 있습니다. 변경 사항을 적용할 문이 없으므로 여기서는 아무것도 실행되지 않습니다. 변경 사항을 검토하거나 취소하세요.",
+    "destructiveTables_other": "모든 데이터와 함께 테이블 {{count}}개가 삭제됩니다: {{names}}",
+    "destructiveColumns_other": "데이터와 함께 열 {{count}}개가 삭제됩니다: {{names}}",
+    "destructiveObjects_other": "개체 {{count}}개가 삭제됩니다: {{names}}",
+    "confirmDestructive": "삭제되어 복구할 수 없는 테이블, 열 또는 개체가 있습니다.",
+    "confirmDependents_other": "삭제되는 항목에 의존하는 개체 {{count}}개가 작동하지 않을 수 있습니다.",
+    "confirmDepsPending": "종속성을 아직 검토하는 중입니다.",
+    "confirmDepsFailed_other": "삭제되는 항목 {{count}}개의 종속성을 검토하지 못했습니다.",
+    "confirmDepsIncomplete_other": "항목 {{count}}개의 종속성 검토가 완료되지 않았습니다."
+  },
+  "left": "왼쪽",
+  "right": "오른쪽",
+  "connection": "연결",
+  "database": "데이터베이스",
+  "schema": "스키마",
+  "allSchemas": "모든 스키마",
+  "discard": "이쪽의 변경 사항 취소",
+  "swap": "바꾸기",
+  "undo": "마지막 변경 실행 취소",
+  "compare": "비교",
+  "empty": {
+    "pick": "데이터베이스(또는 스키마) 두 개를 선택하고 {compare}을(를) 누르세요.",
+    "help": "화살표로 차이를 한쪽에서 다른 쪽으로 옮기고 {sync}로 적용합니다. 실행하기 전에 스크립트가 표시됩니다."
+  },
+  "onlyDiff": "차이만 표시",
+  "ignoreCase": "대소문자 무시",
+  "ignoreComments": "주석 무시",
+  "noDifferences": "차이가 없습니다.",
+  "noObjects": "개체가 없습니다.",
+  "pendingChanges": "적용되지 않은 변경 사항 있음",
+  "pickItem": "목록에서 테이블 또는 개체를 선택하세요.",
+  "tableProps": "테이블 속성",
+  "indexUsage": {
+    "share": "이 데이터베이스에서 테이블 읽기의 {{pct}}({{reads}}회 읽기)",
+    "unused": "이 데이터베이스에서 읽기 없음, 통계 수집 시작 이후 쓰기 {{updates}}회"
+  },
+  "drop": {
+    "title": "삭제…",
+    "left": "왼쪽에서 삭제",
+    "right": "오른쪽에서 삭제",
+    "both": "양쪽에서 삭제",
+    "undo": "실행 취소: 다시 되돌리기",
+    "missing": "해당 쪽에 없습니다",
+    "inPk": "먼저 기본 키를 삭제하세요",
+    "lastColumn": "테이블에는 열이 하나 이상 필요합니다",
+    "clearComment": "주석 제거",
+    "cascade_other": "{{side}}: 이를 참조하는 외래 키 {{count}}개도 함께 제거됩니다({{tables}})",
+    "usage": "{{side}}: {{usage}}",
+    "referenced": "{{side}}: {{table}}의 외래 키 {{fk}}이(가) 이 키를 가리키므로 엔진이 삭제를 거부할 수 있습니다",
+    "referencedColumn": "{{side}}: {{table}}의 외래 키 {{fk}}이(가) 이 열을 가리키므로 엔진이 삭제를 거부할 수 있습니다",
+    "withColumn_other": "{{side}}: 이를 사용하는 항목 {{count}}개도 함께 제거됩니다: {{items}}",
+    "what": {
+      "index": "인덱스",
+      "fk": "외래 키",
+      "check": "CHECK"
+    },
+    "computed": "{{side}}: 계산된 열 {{column}}이(가) 이를 사용하므로 엔진이 삭제를 거부할 수 있습니다",
+    "pkRequired": "{{engine}}은(는) 기본 키가 없는 테이블을 허용하지 않습니다",
+    "backsFk": "{{side}}: MySQL이 외래 키 {{fk}}에 이 인덱스를 사용하므로 삭제가 실패할 수 있습니다",
+    "hiddenEqual_other": "· 동일 항목 {{count}}개 숨김",
+    "hiddenEqualTip": "「차이만 표시」를 해제하면 보고 삭제할 수 있습니다",
+    "pending": {
+      "left": "동기화할 때 왼쪽에서 삭제됩니다",
+      "right": "동기화할 때 오른쪽에서 삭제됩니다",
+      "both": "동기화할 때 양쪽에서 삭제됩니다"
+    }
+  },
+  "dropComment": {
+    "left": "왼쪽의 주석 제거",
+    "right": "오른쪽의 주석 제거",
+    "both": "양쪽의 주석 제거"
+  },
+  "deps": {
+    "title": "삭제되는 항목에 의존하는 대상",
+    "loading": "종속성을 찾는 중…",
+    "failed": "종속성을 검토하지 못했습니다",
+    "tooMany": "검토하지 않음: 각 쪽의 처음 {{limit}}개 항목만 검토합니다",
+    "stopped": "검토하지 않음: 그 전에 대화 상자가 닫혔습니다",
+    "breaks_other": "개체 {{count}}개가 작동하지 않게 됩니다",
+    "review_other": "검토 필요 {{count}}개(동적 SQL)",
+    "incomplete_other": "불완전한 목록: 개체 {{count}}개를 읽지 못했습니다",
+    "none": "이에 의존하는 항목이 없습니다",
+    "noneFound": "읽을 수 있었던 범위에서는 아무것도 찾지 못했습니다"
+  }
+}

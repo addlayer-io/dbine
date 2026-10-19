@@ -1,0 +1,20 @@
+{
+  "title": "Sperren",
+  "none": "Keine Blockierung",
+  "blocked_one": "1 Sitzung wartet",
+  "blocked_other": "{{count}} Sitzungen warten",
+  "session": "Sitzung",
+  "user": "Benutzer · Client",
+  "database": "Datenbank",
+  "wait": "Wartezeit",
+  "time": "Zeit",
+  "object": "Objekt",
+  "sql": "Anweisung",
+  "blocks_one": "blockiert 1",
+  "blocks_other": "blockiert {{count}}",
+  "blocksTitle": "Sitzungen, die direkt oder indirekt auf diese warten",
+  "kill": "Beenden",
+  "killTitle": "Sitzung beenden",
+  "killConfirm": "Sitzung {{id}} ({{user}}) beenden? Ihre offene Transaktion wird zurückgerollt.",
+  "killed": "Sitzung {{id}} beendet"
+}

@@ -1,0 +1,383 @@
+# Values of the fr translation that are legitimately the same as English (see scripts/i18n/check.py).
+# Seeded from the translations as they were when the untranslated check was added.
+ai.json:title
+ai.json:context.tables_one
+ai.json:context.tables_many
+ai.json:context.tables_other
+ai.json:code.code
+ai.json:history.messages_one
+ai.json:history.messages_other
+ai.json:history.messages_many
+ai.json:approval.local
+backups.json:col.date
+backups.json:col.kind
+compare.json:kinds.table
+compare.json:kinds.type
+compare.json:drop.what.index
+connection.json:pick.port
+connection.json:family.streaming
+connection.json:problem.message
+connection.json:problem.code
+connection.json:source.label
+connection.json:source.kind.vault
+connection.json:source.kind.aws
+connection.json:source.kind.azure
+connection.json:source.kind.gcp
+connection.json:source.kind.zoho
+connection.json:source.kind.conjur
+connection.json:source.kind.ccp
+connection.json:source.kind.delinea
+connection.json:source.kind.bitwarden
+connection.json:source.kind.bitwarden_sm
+connection.json:source.kind.ssm
+connection.json:source.input.secret
+connection.json:source.input.role_id
+connection.json:source.input.approle_secret_id
+connection.json:source.dataCenter.eu
+connection.json:source.dataCenter.ca
+connection.json:source.bitwardenCloud.eu
+core.json:export.defaultTable
+core.json:families.streaming
+createDatabase.json:script
+dataCompare.json:table
+dataGen.json:type
+dataGen.json:gen.null
+dataGen.json:gen.date
+dataGen.json:param.min
+dataGen.json:param.max
+dbDocs.json:format
+dbDocs.json:formats.markdown
+dbDocs.json:parts.tables
+dbDocs.json:doc.tables
+dbDocs.json:doc.type
+dbDocs.json:doc.index
+dbDocs.json:doc.unique
+dbDocs.json:doc.condition
+dbDocs.json:doc.options
+dbDocs.json:doc.source
+dbDocs.json:doc.notes
+dbDocs.json:doc.kinds.table
+dbDocs.json:doc.kinds.collection
+dbDocs.json:doc.kinds.type
+dbDocs.json:doc.kinds.package
+dependencies.json:confidence.probable
+dependencies.json:kind.table
+dependencies.json:kind.collection
+dependencies.json:kind.type
+designer.json:defaultTableName
+designer.json:sections.options
+designer.json:columns.type
+designer.json:columns.typePlaceholder
+designer.json:columns.nullable
+designer.json:indexes.unique
+designer.json:foreignKeys.tablePlaceholder
+designer.json:issues.index
+designer.json:alter.prodTitle
+devices.json:port
+diagram.json:toolbar.tables
+diagram.json:props.table
+diagram.json:props.unique
+explorer.json:tree.migrations
+explorer.json:menu.structure
+explorer.json:menu.profiler
+explorer.json:indexes.drop.script
+explorer.json:indexes.col.type
+explorer.json:indexes.col.seekShare
+feedback.json:description
+history.json:tl.commit
+history.json:tl.filterVersions
+history.json:tl.filterCommits
+history.json:tl.commitOf
+importData.json:types.date
+importData.json:file.format
+importData.json:target.type
+library.json:dialogs.param.table
+library.json:dialogs.param.schema
+lint.json:severity.info
+lint.json:groups.oracle
+lint.json:groups.etcd
+lint.json:rules.select-star.title
+lint.json:rules.global-identity.title
+lint.json:rules.where-operator.title
+locks.json:session
+mail.json:port
+mail.json:securities.starttls
+mail.json:securities.tls
+map.json:latLon
+map.json:lat
+map.json:lon
+map.json:settings.providers.osm
+map.json:settings.attribution
+mcp.json:port
+mcp.json:clients
+mcp.json:forClaude
+mcp.json:forCodex
+mcp.json:col.client
+menu.json:app.services
+migration.json:severity.info
+migration.json:tables.title
+migration.json:options.title
+migration.json:cols.table
+migration.json:grid.source
+migration.json:grid.perSecond
+migration.json:mode.title
+monitor.json:duration.s
+monitor.json:duration.hm
+monitor.json:duration.ms
+notebook.json:untitled
+notebook.json:settings.nav
+notebook.json:settings.title
+notebook.json:settings.awsProfilePlaceholder
+notebook.json:summary.ms
+notebook.json:summary.seconds
+notebook.json:summary.minutes
+notebook.json:save.filter
+notebook.json:toolbar.exportMarkdown
+notebook.json:write.table
+notebook.json:write.tablePlaceholder
+notebook.json:write.mode
+notebook.json:params.type
+notebook.json:params.types.date
+notebook.json:params.description
+optimizer.json:alternatives
+optimizer.json:aiTables
+optimizer.json:ownName
+optimizer.json:table.version
+optimizer.json:table.min
+optimizer.json:planTitle
+optimizer.json:notes
+optimizer.json:rules.not_in_to_not_exists.title
+optimizer.json:rules.exists_to_in.title
+optimizer.json:rules.count_to_exists.title
+plan.json:node.estimatedShort
+processes.json:col.id
+processes.json:col.host
+processes.json:own
+processes.json:session
+processes.json:queryName
+profiler.json:column.client
+profiler.json:column.application
+profiler.json:stats.min
+profiler.json:stats.max
+projects.json:operation.merge
+projects.json:operation.rebase
+projects.json:operation.cherry-pick
+projects.json:operation.revert
+projects.json:op.pull
+projects.json:op.push
+projects.json:op.fetch
+projects.json:envs.description
+projects.json:envs.default
+query.json:tx.label
+query.json:tx.auto
+query.json:object.type
+query.json:object.autoIncrement
+queryBuilder.json:alias
+queryBuilder.json:grid.alias
+queryParams.json:type
+queryParams.json:types.date
+rename.json:what.index
+rename.json:script
+results.json:defaultTableName
+results.json:tabs.messages
+results.json:export.format.json_lines
+results.json:export.format.xlsx
+results.json:messages.elapsed
+results.json:exportDialog.format
+results.json:grid.copyFormat.json_lines.name
+results.json:grid.copyFormat.sql_insert.name
+results.json:grid.copyFormat.sql_update.name
+results.json:grid.copyFormat.mongo_insert.name
+results.json:chart.agg.min
+results.json:chart.agg.max
+results.json:tree.document
+scheduled.json:enabled
+scheduled.json:when.minutes
+scheduled.json:step.script
+scheduled.json:step.format
+scheduled.json:formats.xlsx
+scheduled.json:formats.json_lines
+scheduled.json:notebook.file
+scheduled.json:notebook.filter
+scheduled.json:notebook.confirmProd
+scheduled.json:notebook.formats.markdown
+schemas.json:script
+scripts.json:generator.structure
+scripts.json:generator.destination
+search.json:code
+secretAccounts.json:kind.zoho
+secretAccounts.json:wizard.steps.client
+secretAccounts.json:wizard.steps.code
+secretAccounts.json:wizard.client_id
+secretAccounts.json:wizard.client_secret
+secretAccounts.json:wizard.code
+secretAccounts.json:acct.input.client_id
+secretAccounts.json:acct.input.client_secret
+secretAccounts.json:acct.input.role_id
+secretAccounts.json:acct.input.secret_id
+secretAccounts.json:acct.placeholder.url_delinea
+secretAccounts.json:acct.placeholder.url_conjur
+secretAccounts.json:acct.placeholder.url_ccp
+security.json:direct
+security.json:kind.table
+security.json:kind.collection
+settings.json:sync.strength.ok
+snippets.json:nav
+snippets.json:bodyPlaceholder
+snippets.json:families.oracle
+snippets.json:families.db2
+snippets.json:families.flux
+snippets.json:families.etcd
+subset.json:filterExpression
+subset.json:type
+subset.json:table
+subset.json:planTitle
+subset.json:roles.parent
+subset.json:rules.hash
+tasks.json:unit.tables
+tasks.json:elapsed.seconds
+tasks.json:elapsed.minutes
+tasks.json:elapsed.hours
+tasks.json:eta.minutes
+tasks.json:eta.hours
+tasks.json:eta.hoursExact
+tasks.json:detail.messages
+tunnel.json:port
+workbench.json:welcome.family.streaming
+backend:Activa (active)
+backend:Agente
+backend:Aislamiento
+backend:Aplicación
+backend:Argumento
+backend:Arquitectura (bits)
+backend:Caché
+backend:Caché / buffer pool
+backend:Cachés
+backend:Cliente
+backend:Clon
+backend:Clusters (mín.–máx.)
+backend:Clúster
+backend:Clúster (ON CLUSTER)
+backend:Colecciones
+backend:Colección (destino)
+backend:Compilaciones
+backend:Compilación
+backend:Compilación (ms)
+backend:Compresión
+backend:Compresión (COMP)
+backend:Compresión (compressionMode)
+backend:Condición
+backend:Configuración (JSON)
+backend:Cuota (bytes)
+backend:Cuotas
+backend:Códec
+backend:Descripción
+backend:Distribución
+backend:Distribución (DISTRIBUTE ON)
+backend:Distribución (DISTSTYLE)
+backend:Documentos
+backend:Documentos (objects)
+backend:Espacio de tablas
+backend:Espacios de tablas
+backend:Espacios de tablas (MON_GET_TABLESPACE)
+backend:Expresiones
+backend:Expresión
+backend:Extensiones
+backend:Fase
+backend:Formato
+backend:Formato (fechas)
+backend:Formatos
+backend:Fragmentación (×100)
+backend:Fragmento
+backend:Francia
+backend:Fuentes
+backend:Hilos
+backend:Hilos (threads)
+backend:Instancia
+backend:Intercalación
+backend:Líder
+backend:Mantenimiento
+backend:Mensaje
+backend:Modalidad
+backend:Modo
+backend:Máximo (ms)
+backend:Nube
+backend:Opciones
+backend:Origen
+backend:Origen ({0})
+backend:Orígenes
+backend:Paquetes
+backend:Particiones
+backend:Partición
+backend:París
+backend:Pasiva (passive)
+backend:Puerto
+backend:Páginas
+backend:Recompilaciones
+backend:Relación
+backend:Roma
+backend:Segmento
+backend:Segmentos
+backend:Servicio
+backend:Sesiones
+backend:Sesiones (sys.sessions)
+backend:Sesiones (syssessions)
+backend:Sesión
+backend:Señal (ms)
+backend:Supertablas
+backend:Tabla
+backend:Tablas
+backend:Tablas (.dbf)
+backend:Tablas (iitables)
+backend:Tablas (measurements)
+backend:Tipo
+backend:Tipos
+backend:Transacciones
+backend:Transacciones (commits)
+backend:Transacción
+backend:Tópicos
+backend:VersionedCollapsingMergeTree (sign, versión)
+backend:Versión
+backend:Zona
+backend:acción
+backend:aplicación
+backend:caché
+backend:cliente
+backend:colecciones
+backend:colección
+backend:compresión
+backend:descripción
+backend:documento
+backend:documentos
+backend:fase
+backend:fecha
+backend:formato
+backend:gránulos {0}/{1}
+backend:hilo
+backend:instancia
+backend:líder
+backend:líderes
+backend:modo
+backend:máximo
+backend:mínimo
+backend:origen
+backend:puerto
+backend:páginas
+backend:segmentos
+backend:servicios
+backend:sesión
+backend:sesión {0}
+backend:tabla
+backend:tablas
+backend:tipo
+backend:versión
+backend:{0} espacios de tablas
+backend:{0} · {1} (partición {2})
+backend:Índice
+backend:Índice {0}
+backend:índice
+prompts:optimizer.index
+prompts:transcript.assistant
+mobile:conn.monitor
+mobile:conn.session
+mobile:conn.f.client

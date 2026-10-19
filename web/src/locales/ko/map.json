@@ -1,0 +1,55 @@
+{
+  "source": "데이터",
+  "latLon": "위도 / 경도",
+  "lat": "위도",
+  "lon": "경도",
+  "pick": "열을 선택하세요",
+  "count_other": "요소 {{shown}}개",
+  "fit": "맞춤",
+  "openSettings": "지도 설정",
+  "privacy": "지도 제공업체는 보고 있는 영역만 알 수 있으며 데이터는 알 수 없습니다",
+  "notice": {
+    "cap": "처음 {{cap}}개 요소를 그렸으며 나머지 {{rest}}개 행은 그리지 않았습니다.",
+    "srid_other": "SRID {{srid}}인 행 {{rows}}개는 그리지 않았습니다. 지도는 WGS 84(4326)와 Web Mercator(3857)를 표시합니다.",
+    "range_other": "SRID가 없는 행 {{rows}}개의 좌표가 도 단위가 아니므로 그리지 않았습니다.",
+    "unreadable_other": "값 {{rows}}개를 지오메트리로 읽지 못했습니다.",
+    "basemap": "포함된 기본 지도를 불러오지 못했습니다."
+  },
+  "attribution": {
+    "offline": "기본 지도: Natural Earth(퍼블릭 도메인), 오프라인",
+    "custom": "타일: 사용자 지정 제공업체"
+  },
+  "popup": {
+    "row": "행 {{row}}",
+    "rows_other": "행 {{row}} 외 이 지점의 {{more}}개",
+    "geometry": "(지오메트리)"
+  },
+  "settings": {
+    "nav": "지도",
+    "title": "지도",
+    "help": "결과 지도는 이 컴퓨터에서 지오메트리를 그립니다. 행의 데이터는 이 컴퓨터를 벗어나지 않습니다.",
+    "offline": "오프라인 기본 지도",
+    "offlineHelp": "DBine에 포함된 Natural Earth(퍼블릭 도메인)의 국가, 주/도, 해안선, 호수, 도시입니다.",
+    "online": "온라인 타일",
+    "onlineHelp": "도로와 지형이 포함된 타일 제공업체를 사용합니다. 끄면 지도가 인터넷으로 어떤 요청도 보내지 않습니다.",
+    "noticeTitle": "온라인 타일",
+    "noticeOk": "켜기",
+    "provider": "제공업체",
+    "providers": {
+      "osm": "OpenStreetMap(표준)",
+      "maptiler": "MapTiler(키 필요)",
+      "stadia": "Stadia Maps(키 필요)",
+      "custom": "사용자 지정(XYZ 템플릿)"
+    },
+    "osmPolicy": "OpenStreetMap Foundation의 타일은 사용 정책(operations.osmfoundation.org/policies/tiles)이 있는 커뮤니티 서비스이며 가벼운 사용에 적합합니다. 많이 사용한다면 다른 제공업체나 자체 서버를 사용하세요.",
+    "url": "URL 템플릿",
+    "urlHelp": "{z}, {x}, {y}가 있는 https. {key}는 키로 대체됩니다. http는 이 컴퓨터(localhost)의 서버에만 사용할 수 있습니다.",
+    "urlInvalid": "템플릿은 https(또는 localhost에 대한 http)여야 하며 {z}, {x}, {y}를 포함해야 합니다.",
+    "attribution": "출처 표기",
+    "attributionHelp": "제공업체가 요구하는 텍스트이며 지도 모서리에 표시됩니다.",
+    "key": "API 키",
+    "keyHelp": "이 컴퓨터에만 저장되며 동기화로 전송되지 않습니다.",
+    "needUrl": "올바른 URL 템플릿이 없습니다. 그동안 지도는 오프라인 기본 지도를 사용합니다.",
+    "needKey": "API 키가 없습니다. 그동안 지도는 오프라인 기본 지도를 사용합니다."
+  }
+}

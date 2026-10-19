@@ -1,0 +1,33 @@
+{
+  "menu": {
+    "undo": "실행 취소",
+    "redo": "다시 실행",
+    "cut": "잘라내기",
+    "copy": "복사",
+    "paste": "붙여넣기",
+    "selectAll": "모두 선택",
+    "runSelection": "선택 영역 실행",
+    "runAll": "모두 실행",
+    "runStatement": "커서 위치의 문 실행",
+    "planEstimated": "예상 실행 계획",
+    "planActual": "실제 실행 계획과 함께 실행",
+    "comment": "주석 처리 또는 해제",
+    "format": "서식 지정",
+    "find": "찾기 및 바꾸기",
+    "gotoLine": "줄로 이동…",
+    "optimize": "쿼리 최적화",
+    "problems": "문제 보기",
+    "goToDefinition": "정의로 이동",
+    "revealInExplorer": "탐색기에서 보기",
+    "detectParams": "실행할 때 매개변수 묻기",
+    "click": "클릭"
+  },
+  "nav": {
+    "notFound": "탭의 데이터베이스에 해당 이름의 테이블, 뷰 또는 루틴이 없습니다.",
+    "notLoaded": "데이터베이스의 개체를 아직 불러오지 못했습니다. 정의로 이동하려면 먼저 연결하세요."
+  },
+  "insertColumn": "열 {{n}}/{{total}}: {{name}}",
+  "insertExtra": "값 {{n}}: 목록에 열이 {{total}}개 있습니다",
+  "pickFile": "파일 선택…",
+  "dataFiles": "데이터 파일(CSV, Parquet, JSON, Excel)"
+}

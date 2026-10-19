@@ -2,6 +2,10 @@
 
 ## [Unreleased]
 
+### New
+
+- **Five more languages:** DBine and its phone app now speak German, Russian, Simplified Chinese, Japanese and Korean, besides Spanish, English, Portuguese, French and Italian; the language follows your system's, and only the one in use is loaded.
+
 ## [1.0.0] - 2026-10-19
 
 ### New

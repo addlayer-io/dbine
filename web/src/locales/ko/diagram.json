@@ -1,0 +1,60 @@
+{
+  "primaryKey": "기본 키",
+  "foreignKey": "외래 키",
+  "unnamedForeignKey": "이름 없는 외래 키",
+  "exportFailed": "이미지를 내보내지 못했습니다: {{error}}",
+  "busy": "테이블 {{tables}}개와 관계 {{relations}}개를 배치하는 중…",
+  "hint": "끌어서 이동 · ⌘/핀치 + 휠로 확대/축소 · 두 번 클릭하면 테이블 열기",
+  "tab": {
+    "connectFailed": "연결할 수 없습니다.",
+    "reading": "데이터베이스 구조를 읽는 중…",
+    "drawFailed": "다이어그램을 그리지 못했습니다: {{error}}",
+    "fileName": "diagram-{{name}}",
+    "fileNameDefault": "database"
+  },
+  "toolbar": {
+    "tables": "테이블",
+    "relations": "관계",
+    "simplifiedLayout": "단순화된 배치",
+    "simplifiedLayoutTitle": "이 구조에서는 자동 배치에 실패했습니다. 테이블이 격자로 표시됩니다(직접 옮길 수 있습니다).",
+    "searchPlaceholder": "테이블 검색…",
+    "allSchemas": "모든 스키마",
+    "allColumns": "모든 열",
+    "keysOnly": "키만",
+    "relayout": "재정렬",
+    "relayoutTitle": "테이블을 자동으로 다시 정렬",
+    "svgImage": "SVG 이미지",
+    "pngImage": "PNG 이미지"
+  },
+  "card": {
+    "openHint": "두 번 클릭하여 열기",
+    "nullable": "NULL 허용",
+    "noColumns": "열 없음",
+    "moreColumns_other": "+{{count}}개 열",
+    "showLess": "간단히 보기"
+  },
+  "empty": {
+    "title": "표시할 테이블이 없습니다",
+    "text": "데이터베이스에 테이블이 없거나 엔진이 구조를 제공하지 않습니다.",
+    "noRelations": "관계가 없습니다. 데이터베이스에 외래 키가 선언되어 있지 않거나 엔진이 이를 제공하지 않습니다. 테이블만 표시됩니다."
+  },
+  "zoom": {
+    "zoomOut": "축소(−)",
+    "actualSize": "실제 크기(0)",
+    "zoomIn": "확대(+)",
+    "fit": "화면에 맞춤(F)",
+    "minimap": "미니맵"
+  },
+  "props": {
+    "table": "테이블",
+    "openTable": "테이블 열기",
+    "close": "닫기(Esc)",
+    "columns": "열",
+    "unnamed": "(이름 없음)",
+    "indexes": "인덱스",
+    "unique": "고유",
+    "references": "참조 대상",
+    "referencedBy": "참조하는 테이블",
+    "outside": "다이어그램 밖"
+  }
+}

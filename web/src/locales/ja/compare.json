@@ -1,0 +1,172 @@
+{
+  "connectFailed": "接続できませんでした",
+  "pickLeftDatabase": "左側のデータベースを選択してください",
+  "pickRightConnection": "右側の接続を選択してください",
+  "pickDifferent": "異なる 2 つのデータベース(またはスキーマ)を選択してください",
+  "kinds": {
+    "table": "テーブル",
+    "view": "ビュー",
+    "materializedView": "マテリアライズドビュー",
+    "procedure": "プロシージャ",
+    "function": "関数",
+    "trigger": "トリガー",
+    "sequence": "シーケンス",
+    "synonym": "シノニム",
+    "type": "型",
+    "fulltextCatalog": "全文カタログ",
+    "fulltextStoplist": "ストップリスト",
+    "domain": "ドメイン",
+    "virtualTable": "仮想テーブル",
+    "dictionary": "ディクショナリ"
+  },
+  "status": {
+    "equal": "同一",
+    "changed": "相違",
+    "onlyLeft": "左のみ",
+    "onlyRight": "右のみ"
+  },
+  "objectsSameEngine": "ビューとプロシージャは同じエンジンのデータベース間でのみ転送できます",
+  "arrow": {
+    "revert": "この変更だけを元に戻す",
+    "table": {
+      "copyLeft": "テーブルを左にコピー",
+      "copyRight": "テーブルを右にコピー",
+      "createLeft": "左にテーブルを作成",
+      "createRight": "右にテーブルを作成",
+      "deleteLeft": "左のテーブルを削除",
+      "deleteRight": "右のテーブルを削除"
+    },
+    "object": {
+      "copyLeft": "オブジェクトを左にコピー",
+      "copyRight": "オブジェクトを右にコピー",
+      "createLeft": "左にオブジェクトを作成",
+      "createRight": "右にオブジェクトを作成",
+      "deleteLeft": "左のオブジェクトを削除",
+      "deleteRight": "右のオブジェクトを削除"
+    },
+    "item": {
+      "copyLeft": "これを左にコピー",
+      "copyRight": "これを右にコピー",
+      "createLeft": "これを左に作成",
+      "createRight": "これを右に作成",
+      "deleteLeft": "これを左から削除",
+      "deleteRight": "これを右から削除"
+    },
+    "pk": {
+      "copyLeft": "主キーを左にコピー",
+      "copyRight": "主キーを右にコピー"
+    },
+    "props": {
+      "copyLeft": "コメントとオプションを左にコピー",
+      "copyRight": "コメントとオプションを右にコピー"
+    }
+  },
+  "autoIncrement": "オートインクリメント",
+  "sections": {
+    "columns": "列",
+    "indexes": "インデックス",
+    "foreignKeys": "外部キー",
+    "checks": "CHECK 制約"
+  },
+  "primaryKey": "主キー",
+  "sync": {
+    "button": "同期",
+    "readOnly": "この接続は読み取り専用です",
+    "unsupported": "{{engine}} は DBine からのスキーマ変更の適用に対応していません",
+    "queryTitle": "{{name}} を同期",
+    "confirm_other": "{{where}} で {{count}} 件の文を実行します。{{warnings}}",
+    "confirmWarnings": " 続行する前に警告を確認してください。",
+    "failed": "{{total}} 件中 {{n}} 件目の文が失敗しました({{done}} 件実行済み): {{message}}",
+    "done": "{{where}} を同期しました",
+    "generating": "スクリプトを生成しています…",
+    "openAsQuery": "クエリとして開く",
+    "noChanges": "変更なし: 矢印 → / ← で反映してください",
+    "changes_other": "{{count}} 件の変更(左: {{left}}、右: {{right}}): スクリプトを確認して実行",
+    "confirmOrder": "左を先に、次に右を実行します。途中で失敗した場合はそこで止まります。",
+    "failedSide": "{{side}}: {{message}}",
+    "doneTab": "実行済み",
+    "emptyScript": "この側には未適用の変更がありますが、スクリプトが空です。変更を適用する文がありません。ここでは何も実行されません。変更を確認するか、破棄してください。",
+    "destructiveTables_other": "{{count}} 個のテーブルがデータごと削除されます: {{names}}",
+    "destructiveColumns_other": "{{count}} 個の列がデータごと削除されます: {{names}}",
+    "destructiveObjects_other": "{{count}} 個のオブジェクトが削除されます: {{names}}",
+    "confirmDestructive": "削除されるテーブル、列、オブジェクトがあり、元に戻せません。",
+    "confirmDependents_other": "削除対象に依存する {{count}} 個のオブジェクトが動作しなくなる可能性があります。",
+    "confirmDepsPending": "依存関係をまだ確認中です。",
+    "confirmDepsFailed_other": "削除される {{count}} 個の要素の依存関係を確認できませんでした。",
+    "confirmDepsIncomplete_other": "{{count}} 個の要素の依存関係の確認が未完了です。"
+  },
+  "left": "左",
+  "right": "右",
+  "connection": "接続",
+  "database": "データベース",
+  "schema": "スキーマ",
+  "allSchemas": "すべてのスキーマ",
+  "discard": "この側の変更を破棄",
+  "swap": "入れ替え",
+  "undo": "直前の変更を元に戻す",
+  "compare": "比較",
+  "empty": {
+    "pick": "2 つのデータベース(または 2 つのスキーマ)を選び、{compare} を押してください。",
+    "help": "差分は矢印で一方から他方へ移し、{sync} で適用します。実行前にスクリプトが表示されます。"
+  },
+  "onlyDiff": "差分のみ",
+  "ignoreCase": "大文字と小文字を区別しない",
+  "ignoreComments": "コメントを無視",
+  "noDifferences": "差分はありません。",
+  "noObjects": "オブジェクトがありません。",
+  "pendingChanges": "未適用の変更あり",
+  "pickItem": "一覧からテーブルまたはオブジェクトを選択してください。",
+  "tableProps": "テーブルのプロパティ",
+  "indexUsage": {
+    "share": "このデータベースでのテーブルの読み取りの {{pct}}({{reads}} 回の読み取り)",
+    "unused": "このデータベースでの読み取りはなく、統計の開始以降 {{updates}} 回の書き込みがあります"
+  },
+  "drop": {
+    "title": "削除…",
+    "left": "左から削除",
+    "right": "右から削除",
+    "both": "両側で削除",
+    "undo": "元に戻す: 削除を取り消す",
+    "missing": "この側にはありません",
+    "inPk": "先に主キーを削除してください",
+    "lastColumn": "テーブルには少なくとも 1 つの列が必要です",
+    "clearComment": "コメントを削除",
+    "cascade_other": "{{side}}: これを参照する {{count}} 個の外部キー({{tables}})も削除されます",
+    "usage": "{{side}}: {{usage}}",
+    "referenced": "{{side}}: {{table}} の外部キー {{fk}} がこのキーを参照しています。エンジンが削除を拒否する場合があります",
+    "referencedColumn": "{{side}}: {{table}} の外部キー {{fk}} がこの列を参照しています。エンジンが削除を拒否する場合があります",
+    "withColumn_other": "{{side}}: これを使用している {{count}} 個の要素({{items}})も削除されます",
+    "what": {
+      "index": "インデックス",
+      "fk": "外部キー",
+      "check": "CHECK"
+    },
+    "computed": "{{side}}: 計算列 {{column}} がこれを使用しています。エンジンが削除を拒否する場合があります",
+    "pkRequired": "{{engine}} では主キーのないテーブルは作成できません",
+    "backsFk": "{{side}}: MySQL は外部キー {{fk}} のためにこのインデックスを使用しています。削除に失敗する場合があります",
+    "hiddenEqual_other": "· 同一の {{count}} 件は非表示",
+    "hiddenEqualTip": "「差分のみ」をオフにすると、表示して削除できます",
+    "pending": {
+      "left": "同期時に左から削除されます",
+      "right": "同期時に右から削除されます",
+      "both": "同期時に両側で削除されます"
+    }
+  },
+  "dropComment": {
+    "left": "左のコメントを削除",
+    "right": "右のコメントを削除",
+    "both": "両側のコメントを削除"
+  },
+  "deps": {
+    "title": "削除対象に依存するもの",
+    "loading": "依存関係を検索中…",
+    "failed": "依存関係を確認できませんでした",
+    "tooMany": "未確認: 各側の最初の {{limit}} 個の要素を確認します",
+    "stopped": "未確認: ダイアログが先に閉じられました",
+    "breaks_other": "{{count}} 個のオブジェクトが動作しなくなります",
+    "review_other": "{{count}} 個を要確認(動的 SQL)",
+    "incomplete_other": "一覧が不完全です: {{count}} 個のオブジェクトを読み取れませんでした",
+    "none": "これに依存するものはありません",
+    "noneFound": "読み取れた範囲では何も見つかりませんでした"
+  }
+}

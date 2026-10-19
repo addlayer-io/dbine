@@ -1,0 +1,57 @@
+{
+  "action": "Auf mehreren Datenbanken ausführen…",
+  "actionTip": "Führt den Code (oder die Auswahl) auf mehreren Datenbanken dieser Verbindung aus und führt die Ergebnisse zusammen",
+  "dialog": {
+    "title": "Auf mehreren Datenbanken ausführen",
+    "intro": "Der Code des Editors (oder die Auswahl) läuft auf jeder gewählten Datenbank, jeweils in einer eigenen Sitzung und {{max}} gleichzeitig. Die Ergebnisse werden im Ergebnisbereich zusammengeführt.",
+    "filter": "Datenbanken filtern (unterstützt *, z. B. *tenant-n*)",
+    "all": "Alle",
+    "none": "Keine",
+    "count": "{{selected}} von {{total}} Datenbanken ausgewählt",
+    "shown": "{{shown}} sichtbar",
+    "current": "aktuell",
+    "noMatch": "Keine Datenbank entspricht dem Filter.",
+    "loading": "Datenbanken werden geladen…",
+    "noDatabases": "Die Datenbanken der Verbindung konnten nicht gelesen werden.",
+    "readOnly": "Die Verbindung ist schreibgeschützt: Jede Anweisung, die kein Lesezugriff ist, wird abgelehnt.",
+    "run_one": "Auf {{count}} Datenbank ausführen",
+    "run_other": "Auf {{count}} Datenbanken ausführen",
+    "progress": "{{done}} von {{total}} Datenbanken abgeschlossen",
+    "close": "Schließen",
+    "empty": "Es gibt keinen Code zum Ausführen."
+  },
+  "confirm": {
+    "title": "Änderungen auf mehreren Datenbanken bestätigen",
+    "write_one": "Der Code ist nicht schreibgeschützt (er enthält {{keyword}}). Er wird auf {{count}} Datenbank ausgeführt und kann sie ändern.",
+    "write_other": "Der Code ist nicht schreibgeschützt (er enthält {{keyword}}). Er wird auf {{count}} Datenbanken ausgeführt und kann alle ändern.",
+    "unknown_one": "Auf dieser Engine lässt sich nicht prüfen, ob der Code schreibgeschützt ist. Er wird auf {{count}} Datenbank ausgeführt und kann sie ändern.",
+    "unknown_other": "Auf dieser Engine lässt sich nicht prüfen, ob der Code schreibgeschützt ist. Er wird auf {{count}} Datenbanken ausgeführt und kann alle ändern.",
+    "run_one": "Auf {{count}} Datenbank ausführen",
+    "run_other": "Auf {{count}} Datenbanken ausführen"
+  },
+  "status": {
+    "pending": "Wartet oder läuft",
+    "ok": "OK",
+    "error": "Fehler",
+    "cancelled": "Abgebrochen",
+    "skipped": "Nicht ausgeführt"
+  },
+  "summary": {
+    "ok": "{{ok}} von {{total}} Datenbanken OK",
+    "error_one": "{{count}} mit Fehler",
+    "error_other": "{{count}} mit Fehlern",
+    "cancelled_one": "{{count}} abgebrochen",
+    "cancelled_other": "{{count}} abgebrochen",
+    "messages": "Das Detail pro Datenbank finden Sie unter Meldungen."
+  },
+  "results": {
+    "merged_one": "Ergebnis ({{count}} Datenbank)",
+    "merged_other": "Ergebnis ({{count}} Datenbanken)",
+    "bar": "Mehrere Datenbanken: {{summary}}"
+  },
+  "task": {
+    "title_one": "Auf {{count}} Datenbank von {{connection}} ausführen",
+    "title_other": "Auf {{count}} Datenbanken von {{connection}} ausführen",
+    "unit": "Datenbanken"
+  }
+}

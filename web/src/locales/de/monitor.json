@@ -1,0 +1,31 @@
+{
+  "couldNotConnect": "Verbindung nicht möglich.",
+  "duration": {
+    "s": "{{s}} s",
+    "dh": "{{d}} d {{h}} h",
+    "hm": "{{h}} h {{m}} min",
+    "ms": "{{m}} min {{s}} s"
+  },
+  "level": {
+    "warn": "hoch",
+    "crit": "kritisch"
+  },
+  "justNow": "gerade eben",
+  "secondsAgo": "vor {{s}} s",
+  "connection": "Verbindung",
+  "paused": "Pausiert",
+  "every": "Alle {{s}} s",
+  "resume": "Fortsetzen",
+  "pause": "Pausieren",
+  "refresh": "Aktualisieren",
+  "unsupported": "{{engine}} bietet kein Monitoring.",
+  "thisEngine": "Diese Engine",
+  "measuring": "wird gemessen…",
+  "of": "von {{max}}",
+  "filter": "Filtern…",
+  "noMatch": "Keine passenden Zeilen.",
+  "noRows": "Keine Zeilen.",
+  "sparkline": {
+    "noData": "keine Daten"
+  }
+}

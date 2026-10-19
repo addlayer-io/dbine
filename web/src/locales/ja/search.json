@@ -1,0 +1,23 @@
+{
+  "menu": "データベース内を検索…",
+  "tab": "検索",
+  "placeholder": "ビュー、プロシージャ、関数、トリガーの名前とコードから検索するテキスト…",
+  "search": "検索",
+  "names": "名前",
+  "code": "コード",
+  "caseSensitive": "大文字と小文字を区別",
+  "wholeWord": "単語全体",
+  "allKinds": "すべての種類",
+  "starting": "検索中…",
+  "progress": "{{total}} 個中 {{done}} 個のオブジェクトを確認中",
+  "found_other": "{{count}} 個のオブジェクト",
+  "scanned_other": "{{count}} 件の定義を確認",
+  "cancelled": "キャンセルしました: 部分的な結果です",
+  "truncated": "結果の上限で打ち切られました",
+  "unreadable_other": "{{count}} 個のオブジェクトを読み取れませんでした",
+  "inName": "名前内",
+  "lines_other": "{{count}} 行",
+  "none": "結果なし。",
+  "column": "列",
+  "columns": "列"
+}

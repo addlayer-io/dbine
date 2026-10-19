@@ -1,0 +1,49 @@
+{
+  "action": "在多个数据库上运行…",
+  "actionTip": "在此连接的多个数据库上运行代码（或所选内容），并合并结果",
+  "dialog": {
+    "title": "在多个数据库上运行",
+    "intro": "编辑器中的代码（或所选内容）会在每个选中的数据库上运行，每个使用独立会话，同时最多 {{max}} 个。结果会合并显示在结果面板中。",
+    "filter": "筛选数据库（支持 *，例如 *tenant-n*）",
+    "all": "全部",
+    "none": "无",
+    "count": "已选择 {{selected}} / {{total}} 个数据库",
+    "shown": "可见 {{shown}} 个",
+    "current": "当前",
+    "noMatch": "没有匹配筛选条件的数据库。",
+    "loading": "正在加载数据库…",
+    "noDatabases": "无法读取该连接的数据库。",
+    "readOnly": "该连接为只读：任何非读取语句都会被拒绝。",
+    "run_other": "在 {{count}} 个数据库上运行",
+    "progress": "已完成 {{done}} / {{total}} 个数据库",
+    "close": "关闭",
+    "empty": "没有可运行的代码。"
+  },
+  "confirm": {
+    "title": "确认对多个数据库的更改",
+    "write_other": "该代码不是只读的（包含 {{keyword}}）。它将在 {{count}} 个数据库上运行，并可能更改所有数据库。",
+    "unknown_other": "在此引擎上无法验证代码是否只读。它将在 {{count}} 个数据库上运行，并可能更改所有数据库。",
+    "run_other": "在 {{count}} 个数据库上运行"
+  },
+  "status": {
+    "pending": "等待或运行中",
+    "ok": "成功",
+    "error": "错误",
+    "cancelled": "已取消",
+    "skipped": "未运行"
+  },
+  "summary": {
+    "ok": "{{total}} 个数据库中 {{ok}} 个成功",
+    "error_other": "{{count}} 个有错误",
+    "cancelled_other": "{{count}} 个已取消",
+    "messages": "请在消息中查看每个数据库的详情。"
+  },
+  "results": {
+    "merged_other": "结果（{{count}} 个数据库）",
+    "bar": "多个数据库：{{summary}}"
+  },
+  "task": {
+    "title_other": "在 {{connection}} 的 {{count}} 个数据库上运行",
+    "unit": "个数据库"
+  }
+}

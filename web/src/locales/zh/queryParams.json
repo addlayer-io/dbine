@@ -1,0 +1,22 @@
+{
+  "title": "查询参数",
+  "intro": "查询带有参数。每个值会以引擎字面量的形式（带正确的引号）写入文本；右侧可以看到最终效果。",
+  "type": "类型",
+  "types": {
+    "text": "文本",
+    "number": "数字",
+    "date": "日期",
+    "null": "NULL"
+  },
+  "placeholder": {
+    "text": "值",
+    "number": "例如 42 或 3.5",
+    "date": "YYYY-MM-DD 或 YYYY-MM-DD hh:mm:ss"
+  },
+  "invalid": {
+    "number": "不是数字。",
+    "date": "请按 YYYY-MM-DD 填写日期，时间可选（hh:mm 或 hh:mm:ss）。"
+  },
+  "disable": "此标签页不再询问参数",
+  "disableTip": "按原样运行文本，并在此标签页停止查找参数。可从编辑器菜单重新开启。"
+}

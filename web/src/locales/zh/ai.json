@@ -1,0 +1,111 @@
+{
+  "title": "助手",
+  "defaultModel": "默认",
+  "reasoning": "推理",
+  "head": {
+    "setup": "模型与服务商",
+    "newChat": "新对话",
+    "close": "关闭（⌘I）",
+    "history": "历史记录"
+  },
+  "context": {
+    "noDatabase": "未选择数据库",
+    "openQuery": "打开的查询",
+    "sent": "上下文：{{context}}",
+    "objects_other": "{{count}} 个对象",
+    "tables_other": "{{count}} 张表",
+    "tablesOf_other": "{{count}} 张表中的 {{shown}} 张",
+    "editor": "编辑器",
+    "selection": "选中内容",
+    "lastError": "最近的错误"
+  },
+  "suggest": {
+    "whyFails": "上次运行为什么失败？请修复。",
+    "explain": "解释编辑器中的查询",
+    "optimize": "检查并优化编辑器中的查询",
+    "largestTables": "写一个列出最大的表的查询",
+    "relatedTables": "哪些表与客户相关？",
+    "joinAggregate": "如何编写带聚合的 JOIN？"
+  },
+  "code": {
+    "appended": "已追加到查询末尾。请检查后随时运行。",
+    "newQueryTitle": "来自助手",
+    "replaced": "查询已替换（⌘Z 撤销）。",
+    "code": "代码",
+    "appendHint": "追加到当前查询末尾",
+    "newQueryHint": "在新查询中打开",
+    "append": "添加到查询",
+    "newQuery": "新建查询",
+    "replaceHint": "替换整个编辑器内容（⌘Z 可撤销）",
+    "replace": "替换",
+    "destructive": "会更改数据或结构。尚未运行任何内容：请检查后自行运行。",
+    "asText": "作为文本插入",
+    "asTextHint": "将回答作为文本单元格添加到笔记本（不会运行任何内容）",
+    "textAdded": "已添加为文本单元格。",
+    "cellAdded": "已添加为新单元格，尚未运行。请检查后在需要时运行。"
+  },
+  "phase": {
+    "schema": "正在读取数据库结构…",
+    "engine": "正在下载 AI 引擎，仅此一次…",
+    "thinking": "思考中…",
+    "retry": "正在重新提问…",
+    "tool": "正在查询连接："
+  },
+  "setup": {
+    "detecting": "正在这台电脑上查找 AI 工具…",
+    "lead": "助手需要一个模型。最简单的方式：下载 {model}。它在本机运行，无需安装任何东西，数据也不会离开本机。",
+    "leadModel": "内置模型",
+    "embedded": "已内置于 DBine",
+    "embeddedUnavailable": "此平台不支持内置模型。",
+    "recommended": "推荐用于这台电脑",
+    "use": "使用",
+    "pause": "暂停",
+    "pauseHint": "从上次中断处继续",
+    "download": "下载（{{size}}）",
+    "detected": "在这台电脑上检测到",
+    "pull": "下载 {{model}}",
+    "cliNote": "Claude Code 和 Codex 使用你自己的账号（订阅或 API）。它们不带工具运行：不能读取文件、运行命令或连接你的数据库。",
+    "redetect": "重新检测"
+  },
+  "privacy": {
+    "local": "本地：没有任何内容离开这台电脑。",
+    "remote": "将通过你的账号发送给 {{vendor}}：问题、结构和编辑器内容，绝不包含数据。"
+  },
+  "empty": {
+    "lead": "可以让它写查询、解释或修复编辑器中的查询，也可以询问数据库结构。",
+    "neverRuns": "助手不会运行任何内容：它写的内容会进入你的查询，是否运行由你决定。"
+  },
+  "compose": {
+    "placeholder": "提问或请求查询…（Enter 发送，Shift+Enter 换行）",
+    "send": "发送"
+  },
+  "better": {
+    "text": "你的电脑可以使用更大的模型：{{model}}。它能更好地理解复杂请求，SQL 错误也更少。",
+    "dismiss": "暂不"
+  },
+  "history": {
+    "title": "以往的对话",
+    "empty": "还没有以往的对话：“新对话”会把当前对话保存在这里。",
+    "untitled": "（无标题）",
+    "messages_other": "{{count}} 条消息",
+    "delete": "删除此对话",
+    "clear": "清空历史记录",
+    "clearConfirm": "所有以往的对话都将被删除。当前对话不受影响。"
+  },
+  "tools": {
+    "read_other": "已查询连接 {{count}} 次"
+  },
+  "approval": {
+    "title": "模型（{{model}}）想用以下查询读取 {{connection}} › {{database}} 中的数据：",
+    "local": "本地",
+    "approve": "批准",
+    "reject": "拒绝",
+    "approveAll": "批准此对话中的读取",
+    "note": "只读：DBine 在会拒绝任何更改的会话中运行它。如果你拒绝，模型将在没有这些数据的情况下继续。"
+  },
+  "link": {
+    "title": "打开链接",
+    "body": "助手的回答指向此地址。仅在信任它时才打开：链接可能把对话中的数据发送到其他网站。",
+    "open": "在浏览器中打开"
+  }
+}

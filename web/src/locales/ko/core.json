@@ -1,0 +1,138 @@
+{
+  "actions": {
+    "createQueryFailed": "쿼리를 만들지 못했습니다: {{error}}",
+    "nameRequired": "이름을 입력하세요",
+    "create": "만들기",
+    "renameQuery": {
+      "prompt": "쿼리 이름:",
+      "title": "이름 바꾸기"
+    },
+    "copyName": "{{name}}(복사본)",
+    "copyNameN": "{{name}}(복사본 {{n}})",
+    "deleteQuery": {
+      "confirm": "\"{{name}}\" 쿼리를 삭제할까요? 되돌릴 수 없습니다.",
+      "title": "쿼리 삭제"
+    },
+    "newObjectPrefix": "new_",
+    "createDatabase": {
+      "prompt": "새 데이터베이스 이름:",
+      "title": "새 데이터베이스",
+      "done": "데이터베이스 「{{name}}」을(를) 만들었습니다"
+    },
+    "dropObjects": {
+      "more": "{{list}} 외 {{count}}개",
+      "confirmOne": "{{where}}에서 「{{name}}」을(를) 삭제할까요? 모든 데이터와 함께 삭제되며 되돌릴 수 없습니다.",
+      "confirmMany": "{{where}}에서 개체 {{count}}개가 모든 데이터와 함께 삭제됩니다: {{list}}.\n\n되돌릴 수 없습니다. 확인하려면 「{{word}}」을(를) 입력하세요:",
+      "titleMany": "개체 {{count}}개 삭제",
+      "word": "삭제",
+      "typeWord": "「{{word}}」을(를) 입력하세요",
+      "failed": "{{total}}개 중 {{failed}}개를 삭제하지 못했습니다",
+      "droppedOne": "「{{name}}」을(를) 삭제했습니다",
+      "droppedMany": "개체 {{count}}개를 삭제했습니다"
+    },
+    "dropDatabase": {
+      "confirm": "{{server}}에서 데이터베이스 「{{name}}」이(가) 모든 내용과 함께 삭제됩니다. 되돌릴 수 없습니다.\n\n확인하려면 데이터베이스 이름을 입력하세요:",
+      "title": "데이터베이스 삭제",
+      "mismatch": "이름이 일치하지 않습니다",
+      "done": "데이터베이스 「{{name}}」을(를) 삭제했습니다"
+    }
+  },
+  "files": {
+    "saved": "저장됨",
+    "saveFailed": "저장하지 못했습니다: {{error}}"
+  },
+  "format": {
+    "redis": "Redis 명령은 한 줄에 하나씩 입력하므로 서식을 지정할 내용이 없습니다.",
+    "unavailable": "이 언어용 포맷터는 아직 없습니다."
+  },
+  "copy": {
+    "withHeadersLabel": "헤더 포함 복사",
+    "withHeaders": "헤더 포함",
+    "withoutHeadersLabel": "헤더 없이 복사",
+    "withoutHeaders": "헤더 제외",
+    "headersOnlyLabel": "헤더만 복사",
+    "headersOnly": "헤더만",
+    "as": "{{format}}(으)로 복사"
+  },
+  "export": {
+    "csvSemicolon": "CSV(세미콜론으로 구분)",
+    "csvExcel": "MS Excel용 CSV",
+    "tsv": "TSV(탭으로 구분)",
+    "defaultTable": "table",
+    "defaultSheet": "결과",
+    "defaultFile": "result"
+  },
+  "filter": {
+    "clear": "필터 제거",
+    "values": "여러 값으로 필터…",
+    "isNull": "NULL임",
+    "notNull": "NULL이 아님",
+    "isTrue": "참임",
+    "isFalse": "거짓임",
+    "trueOrNull": "참 또는 NULL임",
+    "falseOrNull": "거짓 또는 NULL임",
+    "isEmpty": "비어 있음",
+    "notEmpty": "비어 있지 않음",
+    "eq": "같음…",
+    "ne": "같지 않음…",
+    "contains": "포함…",
+    "notContains": "포함하지 않음…",
+    "startsWith": "다음으로 시작…",
+    "endsWith": "다음으로 끝남…",
+    "gt": "보다 큼…",
+    "ge": "이상…",
+    "lt": "보다 작음…",
+    "le": "이하…",
+    "sql": "SQL 조건…",
+    "sqlRight": "SQL 조건, 오른쪽…",
+    "describeTrueOrNull": "TRUE 또는 NULL",
+    "describeFalseOrNull": "FALSE 또는 NULL"
+  },
+  "gridEdit": {
+    "notFind": "쿼리가 컬렉션에 대한 find가 아닙니다",
+    "engineCantEdit": "이 엔진은 쿼리 결과를 편집할 수 없습니다. 탐색기에서 개체를 여세요",
+    "queryNotFound": "이 결과를 만든 쿼리를 찾을 수 없습니다",
+    "usesWith": "쿼리가 WITH를 사용합니다. 테이블에서 편집하세요",
+    "combinesRows": "결과가 행을 결합하거나 그룹화합니다. 테이블에 대한 쿼리만 편집할 수 있습니다",
+    "noTable": "쿼리가 테이블에서 읽지 않습니다",
+    "tableUnknown": "쿼리의 테이블을 인식할 수 없습니다",
+    "combinesTables": "결과가 테이블을 결합합니다. 테이블에 대한 쿼리만 편집할 수 있습니다",
+    "missingKey": "결과에 기본 키({{columns}})가 포함되어 있지 않습니다. 편집하려면 SELECT에 추가하세요",
+    "noPrimaryKey": "테이블에 기본 키가 없어 WHERE가 모든 열을 사용합니다(중복이 있으면 둘 이상의 행에 영향을 줄 수 있음).",
+    "keyNotComparable": "행의 키에 「{{column}}」이(가) 포함되어 있으며, 이진 또는 긴 값이라 WHERE에서 비교할 수 없습니다",
+    "noComparableColumns": "행의 어떤 열도 WHERE에서 비교할 수 없습니다. 모두 이진 또는 긴 값입니다",
+    "skippedColumns": "이진 또는 긴 열({{columns}})은 WHERE에서 제외됩니다."
+  },
+  "connections": {
+    "downloading": "{{component}} 다운로드 중, 처음 한 번만 필요합니다… {{pct}} % ({{total}} MB 중 {{done}} MB)",
+    "connected": "연결됨: {{version}}",
+    "connectFailed": "연결할 수 없습니다: {{error}}",
+    "password": "{{connection}}의 {{user}} 비밀번호:",
+    "queryName": "쿼리 {{n}}"
+  },
+  "ai": {
+    "stopped": "중지되었습니다.",
+    "downloading": "다운로드 중",
+    "starting": "시작하는 중"
+  },
+  "families": {
+    "relational": "관계형",
+    "analytical": "분석형",
+    "document": "문서형",
+    "keyValue": "키-값",
+    "wideColumn": "와이드 컬럼",
+    "search": "검색",
+    "timeSeries": "시계열",
+    "streaming": "스트리밍",
+    "graph": "그래프"
+  },
+  "openFiles": {
+    "failed": "「{{name}}」을(를) 열지 못했습니다: {{error}}",
+    "opened": "파일 열림: {{name}}",
+    "dialogTitle": "파일 열기",
+    "filterName": "데이터베이스 및 데이터 파일",
+    "saved": "「{{name}}」이(가) 연결에 저장되었습니다",
+    "dropTitle": "놓아서 열기",
+    "dropHint": "SQLite, DuckDB, CSV, TSV, Parquet, JSON 또는 Excel. 각 파일은 임시 연결로 열립니다."
+  }
+}

@@ -1,0 +1,12 @@
+{
+  "menu": "属性…",
+  "title": "“{{name}}”的属性",
+  "apply": "应用",
+  "confirmTitle": "将更改应用到“{{name}}”",
+  "warningsTitle": "警告：",
+  "applied": "“{{name}}”的属性已更新",
+  "scriptName": "{{name}} 的属性",
+  "nothing": "此引擎在此标签页中没有可显示或可更改的内容。",
+  "readOnly": "只读连接：可查看属性，但不能更改。",
+  "noChanges": "（无更改）"
+}
