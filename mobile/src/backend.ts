@@ -5,7 +5,8 @@ import i18next from 'i18next';
 // copies (scripts/catalog.py). Same rules as the desktop's `tb`: an exact
 // match, else a message with `{n}` parts, each part translated in turn.
 
-const catalogs = import.meta.glob<Record<string, string>>('./locales/backend/*.json', { eager: true, import: 'default' });
+// One chunk per language: only the phone's language is loaded (loadCatalog).
+const catalogs = import.meta.glob<Record<string, string>>('./locales/backend/*.json', { import: 'default' });
 
 interface Compiled {
   exact: Map<string, string>;
@@ -14,9 +15,7 @@ interface Compiled {
 
 const compiled = new Map<string, Compiled>();
 
-function compile(lang: string): Compiled | null {
-  const raw = catalogs[`./locales/backend/${lang}.json`];
-  if (!raw) return null;
+function compile(raw: Record<string, string>): Compiled {
   const exact = new Map<string, string>();
   const patterns: { re: RegExp; to: string }[] = [];
   for (const [from, to] of Object.entries(raw)) {
@@ -37,6 +36,14 @@ function compile(lang: string): Compiled | null {
   return { exact, patterns };
 }
 
+/** Load the phone language's catalog. Called once before the app mounts
+ *  (the language doesn't change while the app runs). */
+export async function loadCatalog(lang: string = i18next.language) {
+  if (lang === 'es' || compiled.has(lang)) return;
+  const load = catalogs[`./locales/backend/${lang}.json`];
+  if (load) compiled.set(lang, compile(await load()));
+}
+
 function translate(msg: string, c: Compiled, depth: number): string {
   const hit = c.exact.get(msg);
   if (hit !== undefined) return hit;
@@ -55,12 +62,6 @@ function translate(msg: string, c: Compiled, depth: number): string {
 /** A DBine text in the phone's language (as it came when unknown). */
 export function tb(msg: string | null | undefined): string {
   if (!msg) return msg ?? '';
-  const lang = i18next.language;
-  if (lang === 'es') return msg;
-  if (!compiled.has(lang)) {
-    const c = compile(lang);
-    if (!c) return msg;
-    compiled.set(lang, c);
-  }
-  return translate(msg, compiled.get(lang)!, 0);
+  const c = compiled.get(i18next.language);
+  return c ? translate(msg, c, 0) : msg;
 }

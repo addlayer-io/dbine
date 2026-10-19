@@ -1,6 +1,7 @@
 import i18next from 'i18next';
 import { ref } from 'vue';
 import { loadBackendCatalog } from './backend';
+import { loadElementLocale } from './element';
 
 // The app's languages (i18next). Spanish is the source: every text is written
 // in Spanish first (web/src/locales/es/*.json) and translated to the others.
@@ -15,8 +16,9 @@ import { loadBackendCatalog } from './backend';
 //
 // The language list is also in scripts/i18n/languages.json (the checks,
 // the changelog), in crates/dbine-ai (the AI prompts) and in
-// src-tauri/src/commands/updates.rs (the changelog translations): a new
-// language goes in all of them.
+// src-tauri/src/commands/updates.rs (the changelog translations), in
+// web/src/i18n/element.ts and in mobile/src/i18n.ts (the phone app): a new
+// language goes in all of them (scripts/i18n/check.py compares them).
 //
 // One variant per language: `zh` is Simplified Chinese (zh-CN) and also what
 // zh-TW / zh-HK systems get; `pt` is Brazilian Portuguese.
@@ -41,12 +43,23 @@ const STORAGE_KEY = 'dbine.language';
 /** Synced preference (Configuración › General › Idioma). */
 export const SETTING_KEY = 'ui.language';
 
-const files = import.meta.glob<{ default: Record<string, unknown> }>('../locales/*/*.json', { eager: true });
-const resources: Record<string, Record<string, Record<string, unknown>>> = {};
-for (const [path, mod] of Object.entries(files)) {
-  const m = /locales\/([a-z]+)\/([\w-]+)\.json$/.exec(path);
-  if (!m || m[2] === 'backend') continue;
-  (resources[m[1]] ??= {})[m[2]] = mod.default;
+// Spanish is the fallback (and the source of the key list), so it's in the
+// main chunk. Every other language is a chunk of its own (vite.config.ts),
+// loaded at start only when it's the startup language and otherwise on the
+// first switch to it: startup doesn't pay for languages it doesn't show.
+type Bundle = Record<string, unknown>;
+const spanish = import.meta.glob<{ default: Bundle }>(
+  ['../locales/es/*.json', '!../locales/es/backend.json'],
+  { eager: true },
+);
+const others = import.meta.glob<{ default: Bundle }>(
+  ['../locales/*/*.json', '!../locales/es/*.json', '!../locales/*/backend.json'],
+);
+const fileRe = /locales\/([a-z]+)\/([\w-]+)\.json$/;
+const resources: Record<string, Record<string, Bundle>> = { es: {} };
+for (const [path, mod] of Object.entries(spanish)) {
+  const m = fileRe.exec(path);
+  if (m) resources.es[m[2]] = mod.default;
 }
 
 export function isLang(v: unknown): v is Lang {
@@ -80,25 +93,63 @@ function initialLanguage(): Lang {
 /** The current language, reactive (for computed labels and Element Plus). */
 export const language = ref<Lang>(initialLanguage());
 
+const loadedUi = new Set<string>(['es']);
+
+/** A language's UI namespaces, into i18next (once). */
+async function loadUi(code: Lang) {
+  if (loadedUi.has(code)) return;
+  const prefix = `../locales/${code}/`;
+  const bundles = await Promise.all(
+    Object.entries(others)
+      .filter(([path]) => path.startsWith(prefix))
+      .map(async ([path, load]) => [fileRe.exec(path)![2], (await load()).default] as const),
+  );
+  for (const [ns, bundle] of bundles) i18next.addResourceBundle(code, ns, bundle, true, true);
+  loadedUi.add(code);
+}
+
+/** Everything a language shows: UI texts, Element Plus's, backend messages. */
+function loadLanguage(code: Lang) {
+  return Promise.all([loadUi(code), loadElementLocale(code), loadBackendCatalog(code)]);
+}
+
 i18next.init({
   lng: language.value,
   fallbackLng: 'es',
   resources,
-  ns: Object.keys(resources.es ?? {}),
+  ns: Object.keys(resources.es),
   defaultNS: 'common',
   interpolation: { escapeValue: false },
   returnNull: false,
 });
 document.documentElement.lang = info(language.value).tag;
 
-/** Switch the whole app's language (texts update in place). */
+/** Resolves once the startup language is loaded: mount the app after it, so
+ *  no raw key is ever rendered. If loading fails, the texts fall back to
+ *  Spanish. */
+export const i18nReady: Promise<void> = loadLanguage(language.value).then(
+  () => {},
+  (e) => console.error('i18n: could not load', language.value, e),
+);
+
+let requested: Lang = language.value;
+
+/** Switch the whole app's language (texts update in place). The language's
+ *  texts load first, so nothing is shown untranslated in between. */
 export async function setLanguage(code: Lang) {
+  requested = code;
   if (code === language.value) return;
-  language.value = code;
+  try {
+    await loadLanguage(code);
+  } catch (e) {
+    console.error('i18n: could not load', code, e);
+    return;
+  }
+  if (requested !== code) return; // another switch came while this one loaded
   try { localStorage.setItem(STORAGE_KEY, code); } catch { /* storage blocked */ }
-  document.documentElement.lang = info(code).tag;
-  await loadBackendCatalog(code);
   await i18next.changeLanguage(code);
+  language.value = code;
+  document.documentElement.lang = info(code).tag;
 }
 
 /** Translate outside components (stores, composables). Inside templates use `$t`. */

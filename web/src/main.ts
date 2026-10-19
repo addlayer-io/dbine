@@ -7,7 +7,7 @@ import 'element-plus/theme-chalk/dark/css-vars.css';
 import './styles/global.scss';
 import App from './App.vue';
 import I18NextVue from 'i18next-vue';
-import i18next from './i18n';
+import i18next, { i18nReady } from './i18n';
 import { loadBackendCatalog } from './i18n/backend';
 import { installNativeBehavior, showWindow } from './native';
 import { installAppearance } from './composables/appearance';
@@ -29,7 +29,8 @@ for (const [name, comp] of Object.entries(Icons)) {
   app.component(`Ei${name}`, comp as any);
 }
 installNativeBehavior();
-app.mount('#app');
+// The startup language's texts first, so no raw key is ever rendered.
+i18nReady.then(() => app.mount('#app'));
 // Dev test harness (src-tauri/src/devtools.rs): a PNG of the page.
 if (import.meta.env.DEV) {
   (window as any).__dbineSnap = async () => (await import('html-to-image')).toPng(document.body, {
@@ -38,4 +39,4 @@ if (import.meta.env.DEV) {
     filter: (n) => !(n instanceof HTMLImageElement && !n.getAttribute('src')),
   });
 }
-showWindow();
+i18nReady.then(showWindow);

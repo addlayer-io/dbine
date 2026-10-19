@@ -15,6 +15,8 @@ import sys
 
 ROOT = pathlib.Path(__file__).resolve().parents[2]
 WEB = ROOT / "web" / "src" / "locales"
+# DBine's languages, the one list (Spanish, the source, needs no catalog).
+LANGUAGES = ROOT / "scripts" / "i18n" / "languages.json"
 OUT = pathlib.Path(__file__).resolve().parents[1] / "src" / "locales" / "backend"
 
 
@@ -23,13 +25,14 @@ def wanted(files: list) -> bool:
 
 
 def main() -> int:
-    ids = json.loads((WEB / "backend.msgids.json").read_text())
+    ids = json.loads((WEB / "backend.msgids.json").read_text(encoding="utf-8"))
     keep = {k for k, files in ids.items() if wanted(files)}
     OUT.mkdir(parents=True, exist_ok=True)
-    for lang in ["en", "pt", "fr", "it"]:
-        full = json.loads((WEB / lang / "backend.json").read_text())
+    config = json.loads(LANGUAGES.read_text(encoding="utf-8"))
+    for lang in (l["code"] for l in config["languages"] if l["code"] != config["source"]):
+        full = json.loads((WEB / lang / "backend.json").read_text(encoding="utf-8"))
         sub = {k: full[k] for k in sorted(keep) if k in full}
-        (OUT / f"{lang}.json").write_text(json.dumps(sub, ensure_ascii=False, separators=(",", ":")))
+        (OUT / f"{lang}.json").write_text(json.dumps(sub, ensure_ascii=False, separators=(",", ":")), encoding="utf-8")
     print(f"phone catalog: {len(keep)} messages", file=sys.stderr)
     return 0
 

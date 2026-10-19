@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Check the app's translations (web/src/locales and the AI prompts).
+"""Check the app's translations (web/src/locales, the AI prompts and the phone app).
 
 The languages come from scripts/i18n/languages.json (the one list). Spanish
 is the source.
@@ -13,8 +13,11 @@ Structure (every language):
   needs must be there; Spanish's other categories may be there too.
 - Every backend message (`backend.msgids.json`) has a translation in each
   `<lang>/backend.json`, with the same `{0}`… values and markup.
+- The phone app's texts (`mobile/src/locales/<lang>.json`) follow the same
+  rules as a UI area file, against `mobile/src/locales/es.json`.
 - The lists of languages in the code match languages.json (the UI, Element
-  Plus, the AI prompts, the update dialog's changelog translations).
+  Plus, the AI prompts, the update dialog's changelog translations, the
+  phone app).
 
 Untranslated (every language but es and en): a value identical to English
 is reported as untranslated, in the UI files, backend.json and the AI prompts
@@ -24,7 +27,8 @@ is reported as untranslated, in the UI files, backend.json and the AI prompts
 - the entries in `scripts/i18n/same_as_en/<lang>.txt`, one per line, for
   terms that are legitimately the same as English in that language:
   `<area>.json:<key>` for UI keys, `backend:<message>` for backend messages,
-  `prompts:<key>` for the AI prompts (a line break in a message is
+  `prompts:<key>` for the AI prompts, `mobile:<key>` for the phone app's
+  texts (a line break in a message is
   written `\\n`). A line starting with `#` is a comment.
 
 Report (not an error): Spanish-looking text left in .vue templates.
@@ -47,6 +51,7 @@ ROOT = pathlib.Path(__file__).resolve().parents[2]
 HERE = ROOT / "scripts/i18n"
 LOC = ROOT / "web/src/locales"
 PROMPTS = ROOT / "crates/dbine-ai/prompts"
+MOBILE = ROOT / "mobile/src/locales"
 CONFIG = json.loads((HERE / "languages.json").read_text(encoding="utf-8"))
 SOURCE = CONFIG["source"]
 LANGUAGES = {l["code"]: l for l in CONFIG["languages"]}
@@ -134,7 +139,7 @@ def entry(e):
 class Report:
     def __init__(self):
         self.problems = 0
-        self.untranslated = {}  # lang -> {"ui": [...], "backend": [...], "prompts": [...]}
+        self.untranslated = {}  # lang -> {"ui": [...], "backend": [...], "prompts": [...], "mobile": [...]}
 
     def problem(self, msg, n=1):
         self.problems += n
@@ -145,57 +150,83 @@ def summary(keys, n=8):
     return f"{', '.join(keys[:n])}{' …' if len(keys) > n else ''}"
 
 
-def check_ui(lang, r, untranslated):
+def check_texts(lang, where, es, other, en, r, untranslated, kind, prefix):
+    """A language's texts against the Spanish ones (flattened key -> text):
+    missing and extra keys, plural forms, placeholders, markup; with
+    `untranslated`, the values identical to English not in the allowlist
+    (as `<prefix>:<key>`)."""
     allowed = allowlist(lang)
     plurals = set(LANGUAGES[lang].get("plurals", ["other"]))
     src_plurals = set(LANGUAGES[SOURCE].get("plurals", ["other"]))
+    groups = plural_groups(es)
+
+    def needed(k):
+        m = PLURAL.match(k)
+        if m and m[1] in groups:
+            return m[2] in plurals
+        return True
+
+    def allowed_key(k):
+        if k in es:
+            return True
+        m = PLURAL.match(k)
+        return bool(m and m[1] in groups and (m[2] in plurals or m[2] in src_plurals))
+
+    missing = [k for k in es if needed(k) and other.get(k) in ("", None)]
+    # The language's own plural categories that Spanish doesn't have (ru `_few`).
+    for base in groups:
+        for cat in sorted(plurals - src_plurals):
+            k = f"{base}_{cat}"
+            if other.get(k) in ("", None):
+                missing.append(k)
+    extra = [k for k in other if not allowed_key(k)]
+
+    def ref(k):
+        m = PLURAL.match(k)
+        return es.get(k) if k in es else es.get(f"{m[1]}_other") if m else None
+
+    present = [k for k in other if allowed_key(k) and ref(k) is not None]
+    def holders_ok(k):
+        want = holders(ref(k), r"\{\{\s*(\w+)")
+        got = holders(other[k], r"\{\{\s*(\w+)")
+        if want == got:
+            return True
+        # A plural form may show the count Spanish spells out ("1 fila"):
+        # ru `_one` also covers 21, 31… so it needs {{count}}.
+        m = PLURAL.match(k)
+        return bool(m and m[1] in groups) and sorted(set(got) - {"count"}) == sorted(set(want) - {"count"})
+
+    bad = [k for k in present if not holders_ok(k)]
+    tags = [k for k in present if markup(ref(k)) != markup(other[k])]
+    for label, keys in (("missing", missing), ("not in es", extra), ("placeholders differ", bad), ("markup differs", tags)):
+        if keys:
+            r.problem(f"{where}: {len(keys)} {label}: {summary(keys)}", len(keys))
+    if untranslated:
+        for k, v in other.items():
+            if k in en and v == en[k] and not neutral(v) and f"{prefix}:{k}" not in allowed:
+                r.untranslated.setdefault(lang, {}).setdefault(kind, []).append(f"{prefix}:{k}")
+
+
+def check_ui(lang, r, untranslated):
     for src in sorted((LOC / SOURCE).glob("*.json")):
         if src.name == "backend.json":
             continue
-        es = flat(load(src))
         f = LOC / lang / src.name
         if not f.exists():
             r.problem(f"{lang}/{src.name}: missing file")
             continue
-        other = flat(load(f))
-        en = flat(load(LOC / "en" / src.name))
-        groups = plural_groups(es)
+        es, other, en = flat(load(src)), flat(load(f)), flat(load(LOC / "en" / src.name))
+        check_texts(lang, f"{lang}/{src.name}", es, other, en, r, untranslated, "ui", src.name)
 
-        def needed(k):
-            m = PLURAL.match(k)
-            if m and m[1] in groups:
-                return m[2] in plurals
-            return True
 
-        def allowed_key(k):
-            if k in es:
-                return True
-            m = PLURAL.match(k)
-            return bool(m and m[1] in groups and (m[2] in plurals or m[2] in src_plurals))
-
-        missing = [k for k in es if needed(k) and other.get(k) in ("", None)]
-        # The language's own plural categories that Spanish doesn't have (ru `_few`).
-        for base in groups:
-            for cat in sorted(plurals - src_plurals):
-                k = f"{base}_{cat}"
-                if other.get(k) in ("", None):
-                    missing.append(k)
-        extra = [k for k in other if not allowed_key(k)]
-
-        def ref(k):
-            m = PLURAL.match(k)
-            return es.get(k) if k in es else es.get(f"{m[1]}_other") if m else None
-
-        present = [k for k in other if allowed_key(k) and ref(k) is not None]
-        bad = [k for k in present if holders(ref(k), r"\{\{\s*(\w+)") != holders(other[k], r"\{\{\s*(\w+)")]
-        tags = [k for k in present if markup(ref(k)) != markup(other[k])]
-        for label, keys in (("missing", missing), ("not in es", extra), ("placeholders differ", bad), ("markup differs", tags)):
-            if keys:
-                r.problem(f"{lang}/{src.name}: {len(keys)} {label}: {summary(keys)}", len(keys))
-        if untranslated:
-            for k, v in other.items():
-                if k in en and v == en[k] and not neutral(v) and f"{src.name}:{k}" not in allowed:
-                    r.untranslated.setdefault(lang, {}).setdefault("ui", []).append(f"{src.name}:{k}")
+def check_mobile(lang, r, untranslated):
+    """The phone app's texts (mobile/src/locales/<lang>.json)."""
+    f = MOBILE / f"{lang}.json"
+    if not f.exists():
+        r.problem(f"mobile/src/locales/{lang}.json: missing file")
+        return
+    es, other, en = flat(load(MOBILE / f"{SOURCE}.json")), flat(load(f)), flat(load(MOBILE / "en.json"))
+    check_texts(lang, f"mobile/src/locales/{lang}.json", es, other, en, r, untranslated, "mobile", "mobile")
 
 
 def check_backend(lang, r, untranslated):
@@ -248,7 +279,7 @@ def check_wiring(r):
     found = {
         "web/src/i18n/index.ts (LANGUAGES)": set(codes_in("web/src/i18n/index.ts", r"\{ code: '([a-z]+)'")),
         "web/src/i18n/element.ts (ELEMENT_LOCALES)": set(
-            re.findall(r"\b([a-z]{2}): el[A-Z]", (ROOT / "web/src/i18n/element.ts").read_text(encoding="utf-8"))
+            re.findall(r"^\s+([a-z]{2}): \(\) => import\('element-plus/", (ROOT / "web/src/i18n/element.ts").read_text(encoding="utf-8"), re.M)
         ),
         "crates/dbine-ai/src/prompts.rs (LANGS)": set(
             re.findall(r'"([a-z]+)"', re.search(r"LANGS: &\[&str\] = &\[([^\]]*)\]", (ROOT / "crates/dbine-ai/src/prompts.rs").read_text(encoding="utf-8"))[1])
@@ -258,6 +289,10 @@ def check_wiring(r):
         )
         | {"en"},
         "web/src/locales/<lang>/": {p.name for p in LOC.iterdir() if p.is_dir()},
+        "mobile/src/i18n.ts (LANGS)": set(
+            re.findall(r"'([a-z]+)'", re.search(r"LANGS = \[([^\]]*)\]", (ROOT / "mobile/src/i18n.ts").read_text(encoding="utf-8"))[1])
+        ),
+        "mobile/src/locales/<lang>.json": {p.stem for p in MOBILE.glob("*.json")},
     }
     for where, codes in found.items():
         if codes != want:
@@ -267,13 +302,6 @@ def check_wiring(r):
             if codes - want:
                 parts.append(f"not in languages.json: {', '.join(sorted(codes - want))}")
             r.problem(f"{where}: {'; '.join(parts)}")
-    mobile = ROOT / "mobile/src/i18n.ts"
-    if mobile.exists():
-        m = re.search(r"LANGS = \[([^\]]*)\]", mobile.read_text(encoding="utf-8"))
-        codes = set(re.findall(r"'([a-z]+)'", m[1])) if m else set()
-        if want - codes:
-            # The phone app's languages are a separate decision: reported, not an error.
-            print(f"note: the phone app (mobile/) doesn't have {', '.join(sorted(want - codes))} yet")
 
 
 def spanish_leftovers():
@@ -311,12 +339,13 @@ def main():
         check_ui(lang, r, untranslated and lang != "en")
         check_backend(lang, r, untranslated and lang != "en")
         check_prompts(lang, r, untranslated and lang != "en")
+        check_mobile(lang, r, untranslated and lang != "en")
     if not args.list:
         check_wiring(r)
         spanish_leftovers()
 
     if args.list:
-        for kind in ("ui", "backend", "prompts"):
+        for kind in ("ui", "backend", "prompts", "mobile"):
             for e in r.untranslated.get(args.list, {}).get(kind, []):
                 print(entry(e))
         sys.exit(1 if r.untranslated.get(args.list) else 0)
@@ -328,9 +357,9 @@ def main():
             u = r.untranslated.get(lang)
             if not u:
                 continue
-            n = {k: len(u.get(k, [])) for k in ("ui", "backend", "prompts")}
+            n = {k: len(u.get(k, [])) for k in ("ui", "backend", "prompts", "mobile")}
             total_untranslated += sum(n.values())
-            print(f"  {lang}: {n['ui']} UI keys, {n['backend']} backend messages, {n['prompts']} AI prompt keys")
+            print(f"  {lang}: {n['ui']} UI keys, {n['backend']} backend messages, {n['prompts']} AI prompt keys, {n['mobile']} phone app keys")
     parts = []
     if r.problems:
         parts.append(f"{r.problems} problems")

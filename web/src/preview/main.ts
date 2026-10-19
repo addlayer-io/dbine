@@ -21,7 +21,7 @@
 // |connection&source=vault-account|bitwarden-account|aws-account|keepass-account|onepassword-account|vault-missing (the account block of each manager)
 import './lang';
 import I18NextVue from 'i18next-vue';
-import i18next from '../i18n';
+import i18next, { i18nReady } from '../i18n';
 import { loadBackendCatalog } from '../i18n/backend';
 import { createApp, h, reactive, ref } from 'vue';
 import { createPinia } from 'pinia';
@@ -489,4 +489,5 @@ function previewPrefs() {
 previewPrefs();
 setTimeout(previewPrefs, 300);
 for (const [name, comp] of Object.entries(Icons)) app.component(`Ei${name}`, comp as never);
+await i18nReady;
 app.mount('#app');
