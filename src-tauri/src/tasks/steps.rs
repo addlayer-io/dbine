@@ -17,7 +17,9 @@ use std::sync::{Arc, Mutex};
 
 type Vars = BTreeMap<String, String>;
 
-pub(super) async fn run(ctx: &Ctx<'_>, step: &Step, vars: &Vars) -> CommandResult<StepDone> {
+/// `notebook`: a "Run notebook" step's notebook, as [`super::run_task`]
+/// read it to check the approval (the step runs that copy).
+pub(super) async fn run(ctx: &Ctx<'_>, step: &Step, vars: &Vars, notebook: Option<CommandResult<crate::notebook::Notebook>>) -> CommandResult<StepDone> {
     match step.kind.as_str() {
         kinds::RUN_SCRIPT => run_script(ctx, step, vars).await,
         kinds::EXPORT => export(ctx, step, vars).await,
@@ -25,7 +27,7 @@ pub(super) async fn run(ctx: &Ctx<'_>, step: &Step, vars: &Vars) -> CommandResul
         kinds::BACKUP => backup(ctx, step, vars).await,
         kinds::DOCUMENT => document(ctx, step, vars).await,
         kinds::SEND_MAIL => super::mail::step(ctx.state, step, vars).await,
-        kinds::RUN_NOTEBOOK => run_notebook(ctx, step, vars).await,
+        kinds::RUN_NOTEBOOK => run_notebook(ctx, step, vars, notebook).await,
         other => Err(CommandError::BadRequest(format!("esta versión de DBine no sabe ejecutar pasos «{other}»"))),
     }
 }
@@ -498,7 +500,7 @@ fn notebook_policy(ctx: &Ctx<'_>) -> crate::notebook::access::Policy {
     crate::notebook::access::Policy::current(&dirs)
 }
 
-async fn run_notebook(ctx: &Ctx<'_>, step: &Step, vars: &Vars) -> CommandResult<StepDone> {
+async fn run_notebook(ctx: &Ctx<'_>, step: &Step, vars: &Vars, notebook: Option<CommandResult<crate::notebook::Notebook>>) -> CommandResult<StepDone> {
     use crate::notebook::{export, headless};
     let c: NotebookConfig = config(step)?;
     let original = PathBuf::from(c.run.path.trim());
@@ -506,7 +508,9 @@ async fn run_notebook(ctx: &Ctx<'_>, step: &Step, vars: &Vars) -> CommandResult<
         return Err(CommandError::BadRequest("el paso no tiene notebook".into()));
     }
     let key = format!("{}:{}", ctx.run_key, step.id);
-    let ran = headless::run(ctx.state, &key, &c.run, notebook_policy(ctx)).await?;
+    // Never read again here: what runs is what the approval was checked on.
+    let nb = notebook.ok_or_else(|| CommandError::BadRequest("el paso no tiene notebook".into()))??;
+    let ran = headless::run_loaded(ctx.state, &key, &c.run, notebook_policy(ctx), nb).await?;
     let limits = headless::preview_limits(ctx.state);
     let mut vars = vars.clone();
     let stem = original.file_stem().map(|s| s.to_string_lossy().into_owned()).unwrap_or_else(|| "notebook".into());

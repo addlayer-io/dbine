@@ -3,8 +3,8 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import {
-  effectiveValues, formatParamValues, mentionedParams, missingRequired, newParamName, paramNameProblem, paramValueProblem, resultIsStale,
-  usedValues, validParamName, valuesKey,
+  effectiveValues, formatParamValues, isCredentialParam, mentionedParams, missingRequired, newParamName, paramNameProblem, paramValueProblem,
+  recordableValues, resultIsStale, usedValues, validParamName, valuesKey,
 } from './notebookParams.ts';
 
 const defs = [
@@ -64,4 +64,17 @@ test('a result records its values and is stale when they change', () => {
   assert.equal(formatParamValues({ mes: '2026-10', activo: true, x: null }, 'sí', 'no'), 'mes = 2026-10 · activo = sí · x = NULL');
   assert.equal(valuesKey({ b: 1, a: 'x' }), valuesKey({ a: 'x', b: 1 }));
   assert.notEqual(valuesKey({ a: 'x' }), valuesKey({ a: 'y' }));
+});
+
+test('a result never records a credential parameter\'s value', () => {
+  for (const n of ['password', 'api_token', 'DB_PASSWORD', 'secret_key', 'apiKey', 'host', 'url', 'conn_str']) assert.ok(isCredentialParam(n), n);
+  for (const n of ['user', 'username', 'login', 'port', 'mes', 'db_host', 'tope']) assert.ok(!isCredentialParam(n), n);
+  assert.deepEqual(recordableValues({ mes: '2026-10', api_token: 'tok', password: 'pw', user: 'ana' }), { mes: '2026-10', user: 'ana' });
+  assert.equal(recordableValues({ password: 'pw' }), null);
+  assert.equal(recordableValues(null), null);
+  // A result without the credential's value isn't stale for it.
+  const defs2 = [{ name: 'mes', type: 'text' }, { name: 'api_token', type: 'text' }];
+  const cell = { kind: 'sql', source: 'SELECT {{mes}}, {{api_token}}', result: { params: { mes: '2026-10' } } };
+  assert.equal(resultIsStale(cell, defs2, { mes: '2026-10', api_token: 'tok' }), false);
+  assert.equal(resultIsStale(cell, defs2, { mes: '2026-11', api_token: 'tok' }), true);
 });

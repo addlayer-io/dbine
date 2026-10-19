@@ -1267,24 +1267,20 @@ pub(crate) async fn write_rows(
                 })
                 .collect::<Result<_>>()?;
             let is_key: Vec<bool> = spec.columns.iter().map(|c| spec.key.iter().any(|k| k == c)).collect();
+            check_update_fields(&spec.columns)?;
             let mut row_no = 0u64;
             while let Some(batch) = source.next().await {
                 let mut updates = Vec::with_capacity(batch.rows.len());
                 for row in batch.rows {
                     row_no += 1;
-                    let (mut q, mut set) = (Document::new(), Document::new());
-                    for (((cell, name), h), key) in row.into_iter().zip(&spec.columns).zip(&hints).zip(&is_key) {
+                    let mut values = Vec::with_capacity(spec.columns.len());
+                    for ((cell, name), h) in row.into_iter().zip(&spec.columns).zip(&hints) {
                         let v = bson(cell, *h)
                             .map_err(|why| Error::Unsupported(format!("Fila {row_no}, columna «{name}»: {why}.")))?
                             .unwrap_or(Bson::Null);
-                        if *key {
-                            q.insert(name.clone(), v);
-                        } else {
-                            set.insert(name.clone(), v);
-                        }
+                        values.push(v);
                     }
-                    let u = if set.is_empty() { doc! { "$setOnInsert": q.clone() } } else { doc! { "$set": set } };
-                    updates.push(doc! { "q": q, "u": u, "upsert": upsert, "multi": false });
+                    updates.push(update_entry(&spec.columns, &is_key, values, upsert, row_no)?);
                 }
                 let cmd = doc! { "update": spec.table.name.clone(), "updates": updates, "ordered": true };
                 let r = s.db.run_command(cmd).await.map_err(|e| written_so_far(&out, err(e)))?;
@@ -1303,6 +1299,49 @@ pub(crate) async fn write_rows(
         }
     }
     Ok(out)
+}
+
+/// Update and Upsert name fields in `$set` and in the filter, where a
+/// `$` starts an operator and a `.` walks into a subdocument: such names
+/// are refused rather than read as something other than a field.
+fn check_update_fields(columns: &[String]) -> Result<()> {
+    match columns.iter().find(|c| c.is_empty() || c.starts_with('$') || c.contains('.')) {
+        Some(c) => Err(Error::Unsupported(format!(
+            "La columna «{c}» no se puede usar para actualizar en MongoDB: un nombre que empieza con «$» o tiene «.» se leería como operador o como ruta."
+        ))),
+        None => Ok(()),
+    }
+}
+
+/// A value with a `$`-key at any depth: in a filter it would be an operator.
+fn has_operator(v: &Bson) -> bool {
+    match v {
+        Bson::Document(d) => d.iter().any(|(k, v)| k.starts_with('$') || has_operator(v)),
+        Bson::Array(a) => a.iter().any(has_operator),
+        _ => false,
+    }
+}
+
+/// One row's entry in the `update` command: the key fields matched by
+/// literal equality (`$eq`, so a document-valued key is a value, never an
+/// operator expression), the other fields in `$set`.
+fn update_entry(columns: &[String], is_key: &[bool], values: Vec<Bson>, upsert: bool, row_no: u64) -> Result<Document> {
+    let (mut q, mut keys, mut set) = (Document::new(), Document::new(), Document::new());
+    for ((name, key), v) in columns.iter().zip(is_key).zip(values) {
+        if *key {
+            if has_operator(&v) {
+                return Err(Error::Unsupported(format!(
+                    "Fila {row_no}, columna «{name}»: la clave tiene un campo que empieza con «$», que MongoDB leería como operador."
+                )));
+            }
+            q.insert(name.clone(), doc! { "$eq": v.clone() });
+            keys.insert(name.clone(), v);
+        } else {
+            set.insert(name.clone(), v);
+        }
+    }
+    let u = if set.is_empty() { doc! { "$setOnInsert": keys } } else { doc! { "$set": set } };
+    Ok(doc! { "q": q, "u": u, "upsert": upsert, "multi": false })
 }
 
 /// A failure after some batches were written: says how many stay.
@@ -1411,6 +1450,34 @@ mod tests {
 
     fn round_trip(v: Bson, h: Hint) -> Option<Bson> {
         bson(cell(v), h).unwrap()
+    }
+
+    #[test]
+    fn update_keys_match_by_literal_equality() {
+        let cols = vec!["id".to_string(), "role".to_string()];
+        let key = [true, false];
+        // A plain key: `$eq`, the rest in `$set`.
+        let e = update_entry(&cols, &key, vec![Bson::Int32(5), Bson::String("admin".into())], true, 1).unwrap();
+        assert_eq!(e.get_document("q").unwrap(), &doc! { "id": { "$eq": 5 } });
+        assert_eq!(e.get_document("u").unwrap(), &doc! { "$set": { "role": "admin" } });
+        // A JSON key cell `{"$gt": ""}` is refused, not an operator in the filter.
+        let h = Hint { object_id: false, long: false, extjson: false };
+        let inj = bson(Cell::Json(r#"{"$gt": ""}"#.into()), h).unwrap().unwrap();
+        assert!(update_entry(&cols, &key, vec![inj, Bson::String("admin".into())], true, 1).is_err());
+        let nested = Bson::Array(vec![Bson::Document(doc! { "a": { "$ne": 1 } })]);
+        assert!(update_entry(&cols, &key, vec![nested, Bson::Null], false, 1).is_err());
+        // A subdocument key without operators is a literal value.
+        let sub = Bson::Document(doc! { "a": 1 });
+        let e = update_entry(&cols, &key, vec![sub, Bson::Null], false, 1).unwrap();
+        assert_eq!(e.get_document("q").unwrap(), &doc! { "id": { "$eq": { "a": 1 } } });
+        // Only keys: the upsert inserts the raw values, not the `$eq`.
+        let e = update_entry(&cols[..1], &key[..1], vec![Bson::Int32(5)], true, 1).unwrap();
+        assert_eq!(e.get_document("u").unwrap(), &doc! { "$setOnInsert": { "id": 5 } });
+        // Names that would be operators or paths are refused.
+        for bad in ["$where", "a.b", ""] {
+            assert!(check_update_fields(&["id".into(), bad.into()]).is_err(), "{bad}");
+        }
+        assert!(check_update_fields(&cols).is_ok());
     }
 
     #[test]

@@ -11117,5 +11117,7 @@
   "tiene que ser verdadero o falso": "doit être vrai ou faux",
   "{0} no recibe parámetros aparte del texto desde DBine": "{0} ne reçoit pas de paramètres séparés du texte depuis DBine",
   "{0} no tiene un valor nulo: el parámetro necesita un valor": "{0} n'a pas de valeur nulle : le paramètre a besoin d'une valeur",
-  "el texto tiene un carácter nulo (\\0)": "le texte contient un caractère nul (\\0)"
+  "el texto tiene un carácter nulo (\\0)": "le texte contient un caractère nul (\\0)",
+  "Fila {0}, columna «{1}»: la clave tiene un campo que empieza con «$», que MongoDB leería como operador.": "Ligne {0}, colonne «{1}» : la clé a un champ qui commence par «$», que MongoDB lirait comme un opérateur.",
+  "La columna «{0}» no se puede usar para actualizar en MongoDB: un nombre que empieza con «$» o tiene «.» se leería como operador o como ruta.": "La colonne «{0}» ne peut pas servir à mettre à jour dans MongoDB : un nom qui commence par «$» ou contient «.» serait lu comme un opérateur ou un chemin."
 }

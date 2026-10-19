@@ -22,7 +22,7 @@ import { isProdConnection } from '../composables/tags';
 import NotebookParamsPanel from '../components/notebook/NotebookParams.vue';
 import NotebookParamsDialog from '../components/notebook/NotebookParamsDialog.vue';
 import {
-  effectiveValues, mentionedParams, missingRequired, paramValueProblem, resultIsStale, usedValues, valuesKey,
+  effectiveValues, mentionedParams, missingRequired, paramValueProblem, recordableValues, resultIsStale, usedValues, valuesKey,
 } from '../composables/notebookParams';
 import { ensureConnectedOrTell } from '../composables/connectionGate';
 import { saveTextFile } from '../composables/files';
@@ -163,7 +163,7 @@ function writeDraft() {
   if (!n || !props.tab.untitled || isClosed()) return;
   writeJson(notebookDraftKey(props.tab.id), {
     ...n,
-    cells: n.cells.map((c) => ({ ...c, result: c.result ? { ...c.result, results: c.result.results.map((s) => ({ ...s, rows: [], rows_kept: 0 })) } : null })),
+    cells: n.cells.map((c) => ({ ...c, result: c.result ? { ...c.result, params: recordableValues(c.result.params), results: c.result.results.map((s) => ({ ...s, rows: [], rows_kept: 0 })) } : null })),
   });
 }
 onBeforeUnmount(() => {
@@ -966,7 +966,7 @@ async function runHeld(cell: NotebookCell, sql: string | null, asked: Set<string
       // What runs it again (a whole-result chart, a full export): the text with the values as literals.
       const again = params ? await rendered(script, connectionId) : script;
       live[cell.id] = { outcome: markRaw(o), source: { connectionId, database, sql: again, text: script }, run: nextRunId(), params: valuesKey(params) };
-      cell.result = markRaw({ ...outcomeToResult(o, { script, ranAt, engine: driver?.id ?? null, targetLabel: where }), params });
+      cell.result = markRaw({ ...outcomeToResult(o, { script, ranAt, engine: driver?.id ?? null, targetLabel: where }), params: recordableValues(params) });
       const firstLine = script.split('\n').find((l) => l.trim())?.trim().slice(0, 120) ?? '';
       const failed = !!o.error || !!o.errors?.length;
       if (failed) output.add('error', `${firstLine}\n${tb(o.error ?? o.errors?.[0]?.message ?? '')}`, { where, elapsedMs: o.elapsed_ms });
@@ -980,7 +980,7 @@ async function runHeld(cell: NotebookCell, sql: string | null, asked: Set<string
     cell.execution_count = ++counter;
     const params = recordedValues(mentionedParams(script, parameters.value));
     live[cell.id] = { outcome: markRaw(o), source: { connectionId, database, sql: script, text: script }, run: nextRunId(), params: valuesKey(params) };
-    cell.result = markRaw({ ...outcomeToResult(o, { script, ranAt, engine: driver?.id ?? null, targetLabel: where }), params });
+    cell.result = markRaw({ ...outcomeToResult(o, { script, ranAt, engine: driver?.id ?? null, targetLabel: where }), params: recordableValues(params) });
     output.add('error', message, { where });
     void conns.recheckAfter(connectionId, e);
   } finally {
@@ -1091,7 +1091,7 @@ async function runLocal(cell: NotebookCell, script: string, asked: Set<string> |
     // Its chart over the whole result: DuckDB, on this tab's session, over the tables this run read.
     const again = params ? await rendered(script, null) : script;
     live[cell.id] = { outcome: markRaw(o), source: { connectionId: '', database: '', sql: again, notebookTab: props.tab.id, text: script }, run: nextRunId(), loaded: markRaw(r.loaded), params: valuesKey(params) };
-    cell.result = markRaw({ ...outcomeToResult(o, { script, ranAt, engine: 'duckdb', targetLabel: where }), params });
+    cell.result = markRaw({ ...outcomeToResult(o, { script, ranAt, engine: 'duckdb', targetLabel: where }), params: recordableValues(params) });
     const firstLine = script.split('\n').find((l) => l.trim())?.trim().slice(0, 120) ?? '';
     const failed = !!o.error || !!o.errors?.length;
     if (failed) output.add('error', `${firstLine}\n${tb(o.error ?? o.errors?.[0]?.message ?? '')}`, { where, elapsedMs: o.elapsed_ms });
@@ -1103,7 +1103,7 @@ async function runLocal(cell: NotebookCell, script: string, asked: Set<string> |
     cell.execution_count = ++counter;
     const params = recordedValues(usedNames.length ? usedNames : mentionedParams(script, parameters.value));
     live[cell.id] = { outcome: markRaw(o), source: null, run: nextRunId(), params: valuesKey(params) };
-    cell.result = markRaw({ ...outcomeToResult(o, { script, ranAt, engine: 'duckdb', targetLabel: where }), params });
+    cell.result = markRaw({ ...outcomeToResult(o, { script, ranAt, engine: 'duckdb', targetLabel: where }), params: recordableValues(params) });
     output.add('error', message, { where });
   } finally {
     runningId.value = null;

@@ -9421,6 +9421,9 @@
  "Fila": [
   "crates/drivers/odbc/src/monitor.rs"
  ],
+ "Fila {0}, columna «{1}»: la clave tiene un campo que empieza con «$», que MongoDB leería como operador.": [
+  "crates/drivers/mongodb/src/transfer.rs"
+ ],
  "Filas": [
   "crates/drivers/bigquery/src/monitor.rs",
   "crates/drivers/bigquery/src/properties.rs",
@@ -11559,6 +11562,9 @@
  ],
  "La columna «{0}» no existe en el dispositivo {1}.": [
   "crates/drivers/iotdb/src/transfer.rs"
+ ],
+ "La columna «{0}» no se puede usar para actualizar en MongoDB: un nombre que empieza con «$» o tiene «.» se leería como operador o como ruta.": [
+  "crates/drivers/mongodb/src/transfer.rs"
  ],
  "La columna «{0}» se repite: cada fila se guarda como un objeto JSON y sus claves no pueden repetirse.": [
   "crates/drivers/etcd/src/transfer.rs"
@@ -28917,6 +28923,7 @@
  ],
  "la configuración del paso no es válida: {0}": [
   "src-tauri/src/tasks/mail.rs",
+  "src-tauri/src/tasks/mod.rs",
   "src-tauri/src/tasks/steps.rs"
  ],
  "la configuración del índice no es un objeto JSON": [

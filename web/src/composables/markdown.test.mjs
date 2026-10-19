@@ -86,3 +86,43 @@ test('the assistant parts: text and code apart, streaming code open', () => {
   assert.equal(parts[3].open, true);
   assert.equal(esc('<"&\'>'), '&lt;&quot;&amp;&#39;&gt;');
 });
+
+test('crafted lines render in linear time', () => {
+  // Each of these took quadratic time with backtracking regexes (seconds at
+  // this size); under the length cap, so the tokenizers themselves run.
+  const n = 99_000;
+  const cases = [
+    'x' + '`'.repeat(n),
+    '['.repeat(n),
+    ' **a'.repeat(n / 4),
+    ' __a'.repeat(n / 4),
+    ' ~~a'.repeat(n / 4),
+    '[a]('.repeat(n / 4),
+    'a | b\n' + ' '.repeat(n) + 'x', // a table separator that isn't one
+    '```' + ' '.repeat(n) + '`', // a fence that isn't one
+  ];
+  for (const md of cases) {
+    const t = performance.now();
+    renderMarkdown(md);
+    const ms = performance.now() - t;
+    assert.ok(ms < 250, `${JSON.stringify(md.slice(0, 12))}…: ${Math.round(ms)} ms`);
+  }
+  assert.equal(inline('x' + '`'.repeat(5)), 'x`````');
+  assert.equal(inline('['.repeat(5)), '[[[[[');
+});
+
+test('code spans pair runs of the same length', () => {
+  assert.equal(inline('``a ` b``'), '<code>a ` b</code>');
+  assert.equal(inline('` a `'), '<code>a</code>');
+  assert.equal(inline('`a` and `b`'), '<code>a</code> and <code>b</code>');
+  // An unclosed run is literal, as in CommonMark.
+  assert.equal(inline('``a`'), '``a`');
+});
+
+test('text over the length cap is shown escaped, without Markdown', () => {
+  const md = '**<b>**' + '`'.repeat(200_000);
+  const t = performance.now();
+  const html = inline(md);
+  assert.ok(performance.now() - t < 250);
+  assert.ok(html.startsWith('**&lt;b&gt;**'));
+});

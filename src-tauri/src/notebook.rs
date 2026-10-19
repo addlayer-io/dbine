@@ -781,13 +781,27 @@ fn read_params(v: Option<&Value>, w: &mut Warnings) -> Option<Map<String, Value>
         if !params::valid_name(k) || !(v.is_null() || v.is_string() || v.is_number() || v.is_boolean()) {
             continue;
         }
-        if is_credential_key(k) && !v.is_null() && !matches!(k.to_ascii_lowercase().as_str(), "user" | "username" | "login" | "port") {
+        if is_credential_param(k) && !v.is_null() {
             w.credentials = true;
             continue;
         }
         out.insert(k.clone(), v.clone());
     }
     (!out.is_empty()).then_some(out)
+}
+
+/// A parameter whose value a result doesn't record: a credential's or a
+/// server's (a user name or a port is fine).
+fn is_credential_param(name: &str) -> bool {
+    is_credential_key(name) && !matches!(name.to_ascii_lowercase().as_str(), "user" | "username" | "login" | "port")
+}
+
+/// A result's parameter values as they are written (the file, its
+/// summary line, the exports): without the credentials', which the file
+/// never holds (on read they are dropped too).
+fn recorded_params(r: &CellResult) -> Option<Map<String, Value>> {
+    let p: Map<String, Value> = r.params.as_ref()?.iter().filter(|(k, _)| !is_credential_param(k)).map(|(k, v)| (k.clone(), v.clone())).collect();
+    (!p.is_empty()).then_some(p)
 }
 
 /// A cell value as the model keeps it: null, bool, number or string.
@@ -1003,7 +1017,7 @@ pub fn summary_line(s: &StoredStatement, r: &CellResult) -> String {
     if let Some(t) = r.target_label.as_deref().filter(|t| !t.is_empty()) {
         parts.push(t.to_string());
     }
-    if let Some(p) = r.params.as_ref().filter(|p| !p.is_empty()) {
+    if let Some(p) = recorded_params(r) {
         parts.push(p.iter().map(|(k, v)| format!("{k} = {}", display_value(v))).collect::<Vec<_>>().join(", "));
     }
     parts.join(" · ")
@@ -1150,8 +1164,8 @@ pub(crate) fn result_outputs(p: &Preview, r: &CellResult, keep: bool, execution_
             "rows_affected": s.rows_affected,
             "statement": s.statement,
         });
-        if let Some(p) = r.params.as_ref().filter(|p| !p.is_empty()) {
-            md["params"] = Value::Object(p.clone());
+        if let Some(p) = recorded_params(r) {
+            md["params"] = Value::Object(p);
         }
         let mut data = Map::new();
         if keep && !s.columns.is_empty() {
@@ -1354,8 +1368,8 @@ fn write_cell(c: &NotebookCell, nb: &Notebook, limits: PreviewLimits, ids: &mut 
                 Some(r) => {
                     let p = preview(r, keep, limits, c.execution_count);
                     let mut run = json!({ "ran_at": r.ran_at, "duration_ms": r.duration_ms, "engine": r.engine, "target_label": r.target_label });
-                    if let Some(p) = r.params.as_ref().filter(|p| !p.is_empty()) {
-                        run["params"] = Value::Object(p.clone());
+                    if let Some(p) = recorded_params(r) {
+                        run["params"] = Value::Object(p);
                     }
                     if p.cut {
                         run["truncated"] = Value::Bool(true);
@@ -1489,6 +1503,37 @@ mod tests {
 
     fn rows(n: usize) -> Vec<Vec<Value>> {
         (0..n).map(|i| vec![json!(i), json!(format!("fila {i}"))]).collect()
+    }
+
+    #[test]
+    fn credential_parameter_values_are_never_written() {
+        let mut r = result(vec![stmt(&["id"], rows(1), 1)]);
+        let p = json!({ "mes": "2026-10", "api_token": "tok-SECRET-1", "password": "pw-SECRET-2", "db_host": "h", "host": "host-SECRET-3", "user": "ana" });
+        r.params = p.as_object().cloned();
+        for save in [true, false] {
+            let mut nb = notebook(vec![sql_cell("c1", "SELECT {{mes}}", Some(r.clone()))]);
+            nb.save_results = save;
+            let outs = [
+                serialize(&nb, PreviewLimits::default()),
+                export::html(&nb, PreviewLimits::default()),
+                export::markdown(&nb, PreviewLimits::default()),
+                summary_line(&r.results[0], &r),
+            ];
+            for text in outs {
+                for secret in ["tok-SECRET-1", "pw-SECRET-2", "host-SECRET-3", "api_token", "password"] {
+                    assert!(!text.contains(secret), "{secret} in {text}");
+                }
+                assert!(text.contains("2026-10") && text.contains("ana"), "{text}");
+            }
+        }
+        // What is kept reads back.
+        let text = serialize(&notebook(vec![sql_cell("c1", "SELECT 1", Some(r.clone()))]), PreviewLimits::default());
+        let back = parse(&text).unwrap();
+        assert!(back.warnings.is_empty());
+        let kept = back.cells[0].result.as_ref().unwrap().params.clone().unwrap();
+        let mut keys: Vec<_> = kept.keys().cloned().collect();
+        keys.sort();
+        assert_eq!(keys, ["db_host", "mes", "user"]);
     }
 
     #[test]

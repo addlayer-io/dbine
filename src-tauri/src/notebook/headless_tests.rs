@@ -434,6 +434,67 @@ async fn notebook_step_saves_exports_and_mails_the_report() {
     assert!(tr.steps[0].summary.contains("no se sobrescribe"), "{}", tr.steps[0].summary);
 }
 
+/// A task whose first step takes a while (a slow SQLite count), then runs
+/// the notebook at `path`. While the first step runs, `path` becomes a
+/// notebook that deletes every sale; returns the run and the sales left.
+async fn swap_while_running(w: &World, path: &Path, approved: bool) -> (dbine_core::tasks::TaskRun, i64) {
+    let slow = "WITH RECURSIVE c(x) AS (SELECT 1 UNION ALL SELECT x + 1 FROM c WHERE x < 30000000) SELECT count(*) FROM c";
+    let mut t = task(vec![
+        Step { id: "lento".into(), kind: kinds::RUN_SCRIPT.into(), config: json!({"connection_id": "sq", "database": "", "sql": slow}), ..Default::default() },
+        Step { id: "nb".into(), kind: kinds::RUN_NOTEBOOK.into(), config: json!({"path": path.to_string_lossy()}), ..Default::default() },
+    ]);
+    if approved {
+        t.approved_writes = crate::tasks::write_fingerprint(&w.state, &t);
+    }
+    let swap = {
+        let path = path.to_path_buf();
+        std::thread::spawn(move || {
+            std::thread::sleep(std::time::Duration::from_millis(300));
+            write_nb(&path, vec![cell("c9", "borrar", on("Ventas"), "DELETE FROM ventas")]);
+        })
+    };
+    let tr = crate::tasks::run_task(&w.state, None, &t, "manual").await;
+    swap.join().unwrap();
+    // The swap landed during the run (before the notebook step).
+    assert!(std::fs::read_to_string(path).unwrap().contains("DELETE FROM ventas"));
+    let left = rusqlite::Connection::open(w.dir.join("ventas.sqlite")).unwrap().query_row("SELECT COUNT(*) FROM ventas", [], |r| r.get::<_, i64>(0)).unwrap();
+    (tr, left)
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn notebook_step_runs_the_notebook_its_approval_was_checked_on() {
+    // A notebook that only reads: nothing to approve. Swapped for one that
+    // deletes after the check: the step runs the copy that was checked.
+    let w = world("swap", vec![]);
+    let path = w.dir.join("lee.ipynb");
+    write_nb(&path, vec![cell("c1", "c1", on("Ventas"), "SELECT count(*) FROM ventas")]);
+    let (tr, left) = swap_while_running(&w, &path, false).await;
+    assert_eq!(left, 3, "{tr:#?}");
+    assert_eq!(tr.steps.len(), 2, "{tr:#?}");
+    assert_eq!(tr.steps[1].status, RunStatus::Ok, "{tr:#?}");
+
+    // An approved delete of one row, swapped for one that deletes them all.
+    let w = world("swap2", vec![]);
+    let path = w.dir.join("borra.ipynb");
+    write_nb(&path, vec![cell("c1", "borrar", on("Ventas"), "DELETE FROM ventas WHERE id = 2")]);
+    let (tr, left) = swap_while_running(&w, &path, true).await;
+    assert_eq!(left, 2, "{tr:#?}");
+    assert_eq!(tr.steps[1].status, RunStatus::Ok, "{tr:#?}");
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn notebook_step_unreadable_at_the_check_runs_nothing() {
+    // Not a notebook when the task starts (so no cell to approve), a
+    // notebook that deletes by the time the step runs: refused.
+    let w = world("unreadable", vec![]);
+    let path = w.dir.join("roto.ipynb");
+    std::fs::write(&path, "{ not json").unwrap();
+    let (tr, left) = swap_while_running(&w, &path, false).await;
+    assert_eq!(left, 3, "{tr:#?}");
+    assert_eq!(tr.steps.len(), 2, "{tr:#?}");
+    assert_eq!(tr.steps[1].status, RunStatus::Failed, "{tr:#?}");
+}
+
 #[tokio::test(flavor = "multi_thread")]
 async fn notebook_step_cells_that_write_need_the_tasks_approval() {
     let w = world("writes", vec![]);

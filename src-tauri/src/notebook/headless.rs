@@ -493,20 +493,26 @@ pub fn plan(state: &AppState, opts: &Options, policy: Policy) -> CommandResult<P
     Ok(out)
 }
 
-/// The cells of the notebook a step runs whose SQL writes, on connections
-/// that aren't read-only: (cell name, target, first write, SQL). A step
-/// whose notebook can't be read has none (the run fails on it anyway).
-pub fn writing_cells(state: &AppState, opts: &Options) -> Vec<(String, Resolved, String, String)> {
-    let Ok(nb) = read_notebook(&opts.path) else { return Vec::new() };
+/// The notebook a step runs, read once: a task's run checks the approval
+/// on this copy and runs this same copy ([`run_loaded`]), never a second
+/// read of the file (which could be another notebook by then).
+pub fn load(opts: &Options) -> CommandResult<Notebook> {
+    read_notebook(&opts.path)
+}
+
+/// The cells of `nb` (the notebook a step runs, see [`load`]) whose SQL
+/// writes, on connections that aren't read-only: (cell name, target, first
+/// write, SQL).
+pub fn writing_cells(state: &AppState, opts: &Options, nb: &Notebook) -> Vec<(String, Resolved, String, String)> {
     let Ok(ctx) = Context::new(state, Path::new(opts.path.trim())) else { return Vec::new() };
-    let sources = executable_sources(&nb, &opts.params, &|c| ctx.driver_of(state, c, &nb, &opts.targets)).unwrap_or_default();
+    let sources = executable_sources(nb, &opts.params, &|c| ctx.driver_of(state, c, nb, &opts.targets)).unwrap_or_default();
     let mut out = Vec::new();
     for c in nb.cells.iter().filter(|c| c.kind == CellKind::Sql) {
         let sql = sources.get(&c.id).cloned().unwrap_or_else(|| c.source.clone());
         if sql.trim().is_empty() {
             continue;
         }
-        if let Ok(Where::Connection(r)) = ctx.resolve(c, &nb, &opts.targets) {
+        if let Ok(Where::Connection(r)) = ctx.resolve(c, nb, &opts.targets) {
             if r.read_only {
                 continue;
             }
@@ -642,8 +648,13 @@ pub fn preview_limits(state: &AppState) -> super::PreviewLimits {
 /// fails. `key`: the run's session prefix (`cancel_query` takes its
 /// sessions). Sessions opened here are closed at the end.
 pub async fn run(state: &AppState, key: &str, opts: &Options, policy: Policy) -> CommandResult<Ran> {
+    run_loaded(state, key, opts, policy, read_notebook(&opts.path)?).await
+}
+
+/// [`run`] on a notebook already read ([`load`]): the copy whose writes
+/// the task approved.
+pub async fn run_loaded(state: &AppState, key: &str, opts: &Options, policy: Policy, mut nb: Notebook) -> CommandResult<Ran> {
     let path = opts.path.trim().to_string();
-    let mut nb = read_notebook(&path)?;
     let ctx = Context::new(state, Path::new(&path))?;
     let cells = executable_cells(&nb, &opts.params, &|c| ctx.driver_of(state, c, &nb, &opts.targets))?;
     let sources: HashMap<String, String> = cells.iter().map(|(id, c)| (id.clone(), c.prepared.text.clone())).collect();

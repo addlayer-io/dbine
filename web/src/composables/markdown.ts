@@ -31,52 +31,169 @@ export function safeHref(url: string): string | null {
   return /^(https?:\/\/|mailto:)/i.test(u) ? u : null;
 }
 
+/** `s` with each `open…close` pair wrapped in `tag`, as the lazy regex
+ *  `open(?=\S)([\s\S]*?\S)close` would (with `left`/`right` for the
+ *  characters allowed before the opener and after the closer), in linear
+ *  time: the regex retries every later opener after a failed one, which is
+ *  quadratic on a line such as ` **a **a …`. A closer only depends on its own
+ *  position, so once an opener finds none, no later opener can either. */
+function pairs(s: string, mark: string, tag: string, left?: RegExp, right?: RegExp): string {
+  const n = mark.length;
+  const nonSpace = (c: string | undefined) => c !== undefined && /\S/.test(c);
+  let out = '';
+  let last = 0; // the end of the previous match: where the next one may begin
+  let i = s.indexOf(mark);
+  while (i !== -1) {
+    // `(^|[^\w])`: the character before is part of the match, so it must
+    // come after the previous one.
+    const leftOk = !left || (i === 0 && last === 0) || (i > last && left.test(s[i - 1]));
+    if (leftOk && nonSpace(s[i + n])) {
+      let j = s.indexOf(mark, i + n + 1);
+      while (j !== -1 && !(nonSpace(s[j - 1]) && (!right || j + n >= s.length || right.test(s[j + n])))) j = s.indexOf(mark, j + 1);
+      if (j === -1) break;
+      out += s.slice(last, i) + `<${tag}>` + s.slice(i + n, j) + `</${tag}>`;
+      last = j + n;
+      i = s.indexOf(mark, last);
+      continue;
+    }
+    i = s.indexOf(mark, i + 1);
+  }
+  return out + s.slice(last);
+}
+
 /** Emphasis on already escaped text (it has no `<`, so the tags are ours). */
 function emphasis(s: string): string {
+  s = pairs(s, '**', 'strong');
+  s = pairs(s, '__', 'strong', /[^\w]/, /[^\w]/);
+  s = pairs(s, '~~', 'del');
+  // A single `*` or `_` can't contain another, so these scan each gap once.
   return s
-    .replace(/\*\*(?=\S)([\s\S]*?\S)\*\*/g, '<strong>$1</strong>')
-    .replace(/(^|[^\w])__(?=\S)([\s\S]*?\S)__(?!\w)/g, '$1<strong>$2</strong>')
-    .replace(/~~(?=\S)([\s\S]*?\S)~~/g, '<del>$1</del>')
     .replace(/(^|[^\w*])\*(?=[^\s*])([^*]*?[^\s*])\*(?![\w*])/g, '$1<em>$2</em>')
     .replace(/(^|[^\w])_(?=[^\s_])([^_]*?[^\s_])_(?!\w)/g, '$1<em>$2</em>');
 }
 
-const LINK = /\[([^\]\n]+)\]\(\s*<?([^()\s<>]+)>?(?:\s+"[^"]*")?\s*\)/g;
+interface Link { index: number; end: number; label: string; url: string }
+
+/** `[label](url "title")` links, left to right, as the regex
+ *  `\[([^\]\n]+)\]\(\s*<?([^()\s<>]+)>?(?:\s+"[^"]*")?\s*\)` finds them, in
+ *  linear time (the regex rescans to the `]` from every `[`). */
+function links(s: string): Link[] {
+  const out: Link[] = [];
+  const ws = (c: string | undefined) => c !== undefined && /\s/.test(c);
+  const urlChar = (c: string | undefined) => c !== undefined && !/[()\s<>]/.test(c);
+  const skipWs = (p: number) => { while (ws(s[p])) p++; return p; };
+  // The `]` or line break that ends the labels starting before it.
+  let term = -1;
+  const tails = new Map<number, { end: number; url: string } | null>();
+  // After `](` at `k`: the rest of the link, or null.
+  const tail = (k: number) => {
+    if (tails.has(k)) return tails.get(k)!;
+    let p = skipWs(k + 2);
+    if (s[p] === '<') p++;
+    const u = p;
+    while (urlChar(s[p])) p++;
+    let r: { end: number; url: string } | null = null;
+    if (p > u) {
+      const url = s.slice(u, p);
+      if (s[p] === '>') p++;
+      // With a title, else without.
+      const t = skipWs(p);
+      if (t > p && s[t] === '"') {
+        const q = s.indexOf('"', t + 1);
+        if (q !== -1) {
+          const e = skipWs(q + 1);
+          if (s[e] === ')') r = { end: e + 1, url };
+        }
+      }
+      if (!r) {
+        const e = skipWs(p);
+        if (s[e] === ')') r = { end: e + 1, url };
+      }
+    }
+    tails.set(k, r);
+    return r;
+  };
+  let i = s.indexOf('[');
+  while (i !== -1) {
+    if (term <= i) {
+      term = i + 1;
+      while (term < s.length && s[term] !== ']' && s[term] !== '\n') term++;
+    }
+    const r = term > i + 1 && s[term] === ']' && s[term + 1] === '(' ? tail(term) : null;
+    if (r) {
+      out.push({ index: i, end: r.end, label: s.slice(i + 1, term), url: r.url });
+      i = s.indexOf('[', r.end);
+    } else {
+      i = s.indexOf('[', i + 1);
+    }
+  }
+  return out;
+}
 
 /** Text without code spans: links, then emphasis. */
 function textSpan(s: string): string {
   let out = '';
   let last = 0;
-  for (const m of s.matchAll(LINK)) {
+  for (const m of links(s)) {
     out += emphasis(esc(s.slice(last, m.index)));
-    const href = safeHref(m[2]);
-    const label = emphasis(esc(m[1]));
+    const href = safeHref(m.url);
+    const label = emphasis(esc(m.label));
     out += href ? `<a href="${esc(href)}" rel="noopener noreferrer" target="_blank">${label}</a>` : label;
-    last = m.index! + m[0].length;
+    last = m.end;
   }
   return out + emphasis(esc(s.slice(last)));
 }
 
+/** Longer text is shown escaped, without inline Markdown. */
+export const INLINE_MAX = 100_000;
+
 /** A line's inline Markdown, as HTML. */
 export function inline(s: string): string {
+  if (s.length > INLINE_MAX) return esc(s);
+  // Code spans, as CommonMark: a run of backticks opens one, closed by the
+  // next run of the same length; one that never closes is literal text.
+  // Each run is looked at once (a regex rescans from every backtick).
+  const runs: [number, number][] = [];
+  for (let k = s.indexOf('`'); k !== -1; ) {
+    let e = k;
+    while (s[e] === '`') e++;
+    runs.push([k, e - k]);
+    k = s.indexOf('`', e);
+  }
+  // For each length, the runs of that length in order, and how far along
+  // the search is.
+  const byLen = new Map<number, number[]>();
+  runs.forEach(([, len], r) => { let l = byLen.get(len); if (!l) byLen.set(len, (l = [])); l.push(r); });
+  const next = new Map<number, number>();
   let out = '';
   let last = 0;
-  for (const m of s.matchAll(/(`+)([^`]|[^`][\s\S]*?[^`])\1(?!`)/g)) {
-    out += textSpan(s.slice(last, m.index));
-    out += `<code>${esc(m[2].trim() ? m[2].replace(/^ (.*) $/, '$1') : m[2])}</code>`;
-    last = m.index! + m[0].length;
+  for (let r = 0; r < runs.length; r++) {
+    const [start, len] = runs[r];
+    if (start < last) continue; // inside the previous span
+    const list = byLen.get(len)!;
+    let p = next.get(len) ?? 0;
+    while (p < list.length && list[p] <= r) p++;
+    next.set(len, p);
+    if (p === list.length) continue;
+    const close = runs[list[p]][0];
+    const code = s.slice(start + len, close);
+    out += textSpan(s.slice(last, start));
+    out += `<code>${esc(code.trim() ? code.replace(/^ (.*) $/, '$1') : code)}</code>`;
+    last = close + len;
   }
   return out + textSpan(s.slice(last));
 }
 
 // -- blocks ------------------------------------------------------------------------------
 
-const FENCE = /^ {0,3}(`{3,}|~{3,})\s*([^\s`]*)[^`]*$/;
+// The lookahead keeps these linear: `\s*…[^`]*$` retried every split of a
+// long run of spaces.
+const FENCE = /^ {0,3}(`{3,}|~{3,})(?=[^`]*$)\s*([^\s`]*)/;
 const HR = /^ {0,3}([-*_])(?:[ \t]*\1){2,}[ \t]*$/;
 const HEADING = /^ {0,3}(#{1,6})(?:[ \t]+(.*?))?(?:[ \t]+#+)?[ \t]*$/;
 const QUOTE = /^ {0,3}> ?(.*)$/;
 const ITEM = /^( *)([-*+]|\d{1,9}[.)])[ \t]+(.*)$/;
-const TABLE_SEP = /^ *\|? *:?-+:? *(\| *:?-+:? *)*\|? *$/;
+const TABLE_SEP = /^ *(?:\| *)?:?-+:? *(?:\| *:?-+:? *)*(?:\| *)?$/;
 
 function cellsOf(line: string): string[] {
   let s = line.trim();

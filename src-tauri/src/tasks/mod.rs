@@ -73,22 +73,49 @@ fn text<'a>(config: &'a Value, key: &str) -> &'a str {
 /// notebooks' cells can: an export reads, a comparison writes its script to
 /// a file and a backup doesn't change the database.
 pub fn write_scope(state: &AppState, task: &ScheduledTask) -> Vec<WriteScope> {
+    write_scope_in(state, task, &load_notebooks(task))
+}
+
+/// The notebook of each step that runs one (by position; `None` for the
+/// other steps), read once: [`run_task`] checks the approval on these
+/// copies and the steps run them.
+pub(crate) type Notebooks = Vec<Option<CommandResult<crate::notebook::Notebook>>>;
+
+pub(crate) fn load_notebooks(task: &ScheduledTask) -> Notebooks {
+    task.steps
+        .iter()
+        .map(|step| {
+            (step.kind == kinds::RUN_NOTEBOOK).then(|| {
+                serde_json::from_value::<crate::notebook::headless::Options>(step.config.clone())
+                    .map_err(|e| CommandError::BadRequest(format!("la configuración del paso no es válida: {e}")))
+                    .and_then(|o| crate::notebook::headless::load(&o))
+            })
+        })
+        .collect()
+}
+
+fn write_scope_in(state: &AppState, task: &ScheduledTask, notebooks: &Notebooks) -> Vec<WriteScope> {
     let mut out = Vec::new();
-    for step in &task.steps {
+    for (n, step) in task.steps.iter().enumerate() {
         match step.kind.as_str() {
             kinds::RUN_SCRIPT => script_scope(state, step, &mut out),
-            kinds::RUN_NOTEBOOK => notebook_scope(state, step, &mut out),
+            kinds::RUN_NOTEBOOK => {
+                // A notebook that can't be read runs nothing: its step fails.
+                if let Some(Some(Ok(nb))) = notebooks.get(n) {
+                    notebook_scope(state, step, nb, &mut out);
+                }
+            }
             _ => {}
         }
     }
     out
 }
 
-/// A notebook step's cells that write: the notebook as it is now on disk,
-/// so editing those cells asks for the approval again.
-fn notebook_scope(state: &AppState, step: &Step, out: &mut Vec<WriteScope>) {
+/// A notebook step's cells that write, in `nb` (the notebook as read now
+/// from disk), so editing those cells asks for the approval again.
+fn notebook_scope(state: &AppState, step: &Step, nb: &crate::notebook::Notebook, out: &mut Vec<WriteScope>) {
     let Ok(opts) = serde_json::from_value::<crate::notebook::headless::Options>(step.config.clone()) else { return };
-    for (cell, r, what, sql) in crate::notebook::headless::writing_cells(state, &opts) {
+    for (cell, r, what, sql) in crate::notebook::headless::writing_cells(state, &opts, nb) {
         let connection = state.store.get_connection(&r.connection_id).ok().flatten().map(|c| c.name).unwrap_or_default();
         out.push(WriteScope {
             step_id: step.id.clone(),
@@ -136,12 +163,15 @@ fn script_scope(state: &AppState, step: &Step, out: &mut Vec<WriteScope>) {
 /// The fingerprint of what writes: connection, database and script of each
 /// writing step. `None` when nothing writes.
 pub fn write_fingerprint(state: &AppState, task: &ScheduledTask) -> Option<String> {
-    let scope = write_scope(state, task);
+    fingerprint_of(&write_scope(state, task))
+}
+
+fn fingerprint_of(scope: &[WriteScope]) -> Option<String> {
     if scope.is_empty() {
         return None;
     }
     let mut h = Sha256::new();
-    for w in &scope {
+    for w in scope {
         for part in [w.step_id.as_str(), &w.connection_id, &w.database, &w.script] {
             h.update(part.as_bytes());
             h.update([0u8]);
@@ -226,8 +256,11 @@ pub async fn run_task(state: &AppState, app: Option<&AppHandle>, task: &Schedule
     save(state, &run);
     tracing::info!(task = %task.id, run = %run.id, trigger, "scheduled task started");
 
-    // Steps that write run only as approved.
-    let fingerprint = write_fingerprint(state, task);
+    // Steps that write run only as approved. Each notebook is read once,
+    // here: the steps run these same copies, so a file changed (or
+    // unreadable) at this point can't put back other cells after the check.
+    let mut notebooks = load_notebooks(task);
+    let fingerprint = fingerprint_of(&write_scope_in(state, task, &notebooks));
     if fingerprint.is_some() && fingerprint != task.approved_writes {
         run.error = Some("La tarea cambia datos o estructura y esos pasos cambiaron desde que se aprobaron: abrila en DBine y volvé a guardarla para aprobarlos.".into());
         return finish(state, run, task);
@@ -264,7 +297,7 @@ pub async fn run_task(state: &AppState, app: Option<&AppHandle>, task: &Schedule
         let label = if step.name.is_empty() { step.kind.clone() } else { step.name.clone() };
         let result = match skipped(step, &run.steps) {
             Some(why) => Ok(StepDone { summary: why.into(), ..Default::default() }),
-            None => steps::run(&ctx, step, &vars).await,
+            None => steps::run(&ctx, step, &vars, notebooks.get_mut(n).and_then(Option::take)).await,
         };
         let mut sr = StepRun { step_id: step.id.clone(), kind: step.kind.clone(), started_at: step_started, finished_at: tasks::now_text(), ..Default::default() };
         let stop = match result {

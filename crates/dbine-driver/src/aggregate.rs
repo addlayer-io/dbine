@@ -858,7 +858,14 @@ fn quantile(sorted: &[f64], p: f64) -> f64 {
     let h = (sorted.len() - 1) as f64 * p;
     let lo = h.floor() as usize;
     let hi = (lo + 1).min(sorted.len() - 1);
-    sorted[lo] + (h - lo as f64) * (sorted[hi] - sorted[lo])
+    let (a, b, f) = (sorted[lo], sorted[hi], h - lo as f64);
+    if f == 0.0 {
+        return a;
+    }
+    // `b - a` overflows to infinity when the values are near ±f64::MAX;
+    // the weighted form can't overflow between two finite values.
+    let d = b - a;
+    if d.is_finite() { a + f * d } else { a * (1.0 - f) + b * f }
 }
 
 fn box_stats(category: Option<String>, values: &mut [f64]) -> Option<BoxStats> {
@@ -871,8 +878,16 @@ fn box_stats(category: Option<String>, values: &mut [f64]) -> Option<BoxStats> {
     let (lo_fence, hi_fence) = (q1 - 1.5 * iqr, q3 + 1.5 * iqr);
     // Sorted: the outliers are a prefix and a suffix; the whiskers the
     // values next to them (the box's quartiles are always within).
-    let lo = values.partition_point(|v| *v < lo_fence);
-    let hi = values.partition_point(|v| *v <= hi_fence);
+    let (mut lo, mut hi) = (0, values.len());
+    // Non-finite fences (infinite values, or an IQR that overflows) mark
+    // no outliers: comparing against NaN would empty the box.
+    if lo_fence.is_finite() && hi_fence.is_finite() {
+        lo = values.partition_point(|v| *v < lo_fence);
+        hi = values.partition_point(|v| *v <= hi_fence);
+        if hi <= lo {
+            (lo, hi) = (0, values.len());
+        }
+    }
     let (low, high) = (&values[..lo], &values[hi..]);
     // The most extreme ones when there are too many: from both ends, the
     // one further from its quartile first.
@@ -1172,6 +1187,20 @@ mod tests {
         // A constant column: no outliers, the whiskers at the value.
         let b = box_stats(None, &mut [5.0, 5.0, 5.0]).unwrap();
         assert_eq!((b.whisker_low, b.whisker_high, b.outlier_count), (5.0, 5.0, 0));
+    }
+
+    #[test]
+    fn box_stats_near_f64_max_do_not_panic() {
+        // `1e308 - -1e308` overflows: the quartiles stay finite and the
+        // whiskers are the extremes, with no outliers.
+        let b = box_stats(None, &mut [-1e308, 1e308]).unwrap();
+        assert!(b.q1.is_finite() && b.q3.is_finite() && b.median.is_finite());
+        assert_eq!((b.whisker_low, b.whisker_high, b.outlier_count), (-1e308, 1e308, 0));
+        let b = box_stats(None, &mut [-1e308, -1e308, 1e308, 1e308, 0.0]).unwrap();
+        assert_eq!((b.whisker_low, b.whisker_high), (-1e308, 1e308));
+        let b = box_stats(None, &mut [f64::NEG_INFINITY, 1.0, f64::INFINITY]).unwrap();
+        assert_eq!(b.outlier_count, 0);
+        assert_eq!((b.whisker_low, b.whisker_high), (f64::NEG_INFINITY, f64::INFINITY));
     }
 
     fn total(measures: Vec<Measure>) -> AggregateSpec {

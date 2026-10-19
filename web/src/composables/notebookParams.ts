@@ -82,6 +82,26 @@ export function missingRequired(defs: NotebookParameter[], given: Record<string,
   return defs.filter((p) => p.required && (names === null || names.includes(p.name)) && empty(effectiveValue(p, given))).map((p) => p.name);
 }
 
+/** A parameter whose value a result doesn't record: a credential's or a
+ *  server's (a user name or a port is fine). The same names as the
+ *  backend's (`is_credential_param` in src-tauri/src/notebook.rs), which
+ *  never writes them to the file. */
+export function isCredentialParam(name: string): boolean {
+  const n = name.toLowerCase().replace(/[^a-z0-9]/g, '');
+  if (['user', 'username', 'login', 'port'].includes(name.toLowerCase())) return false;
+  const exact = ['user', 'username', 'userid', 'uid', 'login', 'host', 'hostname', 'server', 'servername', 'port', 'url', 'uri', 'dsn', 'address', 'endpoint'];
+  const contains = ['password', 'passwd', 'pwd', 'secret', 'token', 'apikey', 'credential', 'connectionstring', 'connstr', 'accesskey', 'privatekey', 'authentication'];
+  return exact.includes(n) || contains.some((c) => n.includes(c));
+}
+
+/** The values as a result keeps them (the file, the draft): without the
+ *  credentials'. */
+export function recordableValues(values: Record<string, NotebookParamValue> | null | undefined): Record<string, NotebookParamValue> | null {
+  if (!values) return null;
+  const kept = Object.entries(values).filter(([k]) => !isCredentialParam(k));
+  return kept.length ? Object.fromEntries(kept) : null;
+}
+
 /** The values a cell's result records: those of the parameters it used. */
 export function usedValues(defs: NotebookParameter[], given: Record<string, NotebookParamValue>, used: string[]): Record<string, NotebookParamValue> | null {
   if (!used.length) return null;
@@ -116,7 +136,8 @@ export function resultIsStale(cell: NotebookCell, defs: NotebookParameter[], giv
   const then = r.params ?? null;
   if (!then) return false;
   const names = new Set([...used, ...Object.keys(then).filter((k) => defs.some((d) => d.name === k))]);
-  for (const n of names) if (!same(then[n], now[n])) return true;
+  // A credential's value is never recorded: nothing to compare.
+  for (const n of names) if (!isCredentialParam(n) && !same(then[n], now[n])) return true;
   return false;
 }
 

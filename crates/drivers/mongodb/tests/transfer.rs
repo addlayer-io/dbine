@@ -942,3 +942,43 @@ async fn transfer_benchmark() {
         }
     }
 }
+
+/// A notebook's Update/Upsert matches keys by literal equality: a JSON key
+/// cell that is an operator (`{"$gt": ""}`) is refused instead of updating
+/// whatever document it selects, and a plain key still upserts.
+#[tokio::test]
+#[ignore]
+async fn transfer_write_keys_are_literal() {
+    use dbine_driver::{WriteMode, WriteSpec};
+    for srv in servers() {
+        let db = raw(&srv).await;
+        // Only the servers that are up (FerretDB is optional here).
+        if !matches!(tokio::time::timeout(Duration::from_secs(3), db.run_command(doc! { "ping": 1 })).await, Ok(Ok(_))) {
+            eprintln!("skipped: {} is not running", srv.url);
+            continue;
+        }
+        let mut s = session(&srv).await;
+        let name = "write_keys";
+        let c = db.collection::<Document>(name);
+        let _ = c.drop().await;
+        c.insert_many([doc! { "_id": 1, "id": "a", "role": "user" }, doc! { "_id": 2, "id": "b", "role": "user" }]).await.unwrap();
+        let cols = vec![
+            TransferColumn { name: "id".into(), type_name: "json".into(), nullable: true },
+            TransferColumn { name: "role".into(), type_name: "string".into(), nullable: true },
+        ];
+        let spec = WriteSpec { table: coll(name), columns: vec!["id".into(), "role".into()], key: vec!["id".into()], mode: WriteMode::Upsert };
+        let rows = |id: &str| vec![RowBatch { rows: vec![vec![Cell::Json(id.into()), Cell::Text("admin".into())]], bytes: 0 }];
+        let r = s.write_rows(&spec, &cols, &mut Batches(rows(r#"{"$gt": ""}"#).into()), &|_| {}).await;
+        assert!(r.is_err(), "{r:?}");
+        assert!(all(&db, name).await.iter().all(|d| d.get_str("role").unwrap() == "user"), "ferret: {}", srv.ferret);
+        // A plain JSON key: matched as the value it is.
+        let r = s.write_rows(&spec, &cols, &mut Batches(rows(r#""b""#).into()), &|_| {}).await.unwrap();
+        assert_eq!((r.updated, r.inserted), (1, 0));
+        let r = s.write_rows(&spec, &cols, &mut Batches(rows(r#""z""#).into()), &|_| {}).await.unwrap();
+        assert_eq!((r.updated, r.inserted), (0, 1));
+        let docs = all(&db, name).await;
+        assert_eq!(docs.iter().filter(|d| d.get_str("role").unwrap() == "admin").count(), 2);
+        assert!(docs.iter().any(|d| d.get_str("id").ok() == Some("z")));
+        let _ = c.drop().await;
+    }
+}

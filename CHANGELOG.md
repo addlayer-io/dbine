@@ -37,6 +37,10 @@
 ### Improvements
 - **Signed on Windows:** the Windows installer and the app are signed with a code-signing certificate, so Windows shows who publishes DBine instead of "Unknown publisher".
 
+### Fixes
+- **Credential parameters stay out of notebooks:** the values of notebook parameters named like a credential or a server address (password, token, secret, API key, host…) are no longer written to the saved notebook, its summary lines, its draft, a scheduled run's copy or its exports.
+- **Exact keys in MongoDB write cells:** Update and Upsert match each row's key by its exact value, and refuse key values with `$` operators and field names that start with `$` or contain a dot.
+
 ## [0.1.15] - 2026-10-17
 
 ### Improvements
