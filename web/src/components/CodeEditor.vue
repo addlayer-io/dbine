@@ -39,7 +39,7 @@ import {
   fileCompletion, isTableSlot, nameCompletion, nameTree, quotePath, readerPathAt, readerSnippet, tableSlotAt,
   type NameNode,
 } from '../composables/sqlCompletion';
-import { VIM_SETTING, bindingLabel, commandForEvent, freedDefault, recordingKeys, registerCommand } from '../composables/commands';
+import { VIM_SETTING, bindingLabel, commandForEvent, freedDefault, recordingKeys, registerCommand, runCommand } from '../composables/commands';
 import { useSettingsStore } from '../stores/settings';
 
 // CodeMirror 6 wrapped for DBine: the language comes from the driver
@@ -509,6 +509,15 @@ function onKeyCapture(e: KeyboardEvent) {
     // Its action moved to other keys: CodeMirror's own binding stays quiet.
     e.preventDefault();
     e.stopPropagation();
+  } else {
+    // A window command's keys (⌘I: the AI panel) win over CodeMirror's own
+    // binding for them (⌘I selects the enclosing syntax). Run here, so the
+    // window's handler and the macOS menu don't run it again.
+    const global = commandForEvent(e, 'global');
+    if (global && runCommand(global)) {
+      e.preventDefault();
+      e.stopPropagation();
+    }
   }
 }
 
