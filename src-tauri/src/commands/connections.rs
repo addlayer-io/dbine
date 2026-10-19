@@ -152,14 +152,10 @@ pub async fn save_connection(state: State<'_, AppState>, args: SaveConnectionArg
     }
     // Typed in this form on this computer: confirmed. A definition that
     // came from outside (an import, a restored backup) and was left as it
-    // was, or copied, isn't: it's confirmed when it first runs.
-    let saved_now = state.store.list_connections()?;
-    for (field, src) in &sources {
-        let digest = source_defs::digest(&conn.id, field, src);
-        if !source_defs::is_approved(&digest) && !source_defs::from_outside(&saved_now, field, src) {
-            source_defs::approve(&digest)?;
-        }
-    }
+    // was, or copied, isn't, and neither is anything saved over a field
+    // whose stored definition is still unconfirmed: it's confirmed when it
+    // first runs.
+    confirm_typed(&state.store.list_connections()?, &conn.id, &sources)?;
     // An opened file saved as it is ("Guardar conexión") keeps its sessions.
     let mut keep_sessions = false;
     // Pointed at another server, database or login: its cached tree is
@@ -179,6 +175,18 @@ pub async fn save_connection(state: State<'_, AppState>, args: SaveConnectionArg
     state.typed_secrets.remove(&conn.id);
     state.keychain_cache.remove(&conn.id);
     Ok(state.store.save_connection(&conn)?)
+}
+
+/// Confirm the definitions saved for connection `id` that were typed in its
+/// form here (`saved` is the state before the save).
+fn confirm_typed(saved: &[SavedConnection], id: &str, sources: &source_defs::SecretSources) -> CommandResult<()> {
+    for (field, src) in sources {
+        let digest = source_defs::digest(id, field, src);
+        if !source_defs::is_approved(&digest) && !source_defs::needs_confirmation(saved, Some(id), field, src) {
+            source_defs::approve(&digest)?;
+        }
+    }
+    Ok(())
 }
 
 #[derive(Deserialize)]
@@ -366,4 +374,60 @@ pub struct ConnectionIdArgs {
 pub async fn disconnect(state: State<'_, AppState>, args: ConnectionIdArgs) -> CommandResult<()> {
     state.close_connection_sessions(&args.connection_id);
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use source_defs::SecretSource;
+
+    fn cmd(c: &str) -> SecretSource {
+        SecretSource::Command { command: c.into(), json_key: String::new() }
+    }
+
+    fn saved_with(id: &str, json: &str) -> SavedConnection {
+        let mut config = ConnectionConfig { driver: "postgres".into(), ..Default::default() };
+        config.options.insert(source_defs::OPTION.into(), json.into());
+        SavedConnection { id: id.into(), name: id.into(), color: None, config, save_password: true, folder_id: None, tags: vec![], mcp_level: None, updated_at: String::new() }
+    }
+
+    /// Saving the form over an imported definition (padded, next to an
+    /// entry that doesn't parse, or replaced by anything else) confirms
+    /// nothing: it asks when it first runs. A definition typed here, on a
+    /// new connection or on a confirmed one, is confirmed by the save.
+    #[test]
+    fn save_confirms_only_what_was_typed_here() {
+        let uid = uuid::Uuid::new_v4();
+        let padded = format!("imp-pad-{uid}");
+        let malformed = format!("imp-bad-{uid}");
+        let mine = format!("mine-{uid}");
+        let saved = vec![
+            saved_with(&padded, r#"{"password":{"kind":"command","command":"touch /tmp/never-run "}}"#),
+            saved_with(&malformed, r#"{"password":{"kind":"command","command":"touch /tmp/never-run-2"},"zz":{"kind":"nope"}}"#),
+            saved_with(&mine, r#"{"password":{"kind":"command","command":"pass db"}}"#),
+        ];
+        source_defs::approve(&source_defs::digest(&mine, "password", &cmd("pass db"))).unwrap();
+        let one = |s: SecretSource| -> source_defs::SecretSources { [("password".to_string(), s)].into() };
+        let cases = [
+            (padded.as_str(), cmd("touch /tmp/never-run")),
+            (padded.as_str(), cmd("echo replaced")),
+            (malformed.as_str(), cmd("touch /tmp/never-run-2")),
+            (malformed.as_str(), cmd("echo replaced")),
+        ];
+        for (id, src) in &cases {
+            confirm_typed(&saved, id, &one(src.clone())).unwrap();
+            assert!(!source_defs::is_approved(&source_defs::digest(id, "password", src)), "{id}: {src:?}");
+        }
+        // A copy of the imported one in a new connection: not confirmed either.
+        let new_id = format!("new-{uid}");
+        confirm_typed(&saved, &new_id, &one(cmd("touch /tmp/never-run"))).unwrap();
+        assert!(!source_defs::is_approved(&source_defs::digest(&new_id, "password", &cmd("touch /tmp/never-run"))));
+        // Typed here: confirmed by the save.
+        for id in [&new_id, &mine] {
+            confirm_typed(&saved, id, &one(cmd("pass typed-here"))).unwrap();
+            assert!(source_defs::is_approved(&source_defs::digest(id, "password", &cmd("pass typed-here"))), "{id}");
+        }
+        let all: Vec<String> = [&new_id, &mine].iter().map(|id| source_defs::digest(id, "password", &cmd("pass typed-here"))).chain([source_defs::digest(&mine, "password", &cmd("pass db"))]).collect();
+        source_defs::forget(&all).unwrap();
+    }
 }

