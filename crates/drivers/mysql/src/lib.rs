@@ -475,24 +475,11 @@ impl Driver for MySqlDriver {
             None => builder = builder.pass(cfg.password.as_deref()),
         }
         if cfg.encrypt || cloud.is_some() {
-            let ca = cfg.option("ca_cert").map(str::trim).filter(|p| !p.is_empty());
-            // Only the chain is checked when the certificate can't name the
-            // host dialed: through an SSH tunnel (127.0.0.1), and Cloud SQL's
-            // (it names the instance, not its IP) with its CA.
-            let tunnel = cloud.is_some() && cfg.option(cloud_auth::ORIGIN_HOST).is_some();
-            let cloud_sql = ca.is_some() && (self.product == Variant::CloudSqlMySql || cloud_auth::method(cfg) == Some(cloud_auth::GCP));
-            let mut ssl = SslOpts::default()
-                .with_danger_accept_invalid_certs(cfg.trust_server_certificate)
-                .with_danger_skip_domain_validation(cfg.trust_server_certificate || tunnel || cloud_sql);
-            if let Some(ca) = ca {
-                ssl = ssl.with_root_certs(vec![std::path::PathBuf::from(ca).into()]);
-            } else if cloud_auth::method(cfg) == Some(cloud_auth::AWS) || self.product == Variant::AuroraMySql {
-                // Amazon's RDS CAs are in no system store.
-                ssl = ssl.with_root_certs(vec![cloud_auth::RDS_CA_BUNDLE.into()]);
-            }
-            builder = builder.ssl_opts(ssl);
-            // IAM and Entra ID tokens go as mysql_clear_password, only over TLS.
-            if self.product.iam_tokens() || cloud.is_some() {
+            builder = builder.ssl_opts(ssl_opts(self.product, cfg, cloud.is_some()));
+            // IAM and Entra ID tokens go as mysql_clear_password, only over
+            // TLS whose peer was verified (never with "trust the server
+            // certificate", which the cloud sign-in refuses anyway).
+            if (self.product.iam_tokens() || cloud.is_some()) && !cfg.trust_server_certificate {
                 builder = builder.enable_cleartext_plugin(true);
             }
         }
@@ -523,6 +510,35 @@ impl Driver for MySqlDriver {
         }
         Ok(Box::new(session))
     }
+}
+
+/// TLS as the form asks. The CA file, when given, is trusted on top of the
+/// system's, and the certificate must name the host dialed, except:
+/// - through an SSH tunnel with a cloud sign-in (the client dials
+///   127.0.0.1), where the name checked is the real endpoint's;
+/// - Cloud SQL (or Google Cloud IAM) with its CA, whose certificate names
+///   the instance, not the IP dialed: only the chain is checked, so only
+///   that CA is trusted (the system roots are off), or any publicly
+///   trusted certificate would get the password or the token.
+fn ssl_opts(product: Variant, cfg: &ConnectionConfig, cloud: bool) -> SslOpts {
+    let ca = cfg.option("ca_cert").map(str::trim).filter(|p| !p.is_empty());
+    let cloud_sql = ca.is_some() && (product == Variant::CloudSqlMySql || cloud_auth::method(cfg) == Some(cloud_auth::GCP));
+    let origin = cfg.option(cloud_auth::ORIGIN_HOST).map(str::trim).filter(|h| cloud && !h.is_empty());
+    let mut ssl = SslOpts::default().with_danger_accept_invalid_certs(cfg.trust_server_certificate);
+    if cfg.trust_server_certificate {
+        ssl = ssl.with_danger_skip_domain_validation(true);
+    } else if cloud_sql {
+        ssl = ssl.with_danger_skip_domain_validation(true).with_disable_built_in_roots(true);
+    } else if let Some(origin) = origin {
+        ssl = ssl.with_danger_tls_hostname_override(Some(origin.to_string()));
+    }
+    if let Some(ca) = ca {
+        ssl = ssl.with_root_certs(vec![std::path::PathBuf::from(ca).into()]);
+    } else if cloud_auth::method(cfg) == Some(cloud_auth::AWS) || product == Variant::AuroraMySql {
+        // Amazon's RDS CAs are in no system store.
+        ssl = ssl.with_root_certs(vec![cloud_auth::RDS_CA_BUNDLE.into()]);
+    }
+    ssl
 }
 
 fn connect_error(e: mysql_async::Error) -> Error {
@@ -783,5 +799,69 @@ mod tests {
         }
         assert!(get("mysql").info().fields.iter().any(|f| f.key == "ca_cert"));
         assert_eq!(get("mysql").info().fields.iter().find(|f| f.key == "encrypt").unwrap().default, "");
+    }
+
+    fn tls_cfg(options: &[(&str, &str)]) -> ConnectionConfig {
+        let mut cfg = ConnectionConfig { encrypt: true, ..Default::default() };
+        for (k, v) in options {
+            cfg.options.insert((*k).into(), (*v).into());
+        }
+        cfg
+    }
+
+    /// Whenever the certificate's name isn't checked, only the given CA
+    /// anchors the chain (no system roots).
+    #[test]
+    fn relaxed_hostname_checks_trust_only_the_given_ca() {
+        let cases = [
+            (Variant::CloudSqlMySql, tls_cfg(&[("ca_cert", "/ca.pem")]), false),
+            (Variant::MySql, tls_cfg(&[("ca_cert", "/ca.pem"), (cloud_auth::AUTH, cloud_auth::GCP)]), true),
+            (
+                Variant::MySql,
+                tls_cfg(&[("ca_cert", "/ca.pem"), (cloud_auth::AUTH, cloud_auth::GCP), (cloud_auth::ORIGIN_HOST, "10.0.0.5")]),
+                true,
+            ),
+        ];
+        for (v, cfg, cloud) in cases {
+            let ssl = ssl_opts(v, &cfg, cloud);
+            assert!(ssl.skip_domain_validation(), "{v:?}");
+            assert!(ssl.disable_built_in_roots(), "{v:?}");
+            assert!(!ssl.accept_invalid_certs(), "{v:?}");
+            assert_eq!(ssl.root_certs().len(), 1, "{v:?}");
+        }
+    }
+
+    /// Through an SSH tunnel the client dials 127.0.0.1, but the name
+    /// checked is the real endpoint's.
+    #[test]
+    fn a_tunneled_cloud_sign_in_checks_the_real_endpoint_name() {
+        for auth in [cloud_auth::AWS, cloud_auth::AZURE, cloud_auth::GCP] {
+            let cfg = tls_cfg(&[(cloud_auth::AUTH, auth), (cloud_auth::ORIGIN_HOST, " db.example.com ")]);
+            let ssl = ssl_opts(Variant::MySql, &cfg, true);
+            assert!(!ssl.skip_domain_validation(), "{auth}");
+            assert_eq!(ssl.tls_hostname_override(), Some("db.example.com"), "{auth}");
+        }
+        // AWS keeps Amazon's RDS roots (on top of the system's: the name is checked).
+        let cfg = tls_cfg(&[(cloud_auth::AUTH, cloud_auth::AWS), (cloud_auth::ORIGIN_HOST, "db.rds.amazonaws.com")]);
+        assert_eq!(ssl_opts(Variant::MySql, &cfg, true).root_certs().len(), 1);
+    }
+
+    #[test]
+    fn plain_tls_checks_the_name_with_the_system_roots() {
+        for (v, cfg) in [
+            (Variant::MySql, tls_cfg(&[])),
+            (Variant::MySql, tls_cfg(&[("ca_cert", "/ca.pem")])),
+            (Variant::AuroraMySql, tls_cfg(&[])),
+            // Without a cloud sign-in the tunnel option says nothing.
+            (Variant::MySql, tls_cfg(&[(cloud_auth::ORIGIN_HOST, "db.example.com")])),
+        ] {
+            let ssl = ssl_opts(v, &cfg, false);
+            assert!(!ssl.skip_domain_validation() && !ssl.disable_built_in_roots() && !ssl.accept_invalid_certs(), "{v:?}");
+            assert_eq!(ssl.tls_hostname_override(), None, "{v:?}");
+        }
+        // "Trust the server certificate" is the user's explicit choice.
+        let cfg = ConnectionConfig { trust_server_certificate: true, ..tls_cfg(&[]) };
+        let ssl = ssl_opts(Variant::MySql, &cfg, false);
+        assert!(ssl.skip_domain_validation() && ssl.accept_invalid_certs());
     }
 }

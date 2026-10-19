@@ -1,6 +1,6 @@
 [package]
 name = "dbine-driver-mysql"
-version = "0.1.13"  # the driver's own version: bump it when the driver changes (docs/on-demand-drivers.md)
+version = "0.1.14"  # the driver's own version: bump it when the driver changes (docs/on-demand-drivers.md)
 edition.workspace = true
 license.workspace = true
 
