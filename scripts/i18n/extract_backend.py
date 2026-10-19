@@ -201,9 +201,10 @@ KNOWN = {
 
 
 # Files whose strings only go to an AI model (prompts and what they carry),
-# or into a file DBine generates in English (the Python notebook export):
-# never shown, never translated.
-PROMPT_FILES = {"src-tauri/src/optimizer/ai.rs", "src-tauri/src/notebook/python.rs"}
+# or into a file DBine generates in English (the Python notebook export), or
+# into a connection string (its keywords and the formats' library names;
+# its notes are UI keys): never shown as messages, never translated.
+PROMPT_FILES = {"src-tauri/src/optimizer/ai.rs", "src-tauri/src/notebook/python.rs", "src-tauri/src/connstring/mod.rs"}
 
 
 # The server monitor's labels (metric labels and groups, table titles and

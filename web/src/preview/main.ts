@@ -18,6 +18,7 @@
 // |connection&source=zoho|zoho-manual|zoho-missing (the Zoho block: an account, the inline sign-in, an account not on this computer)
 // |account-wizard&kind=<bitwarden|bitwarden_sm|vault|delinea|conjur|ccp|onepassword|aws|azure|gcp|keepass>[&step=n][&result=ok][&error=1][&detect=none|missing]
 //   ("Conectar <gestor>", each step: preview/account-samples.ts)
+// |connstring[&include=1][&reveal=1][&engine=sqlserver] ("Copiar cadena de conexión…": preview/connstring-samples.ts)
 // |connection&source=vault-account|bitwarden-account|aws-account|keepass-account|onepassword-account|vault-missing (the account block of each manager)
 import './lang';
 import I18NextVue from 'i18next-vue';
@@ -96,6 +97,7 @@ import ZohoConnectWizard from '../components/ZohoConnectWizard.vue';
 import AccountConnectWizard from '../components/AccountConnectWizard.vue';
 import { accountWizardSample } from './account-samples';
 import { tb } from '../i18n/backend';
+import { connStringPreview, driveConnStringPreview, installConnStringPreview } from './connstring-samples';
 
 const params = new URLSearchParams(location.search);
 // &theme=light previews the light theme.
@@ -314,6 +316,7 @@ const app = createApp({
         h(StatusBar, { panelOpen: false }),
       ]) :
       view === 'map' ? mapPreview(params) :
+      view === 'connstring' ? connStringPreview() :
       view === 'support' ? h(SupportReminder) :
       view === 'feedback' ? h(FeedbackDialog, { modelValue: true }) :
       view === 'multidb' ? multiDbView() :
@@ -362,6 +365,10 @@ app.use(createPinia());
 app.use(I18NextVue, { i18next });
 loadBackendCatalog();
 app.use(ElementPlus, { size: 'small' });
+if (view === 'connstring') {
+  installConnStringPreview(params);
+  driveConnStringPreview(params);
+}
 if (view === 'support') {
   // A reminder that's due: `status` = none | once (…?status=once).
   const st = useSettingsStore();

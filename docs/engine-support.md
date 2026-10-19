@@ -3833,3 +3833,31 @@ mode, in the unit tests.
 | DynamoDB | Update, upsert, replace | `PutItem` replaces by the primary key; other keys can't address items. Insert works. |
 | InfluxDB, TDengine, IoTDB, ksqlDB | Update, upsert, replace | Time series and streams: points are appended (or overwrite the same timestamp and tags); there's no update or delete by a key column. Insert works. |
 | Snowflake, BigQuery, Databricks, Trino/Presto/Starburst, Athena, Dremio, Cloud Spanner, Firebird, SAP HANA, ODBC engines (Db2, Sybase, Informix, Teradata, Vertica…), Aurora DSQL, Flight SQL, Phoenix, Couchbase, Cosmos DB, CouchDB, Neo4j/Memgraph, OrientDB | Update, upsert, replace | **Explicit pending item.** Each needs its own staging step in its crate (a temporary or work table its bulk load reaches, and its `MERGE` / `UPSERT` / `UPDATE … FROM`, in a transaction where it has one); most have no container or emulator to test it against. Insert works through their bulk load. |
+
+## Copy connection string
+
+**Copiar cadena de conexión…** ([`connection-strings.md`](connection-strings.md)) is in **all engines**: each gets at least its native URI, DSN or connection string, and the formats of the client libraries that reach it (the per-engine list is in that page). It adds no methods to the driver: the strings are built in `src-tauri/src/connstring` from the saved connection's fields.
+
+**Tested:** unit tests per format family (escaping of `; = { } @ : / % ' "` and spaces in the password, TLS mapping, placeholders against values, the tunnel's real host, SQL Server's sign-in methods, IAM tokens) and URIs parsed back with a URL parser; a test checks that every driver has a format and is listed in the page. The strings are not tested by connecting with each client library.
+
+| Engine | What is missing | Reason |
+|---|---|---|
+| Every engine but the PostgreSQL family | libpq keyword/value | It is libpq's own format. |
+| Engines without a URI form (SQL Server family, Oracle, ODBC engines, Cassandra family, cloud warehouses reached by JDBC/ODBC) | URI | The engine or its clients have no URI form; their native string is ADO.NET (SQL Server), Easy Connect (Oracle), the ODBC string or a configuration object. Go's `sqlserver://` and `oracle://` URLs are listed as Go. |
+| Engines DBine reaches through ODBC (Db2, Teradata, Informix, Sybase…), and Ingres, dBase, the generic ODBC driver | Node.js, Go | Their clients for those languages take the same ODBC string (node-odbc, `database/sql` with an ODBC driver). |
+| Actian Ingres, dBase files, the generic ODBC driver | JDBC | Ingres' JDBC URL names its Data Access Server port, which isn't the port DBine connects to; dBase files and a generic DSN have no JDBC driver. |
+| ODBC engines without a mainstream .NET provider (Informix, Netezza, Exasol, Hive, Impala, Ignite, MonetDB, Mimer…) | ADO.NET | No maintained ADO.NET provider; `System.Data.Odbc` takes the ODBC string. |
+| ODBC engines without a SQLAlchemy dialect the Python export uses | SQLAlchemy | pyodbc takes the ODBC string (the Python export uses it the same way). |
+| SQL Server with Windows or Entra ID sign-in, Fabric | SQLAlchemy | The export's dialect (pymssql) has no Entra ID or integrated sign-in; ODBC (`mssql+pyodbc` with the ODBC string) covers them. |
+| MongoDB, DocumentDB, FerretDB | Everything but the URI | Every official driver (Node.js, Python, Java, Go, .NET) takes the same `mongodb://` URI. |
+| Redis, Valkey, Dragonfly | JDBC, ODBC | Key-value: the clients take the `redis://` URI (or StackExchange.Redis' configuration string). |
+| Neo4j, Memgraph, Neptune | User and password in the URI | Bolt URIs carry no credentials: the drivers take them apart (the Node.js object has them). Neptune: no JDBC (it signs in with IAM, not a password). |
+| Couchbase, etcd, Arrow Flight SQL, Dremio | Credentials in the URI | Their connection strings carry no credentials; the clients take them apart (Couchbase's Node.js object has them). |
+| HTTP engines (Elasticsearch, OpenSearch, Solr, CouchDB, ksqlDB, OrientDB, IoTDB, InfluxDB 1) | ADO.NET, ODBC, Go | They are reached over HTTP; the URL (with basic credentials where they take them) is what their clients use. |
+| InfluxDB 2 and 3 | Token in the URL | The token goes in a header: it is in the Node.js object. |
+| Azure Cosmos DB | Every format but its connection string | The SDKs (.NET, Node.js, Python, Java) take the `AccountEndpoint=…;AccountKey=…` string. |
+| Amazon DynamoDB | Connection string | There is none: the AWS SDK takes a region, an endpoint and credentials (an SDK configuration object). |
+| Amazon Athena, BigQuery, Spanner | URI, ADO.NET, Node.js | No connection string beyond JDBC/ODBC and SQLAlchemy; the cloud SDKs take a project or region and the cloud's credentials. BigQuery and Spanner: no ODBC string either (their ODBC drivers are configured with a key file in a DSN). |
+| DuckDB, SQLite | Credentials | Embedded files: no server and no sign-in. A folder of files (CSV / Parquet / JSON) is only its path. |
+| Every engine | Secrets with Vault database credentials | Leased credentials DBine revokes on disconnect: not copied. |
+| Engines signed in with cloud IAM | The password | It is a temporary token: the string carries `${DB_IAM_TOKEN}`. |

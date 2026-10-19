@@ -1,5 +1,6 @@
 mod awake;
 mod commands;
+mod connstring;
 mod dbdocs;
 #[cfg(debug_assertions)]
 mod devtools;
@@ -460,6 +461,8 @@ pub fn run() {
             commands::dbdocs::dbdocs_outline,
             commands::dbdocs::dbdocs_generate,
             commands::dbdocs::dbdocs_open,
+            commands::connstring::connection_string_info,
+            commands::connstring::connection_string_build,
             commands::scheduled::scheduled_tasks_list,
             commands::scheduled::scheduled_task_check,
             commands::scheduled::scheduled_task_save,

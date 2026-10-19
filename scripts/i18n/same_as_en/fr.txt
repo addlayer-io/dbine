@@ -381,3 +381,4 @@ prompts:transcript.assistant
 mobile:conn.monitor
 mobile:conn.session
 mobile:conn.f.client
+connString.json:formatLabel

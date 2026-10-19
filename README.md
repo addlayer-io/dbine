@@ -53,6 +53,12 @@ and queries are organized inside each database.
   from elsewhere (an import, a restored backup) runs only after it's
   confirmed on the computer. Details:
   [`docs/secret-sources.md`](docs/secret-sources.md).
+- **Copy connection string:** a saved connection as the string an
+  application uses, in the formats of its engine (URI, ADO.NET, JDBC,
+  SQLAlchemy, ODBC, libpq, Node.js, Go), with its TLS and sign-in settings,
+  for any database. The password goes in only when asked for, resolved at
+  copy time; otherwise a placeholder. Details:
+  [`docs/connection-strings.md`](docs/connection-strings.md).
 - **Database context menu:**
   - new query, new table with a designer (and modify an existing one), new objects from templates;
   - ER diagram, generate script, export or import the database, run a script

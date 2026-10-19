@@ -33,6 +33,8 @@ import CreateDatabaseDialog from './CreateDatabaseDialog.vue';
 import DatabasePropertiesDialog from './DatabasePropertiesDialog.vue';
 import GenerateDataDialog from './GenerateDataDialog.vue';
 import DbDocsDialog from './DbDocsDialog.vue';
+import ConnStringDialog from './ConnStringDialog.vue';
+import { openConnString } from '../composables/connString';
 import { openDbDocs } from '../composables/dbDocs';
 import { KIND_ICONS } from '../composables/kindIcons';
 import { tagColor } from '../composables/tags';
@@ -783,6 +785,7 @@ async function onContext(e: MouseEvent, n: TNode) {
       if (d && !d.databases_label && connected) dbItems(cid!, conns.live[cid!]?.databases[0] ?? '', items);
       items.push({ label: t('explorer:menu.copyServer'), divided: true, action: () => copy(serverText(c)) });
       items.push({ label: t('explorer:menu.copyConnectionName'), action: () => copy(c.name) });
+      if (!c.temporary) items.push({ label: t('connString:menu'), action: () => openConnString(cid!) });
       // A file opened from the OS: kept only if saved.
       if (c.temporary) {
         items.push({ label: t('explorer:menu.saveConnection'), divided: true, action: () => saveOpenedFile(c) });
@@ -1457,6 +1460,7 @@ const importSource = ref<'dbeaver' | 'dbgate' | 'datagrip' | 'azure_data_studio'
     <CreateDatabaseDialog v-if="creatingDatabase" :connection-id="creatingDatabase" @close="creatingDatabase = null" />
     <GenerateDataDialog v-if="generatingData" :connection-id="generatingData.connectionId" :database="generatingData.database" :table="generatingData.table" @close="generatingData = null" />
     <DbDocsDialog />
+    <ConnStringDialog />
     <DatabasePropertiesDialog v-if="dbProperties" :connection-id="dbProperties.connectionId" :database="dbProperties.database" @close="dbProperties = null" />
     <SchemaDialog
       v-if="schemaDialog" :connection-id="schemaDialog.connectionId" :database="schemaDialog.database" :mode="schemaDialog.mode" :schema="schemaDialog.schema"

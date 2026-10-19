@@ -299,3 +299,4 @@ mobile:conn.monitor
 mobile:conn.f.host
 mobile:conn.f.database
 mobile:conn.f.client
+connString.json:database

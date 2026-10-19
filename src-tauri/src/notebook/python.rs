@@ -187,7 +187,7 @@ impl PyConn {
 }
 
 /// The drivers that connect through ODBC (crates/drivers/odbc).
-const ODBC_IDS: &[&str] = &[
+pub(crate) const ODBC_IDS: &[&str] = &[
     "access", "altibase", "cache", "cloudera", "cubrid", "dameng", "db2", "db2i", "db2zos", "dbase", "exasol", "gbase8s", "heavydb", "hive", "ignite",
     "ignite3", "impala", "informix", "ingres", "iris", "kyuubi", "machbase", "maxdb", "mimer", "monetdb", "netezza", "netsuite", "nuodb", "ocient", "odbc",
     "openedge", "spark", "sqlanywhere", "sqream", "sybase", "teradata", "vertica", "virtuoso", "zen",
@@ -214,6 +214,35 @@ pub fn py_lit(s: &str) -> String {
     }
     out.push('"');
     out
+}
+
+/// The text of a [`py_lit`] literal; `None` for any other expression.
+pub fn py_unlit(lit: &str) -> Option<String> {
+    let inner = lit.strip_prefix('"')?.strip_suffix('"')?;
+    let mut out = String::new();
+    let mut chars = inner.chars();
+    while let Some(c) = chars.next() {
+        if c == '"' {
+            return None;
+        }
+        if c != '\\' {
+            out.push(c);
+            continue;
+        }
+        match chars.next()? {
+            '\\' => out.push('\\'),
+            '"' => out.push('"'),
+            'n' => out.push('\n'),
+            'r' => out.push('\r'),
+            't' => out.push('\t'),
+            'x' => {
+                let hex: String = chars.by_ref().take(2).collect();
+                out.push(char::from_u32(u32::from_str_radix(&hex, 16).ok()?)?);
+            }
+            _ => return None,
+        }
+    }
+    Some(out)
 }
 
 /// A Python triple-quoted string with `s` exactly (SQL, a script).
@@ -395,11 +424,14 @@ struct Setup {
     notes: Vec<String>,
     /// Kind::None: why.
     reason: Option<String>,
+    /// Kind::Sa: the engine's URL, also what "Copiar cadena de conexión"
+    /// writes as a SQLAlchemy URL (crate::connstring).
+    sa: Option<SaUrl>,
 }
 
 impl Setup {
     fn new(kind: Kind) -> Self {
-        Setup { kind, code: Vec::new(), packages: Vec::new(), imports: vec!["import os"], helpers: Vec::new(), env: Vec::new(), notes: Vec::new(), reason: None }
+        Setup { kind, code: Vec::new(), packages: Vec::new(), imports: vec!["import os"], helpers: Vec::new(), env: Vec::new(), notes: Vec::new(), reason: None, sa: None }
     }
 
     fn none(reason: impl Into<String>) -> Self {
@@ -449,8 +481,31 @@ fn kwargs(args: &[(&str, Option<String>)]) -> String {
     args.iter().filter_map(|(k, v)| v.as_ref().map(|v| format!("{k}={v}"))).collect::<Vec<_>>().join(", ")
 }
 
+/// A SQLAlchemy `URL.create(…)` and its `connect_args`. The values are
+/// Python expressions: literals (`py_lit`, numbers) or reads of an
+/// environment variable (`os.environ[…]`, `os.environ.get(…)`).
+#[derive(Debug, Clone, PartialEq)]
+pub struct SaUrl {
+    pub drivername: String,
+    pub args: Vec<(String, String)>,
+    pub query: Vec<(String, String)>,
+    pub connect_args: Vec<(String, String)>,
+}
+
+/// The setup lines of a SQLAlchemy engine, and its URL.
+struct SaEngine {
+    lines: Vec<String>,
+    url: SaUrl,
+}
+
 /// `create_engine(URL.create(…))`, one argument per line.
-fn sa_engine(var: &str, drivername: &str, args: &[(&str, Option<String>)], query: &[(&str, String)], connect_args: &[(&str, String)]) -> Vec<String> {
+fn sa_engine(var: &str, drivername: &str, args: &[(&str, Option<String>)], query: &[(&str, String)], connect_args: &[(&str, String)]) -> SaEngine {
+    let url = SaUrl {
+        drivername: drivername.to_string(),
+        args: args.iter().filter_map(|(k, v)| v.as_ref().map(|v| (k.to_string(), v.clone()))).collect(),
+        query: query.iter().map(|(k, v)| (k.to_string(), v.clone())).collect(),
+        connect_args: connect_args.iter().map(|(k, v)| (k.to_string(), v.clone())).collect(),
+    };
     let mut lines = vec![format!("{var} = create_engine("), "    URL.create(".to_string(), format!("        {},", py_lit(drivername))];
     for (k, v) in args.iter().filter_map(|(k, v)| v.as_ref().map(|v| (k, v))) {
         lines.push(format!("        {k}={v},"));
@@ -465,7 +520,13 @@ fn sa_engine(var: &str, drivername: &str, args: &[(&str, Option<String>)], query
         lines.push(format!("    connect_args={{{}}},", a.join(", ")));
     }
     lines.push(")".into());
-    lines
+    SaEngine { lines, url }
+}
+
+/// The SQLAlchemy URL the Python export uses for a connection, if it uses
+/// one (crate::connstring writes it as a URL string).
+pub fn sqlalchemy_url(c: &PyConn) -> Option<SaUrl> {
+    setup_for(c, "engine").sa
 }
 
 fn some_lit(s: &str) -> Option<String> {
@@ -477,7 +538,7 @@ fn port_arg(c: &PyConn) -> Option<String> {
 }
 
 /// `{value}` when an ODBC attribute value needs quoting.
-fn odbc_value(v: &str) -> String {
+pub(crate) fn odbc_value(v: &str) -> String {
     if v.contains([';', '{', '}']) || v.starts_with(' ') || v.ends_with(' ') {
         format!("{{{}}}", v.replace('}', "}}"))
     } else {
@@ -486,7 +547,7 @@ fn odbc_value(v: &str) -> String {
 }
 
 /// The base URL of an HTTP engine: its host when it's a URL, else built.
-fn http_base(c: &PyConn) -> String {
+pub(crate) fn http_base(c: &PyConn) -> String {
     if c.host.starts_with("http://") || c.host.starts_with("https://") {
         c.host.trim_end_matches('/').to_string()
     } else {
@@ -572,7 +633,7 @@ fn setup_inner(c: &PyConn, var: &str, sec: &mut Secrets) -> Setup {
     let db = some_lit(&c.database);
     let id = c.driver.as_str();
     let sa_imports = vec!["import os", "from sqlalchemy import URL, create_engine, text"];
-    let sa = |packages: Vec<&'static str>, code: Vec<String>| Setup { packages, code, imports: sa_imports.clone(), ..Setup::new(Kind::Sa) };
+    let sa = |packages: Vec<&'static str>, e: SaEngine| Setup { packages, code: e.lines, sa: Some(e.url), imports: sa_imports.clone(), ..Setup::new(Kind::Sa) };
 
     // Engines with their own way of naming the server first.
     match id {

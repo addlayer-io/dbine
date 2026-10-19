@@ -26847,6 +26847,9 @@
  "esta computadora no está conectada a una red": [
   "src-tauri/src/link.rs"
  ],
+ "esta conexión usa credenciales temporales de HashiCorp Vault: no se copian en la cadena": [
+  "src-tauri/src/commands/connstring.rs"
+ ],
  "esta conexión usa solo el protocolo simple de consultas: copiar o comparar datos necesita el protocolo extendido. Si el servidor lo acepta, cambiá «Protocolo de consultas» a Automático en la conexión": [
   "crates/drivers/postgres/src/session.rs"
  ],
@@ -28967,6 +28970,9 @@
  "la consulta {0} ya terminó o no existe": [
   "crates/drivers/couchbase/src/processes.rs"
  ],
+ "la contraseña de esta conexión es un token de IAM temporal: no se copia en la cadena": [
+  "src-tauri/src/commands/connstring.rs"
+ ],
  "la contraseña maestra de Bitwarden no es la correcta": [
   "src-tauri/src/secret_sources/bitwarden.rs"
  ],
@@ -30457,6 +30463,7 @@
  "no existe la conexión '{0}'": [
   "src-tauri/src/commands/azure_firewall.rs",
   "src-tauri/src/commands/connections.rs",
+  "src-tauri/src/commands/connstring.rs",
   "src-tauri/src/commands/multi_db.rs",
   "src-tauri/src/state.rs"
  ],

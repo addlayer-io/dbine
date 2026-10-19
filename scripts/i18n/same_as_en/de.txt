@@ -339,3 +339,4 @@ workbench.json:tabs.monitor
 workbench.json:welcome.family.graph
 workbench.json:welcome.family.relational
 workbench.json:welcome.family.streaming
+connString.json:formatLabel

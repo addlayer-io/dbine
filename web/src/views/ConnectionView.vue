@@ -21,6 +21,7 @@ import { TAG_SUGGESTIONS, tagColor, tagsInUse } from '../composables/tags';
 import { mcpApi, type McpLevel } from '../api/mcp';
 import { inCodeEditor, isSaveShortcut, modalOpen } from '../composables/shortcuts';
 import { inFocusedEditor } from '../stores/editorGroups';
+import { openConnString } from '../composables/connString';
 
 // New / edit connection, as an editor tab. Step 1 picks the engine; step 2 is
 // the form the driver declares (its `fields`). Secret fields are never read
@@ -654,6 +655,7 @@ function selectOptions(f: Field): [string, string][] {
           <el-icon><ei-circle-check-filled /></el-icon>{{ $t('connection:form.connectionOk') }}<span class="cd-test-msg">· {{ testResult.message }}</span>
         </span>
         <span class="cd-spacer" />
+        <el-button v-if="editing" :title="$t('connString:formHint')" @click="openConnString(editing.id)">{{ $t('connString:menu') }}</el-button>
         <el-button @click="close">{{ $t('common:cancel') }}</el-button>
         <el-button type="primary" :loading="saving" @click="save">{{ editing ? $t('common:save') : $t('connection:form.saveAndConnect') }}</el-button>
       </div>

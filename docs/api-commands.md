@@ -610,6 +610,26 @@ Cancel: `optimizer_cancel`, or `cancel_query` with
 Event: `code-search-progress`, with `{ search_id, done, total, hits }` (the new
 hits). Cancel: `cancel_query` with `session_id: "search:<search_id>"`.
 
+## Copy connection string ([`connection-strings.md`](connection-strings.md))
+
+| Command | args | Returns |
+|---|---|---|
+| `connection_string_info` | `{ connection_id, database }` | `{ formats, database, notes, has_secrets, blocked }` |
+| `connection_string_build` | `{ connection_id, database, format, include_secrets, reveal, password? }` | `{ text, notes, secret }` |
+
+- `formats`: `{ id, label }`, the engine's formats (`uri`, `libpq`, `adonet`,
+  `jdbc`, `sqlalchemy`, `odbc`, `node`, `go`, `oracledb`, `easyconnect`,
+  `azure`, `path`). An empty `label` is named by the UI.
+- `notes`: `{ code, args }`, translated by the UI (`connString:note.<code>`).
+- `blocked`: `vault_db` or `iam` when secrets can't be included, else `null`.
+- Without `include_secrets` the text has placeholders; with it and without
+  `reveal`, the mask. With both, the secrets are resolved as a connect does
+  (it can fail with `password_required`, `secret_source_approval` or
+  `secret_source_unlock`, which the UI answers and retries); `password` is a
+  password typed for this string only. `secret` says whether one is in
+  `text`.
+- Not exposed to MCP, the assistant or the phone.
+
 ## Health check ([`health-check.md`](health-check.md))
 
 | Command | args | Returns |

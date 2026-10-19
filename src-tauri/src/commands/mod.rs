@@ -48,5 +48,6 @@ pub mod updates;
 pub mod multi_db;
 pub mod lint;
 pub mod optimizer;
+pub mod connstring;
 #[cfg(test)]
 mod grid_new_rows_live_tests;
