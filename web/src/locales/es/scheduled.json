@@ -19,6 +19,7 @@
   "notScheduled": "La tarea se guardó, pero el sistema no la programó: {{error}}",
   "notRegistered": "No está programada en el sistema",
   "needsApproval": "Hay cambios sin aprobar",
+  "approvalChanged": "Lo que la tarea cambia ya no es lo que aprobaste (un archivo cambió mientras tanto): revisalo de nuevo.",
   "prodHint": "Cambia datos en una conexión de producción",
   "nextRun": "Próxima ejecución",
   "nextRunAt": "Próxima: {{at}}.",

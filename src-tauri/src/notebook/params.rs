@@ -132,7 +132,7 @@ pub fn valid_name(name: &str) -> bool {
 }
 
 /// A name a default must not be kept under (a password, a token…).
-fn secret_name(name: &str) -> bool {
+pub(crate) fn secret_name(name: &str) -> bool {
     let n: String = name.chars().filter(|c| c.is_ascii_alphanumeric()).map(|c| c.to_ascii_lowercase()).collect();
     ["password", "passwd", "pwd", "secret", "token", "apikey", "credential", "connectionstring", "connstr", "accesskey", "privatekey"]
         .iter()
@@ -140,7 +140,7 @@ fn secret_name(name: &str) -> bool {
 }
 
 /// A default that is a credential or a connection's details.
-fn sensitive_default(p: &NotebookParameter) -> bool {
+pub(crate) fn sensitive_default(p: &NotebookParameter) -> bool {
     p.default.as_ref().is_some_and(|d| !d.is_null() && (secret_name(&p.name) || d.as_str().is_some_and(super::looks_like_connection_string)))
 }
 
@@ -645,7 +645,8 @@ fn bound(text: &str, markers: &[&Marker], values: &BTreeMap<String, ParamValue>,
 #[derive(Debug, Clone, PartialEq, Serialize)]
 pub struct Prepared {
     /// The text with every value as the engine's literal: what runs when
-    /// the driver doesn't bind, what the history keeps.
+    /// the driver doesn't bind. Never persisted: the history keeps the
+    /// text with its `{{name}}` markers.
     pub text: String,
     /// One per unit of `text` as the driver cuts it ([`Driver::split_script`]):
     /// the unit with its values apart, `None` for a unit with none. Empty

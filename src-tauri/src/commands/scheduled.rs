@@ -53,14 +53,19 @@ pub struct Check {
     pub scope: Vec<WriteScope>,
     /// They aren't what was approved: saving asks for the approval.
     pub needs_approval: bool,
+    /// What `scope` is the approval of: the save takes it back with the
+    /// user's yes ([`SaveArgs::approved_fingerprint`]).
+    pub fingerprint: Option<String>,
 }
 
 /// What saving `task` would ask the user to approve.
 #[tauri::command(rename_all = "camelCase")]
 pub async fn scheduled_task_check(state: State<'_, AppState>, args: CheckArgs) -> CommandResult<Check> {
-    let fingerprint = tasks::write_fingerprint(&state, &args.task);
+    // The scope and its fingerprint from the same read of the notebooks.
+    let scope = tasks::write_scope(&state, &args.task);
+    let fingerprint = tasks::fingerprint_of(&scope);
     let needs_approval = fingerprint.is_some() && fingerprint != args.task.approved_writes;
-    Ok(Check { scope: tasks::write_scope(&state, &args.task), needs_approval })
+    Ok(Check { scope, needs_approval, fingerprint })
 }
 
 #[derive(Deserialize)]
@@ -70,6 +75,9 @@ pub struct SaveArgs {
     /// listed them.
     #[serde(default)]
     pub approve_writes: bool,
+    /// The fingerprint of what the user approved (`Check::fingerprint`).
+    #[serde(default)]
+    pub approved_fingerprint: Option<String>,
 }
 
 #[derive(Serialize)]
@@ -82,6 +90,8 @@ pub struct Saved {
 #[tauri::command(rename_all = "camelCase")]
 pub async fn scheduled_task_save(state: State<'_, AppState>, args: SaveArgs) -> CommandResult<Saved> {
     let mut task = args.task;
+    // The ids the steps had when the user saw the approval (a new one's is empty).
+    let ids_seen: Vec<String> = task.steps.iter().map(|s| s.id.clone()).collect();
     if task.id.is_empty() {
         task.id = uuid::Uuid::new_v4().to_string();
     }
@@ -91,16 +101,8 @@ pub async fn scheduled_task_save(state: State<'_, AppState>, args: SaveArgs) -> 
     if let Some(problem) = task.problem() {
         return Err(CommandError::BadRequest(problem));
     }
-    let fingerprint = tasks::write_fingerprint(&state, &task);
-    match (&fingerprint, args.approve_writes) {
-        (None, _) => task.approved_writes = None,
-        (Some(f), true) => task.approved_writes = Some(f.clone()),
-        // Unchanged since the last approval: it stands.
-        (Some(f), false) if task.approved_writes.as_ref() == Some(f) => {}
-        (Some(_), false) => {
-            return Err(CommandError::BadRequest("la tarea cambia datos o estructura: hay que aprobar esos pasos para guardarla".into()));
-        }
-    }
+    let approved = args.approve_writes.then_some(args.approved_fingerprint.as_deref()).flatten();
+    approve_writes(&state, &mut task, &ids_seen, approved)?;
     keep_secrets_apart(&state, &mut task)?;
     let saved = state.store.save_task(&task)?;
     let schedule_error = tasks::os::sync(&saved).err();
@@ -110,9 +112,60 @@ pub async fn scheduled_task_save(state: State<'_, AppState>, args: SaveArgs) -> 
     Ok(Saved { item: item(&state, saved), schedule_error })
 }
 
-/// A backup step's secret options go to the vault; the task keeps them
-/// empty. An empty value with a secret already kept means "unchanged".
+/// Sets `task.approved_writes` for the save, or refuses it ([`approval`]).
+/// `ids_seen`: the steps' ids when the user saw the check.
+fn approve_writes(state: &AppState, task: &mut ScheduledTask, ids_seen: &[String], approved: Option<&str>) -> CommandResult<()> {
+    let scope = tasks::write_scope(state, task);
+    let fingerprint = tasks::fingerprint_of(&scope);
+    // The same read, as `scheduled_task_check` fingerprinted it: before the
+    // new steps got their ids.
+    let seen = tasks::fingerprint_of(
+        &scope
+            .into_iter()
+            .map(|mut w| {
+                if let Some(n) = task.steps.iter().position(|s| s.id == w.step_id) {
+                    w.step_id = ids_seen.get(n).cloned().unwrap_or_default();
+                }
+                w
+            })
+            .collect::<Vec<_>>(),
+    );
+    task.approved_writes = approval(fingerprint, seen.as_deref(), approved, task.approved_writes.as_deref())?;
+    Ok(())
+}
+
+/// The approval the task is saved with. `now`: the fingerprint of what
+/// writes, read now; `seen`: the same, under the step ids the check had;
+/// `approved`: the one the user said yes to (what `scheduled_task_check`
+/// showed); `standing`: the task's previous one. A yes to something else
+/// (a notebook edited between the check and the save) approves nothing:
+/// the user is asked again.
+fn approval(now: Option<String>, seen: Option<&str>, approved: Option<&str>, standing: Option<&str>) -> CommandResult<Option<String>> {
+    match now {
+        None => Ok(None),
+        Some(f) if approved.is_some() && approved == seen => Ok(Some(f)),
+        // Unchanged since the last approval: it stands.
+        Some(f) if standing == Some(f.as_str()) => Ok(Some(f)),
+        Some(_) if approved.is_some() => Err(CommandError::BadRequest(
+            "lo que la tarea cambia ya no es lo que se aprobó (un archivo cambió mientras tanto): hay que revisarlo y aprobarlo de nuevo".into(),
+        )),
+        Some(_) => Err(CommandError::BadRequest("la tarea cambia datos o estructura: hay que aprobar esos pasos para guardarla".into())),
+    }
+}
+
+/// A backup step's secret options, and a notebook step's credential
+/// parameters, go to the vault; the task keeps them empty (a notebook
+/// step's, not at all). An empty value with a secret already kept means
+/// "unchanged".
 fn keep_secrets_apart(state: &AppState, task: &mut ScheduledTask) -> CommandResult<()> {
+    for (name, kept) in tasks::notebook_secrets_apart(task, &|n| dbine_core::secrets::get_raw(n).ok().flatten()) {
+        match kept {
+            Some(json) => dbine_core::secrets::set_raw(&name, &json)?,
+            None => {
+                let _ = dbine_core::secrets::delete_raw(&name);
+            }
+        }
+    }
     for step in task.steps.iter_mut().filter(|s| s.kind == kinds::BACKUP) {
         let conn = step.config.get("connection_id").and_then(Value::as_str).unwrap_or("").to_string();
         let keys = tasks::secret_option_keys(&conn, state);
@@ -222,4 +275,65 @@ pub async fn scheduled_notebook_plan(app: AppHandle, state: State<'_, AppState>,
     tauri::async_runtime::spawn_blocking(move || crate::notebook::headless::plan(&state, &args, crate::notebook::access::Policy::current(&dirs)))
         .await
         .map_err(|e| CommandError::Internal(e.to_string()))?
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn a_save_approves_only_what_the_user_saw() {
+        let f = |s: &str| Some(s.to_string());
+        // Nothing writes: no approval.
+        assert_eq!(approval(None, None, Some("a"), None).unwrap(), None);
+        // The yes is to what is there now (`seen`: under the check's step
+        // ids; `now`: the ids it is saved with).
+        assert_eq!(approval(f("a2"), Some("a"), Some("a"), None).unwrap(), f("a2"));
+        // What writes changed after the check (the notebook was edited):
+        // the yes was to something else, so it is asked again.
+        let e = approval(f("b"), Some("b"), Some("a"), None).unwrap_err();
+        assert!(e.to_string().contains("ya no es lo que se aprobó"), "{e}");
+        assert!(approval(f("b"), Some("b"), Some("a"), Some("old")).is_err());
+        // Back to what was approved before: that approval stands.
+        assert_eq!(approval(f("b"), Some("b"), Some("a"), Some("b")).unwrap(), f("b"));
+        // No yes: only an approval that still stands.
+        assert_eq!(approval(f("a"), Some("a"), None, Some("a")).unwrap(), f("a"));
+        assert!(approval(f("a"), Some("a"), None, Some("old")).is_err());
+        assert!(approval(f("a"), Some("a"), None, None).is_err());
+    }
+
+    /// The check's fingerprint is the one the save compares the yes with,
+    /// new steps (no id yet) included; a script changed after the check is
+    /// not approved by it.
+    #[test]
+    fn the_checked_fingerprint_is_what_the_save_takes() {
+        use dbine_core::state::SavedConnection;
+        use dbine_core::tasks::{kinds, Step};
+        let dir = std::env::temp_dir().join(format!("dbine-sched-approve-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let file = dir.join("a.sqlite");
+        rusqlite::Connection::open(&file).unwrap().execute_batch("CREATE TABLE IF NOT EXISTS t (x INTEGER);").unwrap();
+        let state = AppState::new(dbine_core::StateStore::open_in_memory().unwrap());
+        let config = dbine_driver::ConnectionConfig { driver: "sqlite".into(), host: file.to_string_lossy().into_owned(), ..Default::default() };
+        let conn = SavedConnection { id: "a".into(), name: "a".into(), color: None, config, save_password: false, folder_id: None, tags: vec![], mcp_level: None, updated_at: String::new() };
+        state.store.save_connection(&conn).unwrap();
+        let step = |sql: &str| Step { kind: kinds::RUN_SCRIPT.into(), config: serde_json::json!({"connection_id": "a", "sql": sql}), ..Default::default() };
+        let new_task = |sql: &str| ScheduledTask { name: "t".into(), steps: vec![step(sql)], ..Default::default() };
+
+        // What the UI checked, and the user said yes to.
+        let checked = tasks::fingerprint_of(&tasks::write_scope(&state, &new_task("DELETE FROM t"))).unwrap();
+        let save = |sql: &str| {
+            let mut task = new_task(sql);
+            let ids_seen: Vec<String> = task.steps.iter().map(|s| s.id.clone()).collect();
+            task.id = "t1".into();
+            task.steps[0].id = "s1".into();
+            approve_writes(&state, &mut task, &ids_seen, Some(&checked)).map(|_| task)
+        };
+        let saved = save("DELETE FROM t").unwrap();
+        // Stored as the run computes it (with the step's id).
+        assert_eq!(saved.approved_writes, tasks::write_fingerprint(&state, &saved));
+        // Changed between the check and the save: refused, asked again.
+        assert!(save("DROP TABLE t").is_err());
+        let _ = std::fs::remove_dir_all(&dir);
+    }
 }

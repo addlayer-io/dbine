@@ -73,7 +73,8 @@ fn text<'a>(config: &'a Value, key: &str) -> &'a str {
 /// notebooks' cells can: an export reads, a comparison writes its script to
 /// a file and a backup doesn't change the database.
 pub fn write_scope(state: &AppState, task: &ScheduledTask) -> Vec<WriteScope> {
-    write_scope_in(state, task, &load_notebooks(task))
+    // With the vault's parameter values: they are what the cells run with.
+    write_scope_in(state, &with_secrets(task), &load_notebooks(task))
 }
 
 /// The notebook of each step that runs one (by position; `None` for the
@@ -166,7 +167,7 @@ pub fn write_fingerprint(state: &AppState, task: &ScheduledTask) -> Option<Strin
     fingerprint_of(&write_scope(state, task))
 }
 
-fn fingerprint_of(scope: &[WriteScope]) -> Option<String> {
+pub fn fingerprint_of(scope: &[WriteScope]) -> Option<String> {
     if scope.is_empty() {
         return None;
     }
@@ -184,6 +185,65 @@ fn fingerprint_of(scope: &[WriteScope]) -> Option<String> {
 /// they never go in the task's JSON.
 pub fn step_secret_name(task_id: &str, step_id: &str) -> String {
     format!("task-secret:{task_id}:{step_id}")
+}
+
+/// A value that counts as not given (the vault's, if any, stands).
+fn blank(v: &Value) -> bool {
+    v.is_null() || v.as_str().is_some_and(|s| s.trim().is_empty())
+}
+
+/// What the vault keeps for a "Ejecutar notebook" step: its credential
+/// parameters' values (a password's, a token's), by name.
+type NotebookSecrets = BTreeMap<String, Value>;
+
+/// Takes the credential parameters' values out of each "Ejecutar notebook"
+/// step: the task's JSON keeps none (the vault does). Returns, per step,
+/// its vault entry and the values to keep there (`None`: delete it). An
+/// empty value with one already kept means "unchanged", as a backup's
+/// secret options. `get`: a vault entry by name.
+pub(crate) fn notebook_secrets_apart(task: &mut ScheduledTask, get: &dyn Fn(&str) -> Option<String>) -> Vec<(String, Option<String>)> {
+    let mut out = Vec::new();
+    for step in task.steps.iter_mut().filter(|s| s.kind == kinds::RUN_NOTEBOOK) {
+        let name = step_secret_name(&task.id, &step.id);
+        let mut kept: NotebookSecrets = get(&name).and_then(|j| serde_json::from_str(&j).ok()).unwrap_or_default();
+        if let Some(params) = step.config.get_mut("params").and_then(Value::as_object_mut) {
+            let secret: Vec<String> = params.keys().filter(|k| crate::notebook::is_credential_param(k)).cloned().collect();
+            for k in secret {
+                if let Some(v) = params.remove(&k).filter(|v| !blank(v)) {
+                    kept.insert(k, v);
+                }
+            }
+        }
+        out.push((name, (!kept.is_empty()).then(|| serde_json::to_string(&kept).unwrap_or_default())));
+    }
+    out
+}
+
+/// `task` with its "Ejecutar notebook" steps' credential parameter values
+/// back from the vault (where the step has none of its own): what the
+/// approval's fingerprint and the run use.
+pub fn with_secrets(task: &ScheduledTask) -> ScheduledTask {
+    with_secrets_from(task, &|name| dbine_core::secrets::get_raw(name).ok().flatten())
+}
+
+pub(crate) fn with_secrets_from(task: &ScheduledTask, get: &dyn Fn(&str) -> Option<String>) -> ScheduledTask {
+    let mut task = task.clone();
+    // A task not saved yet has nothing in the vault.
+    if task.id.is_empty() {
+        return task;
+    }
+    for step in task.steps.iter_mut().filter(|s| s.kind == kinds::RUN_NOTEBOOK && !s.id.is_empty()) {
+        let Some(kept) = get(&step_secret_name(&task.id, &step.id)).and_then(|j| serde_json::from_str::<NotebookSecrets>(&j).ok()) else { continue };
+        let Some(config) = step.config.as_object_mut() else { continue };
+        let params = config.entry("params").or_insert_with(|| Value::Object(Default::default()));
+        let Some(params) = params.as_object_mut() else { continue };
+        for (k, v) in kept {
+            if params.get(&k).is_none_or(blank) {
+                params.insert(k, v);
+            }
+        }
+    }
+    task
 }
 
 /// The keys of a backup step's options that are secret.
@@ -255,6 +315,8 @@ pub async fn run_task(state: &AppState, app: Option<&AppHandle>, task: &Schedule
     };
     save(state, &run);
     tracing::info!(task = %task.id, run = %run.id, trigger, "scheduled task started");
+    // The notebook steps' credential parameters, from the vault.
+    let task = &with_secrets(task);
 
     // Steps that write run only as approved. Each notebook is read once,
     // here: the steps run these same copies, so a file changed (or
@@ -446,6 +508,52 @@ mod tests {
 
     fn task(steps: Vec<Step>) -> ScheduledTask {
         ScheduledTask { id: "t".into(), name: "prueba".into(), enabled: true, steps, notify: Notify::Never, ..Default::default() }
+    }
+
+    /// A notebook step's credential parameters never stay in the task's
+    /// JSON: the vault keeps them and the run gets them back.
+    #[test]
+    fn notebook_credential_parameters_go_to_the_vault() {
+        use std::cell::RefCell;
+        use std::collections::HashMap;
+        let vault: RefCell<HashMap<String, String>> = RefCell::default();
+        let get = |n: &str| vault.borrow().get(n).cloned();
+        let save = |t: &mut ScheduledTask| {
+            for (name, kept) in notebook_secrets_apart(t, &get) {
+                match kept {
+                    Some(json) => vault.borrow_mut().insert(name, json),
+                    None => vault.borrow_mut().remove(&name),
+                };
+            }
+        };
+        let mut t = task(vec![step("nb", kinds::RUN_NOTEBOOK, json!({"path": "/x.ipynb", "params": {"db_password": "hunter2-secret", "api_token": 42, "desde": "2026-01-01"}}))]);
+        save(&mut t);
+        let stored = serde_json::to_string(&t).unwrap();
+        assert!(!stored.contains("hunter2") && !stored.contains("42"), "{stored}");
+        assert_eq!(t.steps[0].config["params"], json!({"desde": "2026-01-01"}));
+        assert!(vault.borrow()[&step_secret_name("t", "nb")].contains("hunter2-secret"));
+
+        // The run (and the approval's fingerprint) see the values again.
+        let run = with_secrets_from(&t, &get);
+        let opts: crate::notebook::headless::Options = serde_json::from_value(run.steps[0].config.clone()).unwrap();
+        assert_eq!(opts.params.get("db_password"), Some(&json!("hunter2-secret")));
+        assert_eq!(opts.params.get("api_token"), Some(&json!(42)));
+        assert_eq!(opts.params.get("desde"), Some(&json!("2026-01-01")));
+
+        // Saved again with the field left empty: the kept value stands; a
+        // new one replaces it.
+        let mut again = t.clone();
+        again.steps[0].config["params"]["db_password"] = json!("");
+        save(&mut again);
+        assert_eq!(with_secrets_from(&again, &get).steps[0].config["params"]["db_password"], json!("hunter2-secret"));
+        again.steps[0].config["params"]["db_password"] = json!("new-pass");
+        save(&mut again);
+        assert!(!serde_json::to_string(&again).unwrap().contains("new-pass"));
+        assert_eq!(with_secrets_from(&again, &get).steps[0].config["params"]["db_password"], json!("new-pass"));
+        // Other steps are left alone.
+        let mut other = task(vec![step("s", kinds::RUN_SCRIPT, json!({"connection_id": "a", "sql": "SELECT 1", "params": {"pwd": "x"}}))]);
+        assert!(notebook_secrets_apart(&mut other, &get).is_empty());
+        assert_eq!(other.steps[0].config["params"]["pwd"], json!("x"));
     }
 
     #[tokio::test(flavor = "multi_thread")]

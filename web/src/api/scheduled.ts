@@ -138,9 +138,10 @@ export interface Saved {
 
 export const scheduledApi = {
   list: () => invoke<TaskItem[]>('scheduled_tasks_list'),
-  check: (task: ScheduledTask) => invoke<{ scope: WriteScope[]; needs_approval: boolean }>('scheduled_task_check', { args: { task } }),
-  save: (task: ScheduledTask, approveWrites: boolean) =>
-    invoke<Saved>('scheduled_task_save', { args: { task, approve_writes: approveWrites } }),
+  check: (task: ScheduledTask) => invoke<{ scope: WriteScope[]; needs_approval: boolean; fingerprint: string | null }>('scheduled_task_check', { args: { task } }),
+  /** `approved`: the check's fingerprint the user said yes to (null: no yes). */
+  save: (task: ScheduledTask, approved: string | null) =>
+    invoke<Saved>('scheduled_task_save', { args: { task, approve_writes: approved !== null, approved_fingerprint: approved } }),
   remove: (id: string) => invoke<void>('scheduled_task_delete', { args: { id } }),
   enable: (id: string, enabled: boolean) => invoke<Saved>('scheduled_task_enable', { args: { id, enabled } }),
   runNow: (id: string) => invoke<void>('scheduled_task_run_now', { args: { id } }),

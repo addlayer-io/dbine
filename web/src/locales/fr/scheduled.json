@@ -19,6 +19,7 @@
   "notScheduled": "La tâche a été enregistrée, mais le système ne l'a pas planifiée : {{error}}",
   "notRegistered": "Non planifiée dans le système",
   "needsApproval": "Des modifications ne sont pas approuvées",
+  "approvalChanged": "Ce que la tâche modifie n'est plus ce que vous avez approuvé (un fichier a changé entre-temps) : vérifiez-le à nouveau.",
   "prodHint": "Modifie des données sur une connexion de production",
   "nextRun": "Prochaine exécution",
   "nextRunAt": "Prochaine : {{at}}.",

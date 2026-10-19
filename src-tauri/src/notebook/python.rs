@@ -1378,9 +1378,28 @@ pub struct PyExport {
 }
 
 /// The notebook's parameters (name, default; null without one), for
-/// [`PyExport::parameters`]: the cells' `{{name}}` become `:name` binds.
+/// [`PyExport::parameters`]: the cells' `{{name}}` become `:name` binds. A
+/// credential's or a connection's details default is never written, as in
+/// the notebook's own file ([`super::params::parameters_json`]).
 pub fn parameters(nb: &Notebook) -> Vec<(String, Value)> {
-    nb.parameters.iter().map(|p| (p.name.clone(), p.default.clone().unwrap_or(Value::Null))).collect()
+    nb.parameters
+        .iter()
+        .map(|p| {
+            let default = if super::params::sensitive_default(p) { None } else { p.default.clone() };
+            (p.name.clone(), default.unwrap_or(Value::Null))
+        })
+        .collect()
+}
+
+/// A line of the `parameters` cell: a credential without a value says
+/// where to take it from.
+fn parameter_line(name: &str, v: &Value) -> String {
+    let line = format!("{name} = {}", py_value(v));
+    if v.is_null() && super::params::secret_name(name) {
+        format!("{line}  # a credential: DBine doesn't write it; set it from an environment variable, os.environ[{}]", py_lit(&name.to_uppercase()))
+    } else {
+        line
+    }
 }
 
 fn empty_target(t: Option<&NotebookTarget>) -> bool {
@@ -1736,7 +1755,7 @@ pub fn to_value(nb: &Notebook, conns: &HashMap<String, PyConn>, opts: &PyExport)
     }
     setup_cells.markdown("dbine-python-setup-notes", &intro, None);
     if !opts.parameters.is_empty() {
-        let lines: Vec<String> = opts.parameters.iter().map(|(n, v)| format!("{n} = {}", py_value(v))).collect();
+        let lines: Vec<String> = opts.parameters.iter().map(|(n, v)| parameter_line(n, v)).collect();
         setup_cells.code("dbine-python-parameters", &lines.join("\n"), json!({ "tags": ["parameters"] }), Vec::new(), None);
     }
     let mut first = imports.iter().map(|s| s.to_string()).collect::<Vec<_>>().join("\n");

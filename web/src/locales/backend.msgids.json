@@ -29899,6 +29899,9 @@
  "llavero del sistema: {0}": [
   "src-tauri/src/error.rs"
  ],
+ "lo que la tarea cambia ya no es lo que se aprobó (un archivo cambió mientras tanto): hay que revisarlo y aprobarlo de nuevo": [
+  "src-tauri/src/commands/scheduled.rs"
+ ],
  "lo siento, no puedo": [
   "src-tauri/src/commands/ai.rs"
  ],

@@ -100,15 +100,74 @@ test('crafted lines render in linear time', () => {
     '[a]('.repeat(n / 4),
     'a | b\n' + ' '.repeat(n) + 'x', // a table separator that isn't one
     '```' + ' '.repeat(n) + '`', // a fence that isn't one
+    '~'.repeat(n) + '`', // nor this
+    '# a' + ' '.repeat(n) + 'x', // a heading's text between spaces
+    '#' + ' '.repeat(n) + '#' + ' '.repeat(n), // and its closing run
+    '- ' + ' '.repeat(n) + '\u2028', // an item `(.*)` can't finish
+    '```\n' + ' '.repeat(n) + '`', // a closing fence that isn't one
+    '>' + ' '.repeat(n) + '\u2028',
+    '-' + ' -'.repeat(n / 2) + 'x', // a rule that isn't one
+    '|' + ' -|'.repeat(n / 3) + 'x', // a table separator that isn't one
   ];
+  // Cubic before: `(.*?)` between two runs of spaces that can't reach `$`.
+  cases.push('# ' + ' '.repeat(3000) + '\u2028');
   for (const md of cases) {
+    for (const render of [renderMarkdown, markdownParts]) {
+      const t = performance.now();
+      render(md);
+      const ms = performance.now() - t;
+      assert.ok(ms < 250, `${render.name} ${JSON.stringify(md.slice(0, 12))}…: ${Math.round(ms)} ms`);
+    }
+  }
+  // The chat answers' code blocks: an opener with no line break after it.
+  for (const md of ['```' + 'a'.repeat(n), '`'.repeat(n)]) {
     const t = performance.now();
-    renderMarkdown(md);
-    const ms = performance.now() - t;
-    assert.ok(ms < 250, `${JSON.stringify(md.slice(0, 12))}…: ${Math.round(ms)} ms`);
+    markdownParts(md);
+    assert.ok(performance.now() - t < 250, JSON.stringify(md.slice(0, 12)));
   }
   assert.equal(inline('x' + '`'.repeat(5)), 'x`````');
   assert.equal(inline('['.repeat(5)), '[[[[[');
+});
+
+test('lines over the length cap render in linear time, as escaped text', () => {
+  const n = 1_000_000;
+  const cases = [
+    '#' + ' '.repeat(n) + 'x',
+    '# a' + ' '.repeat(n) + 'x',
+    '~'.repeat(n) + '`',
+    '`'.repeat(n),
+    '```' + 'a'.repeat(n),
+    '- ' + ' '.repeat(n) + '\u2028',
+    '<b>' + ' '.repeat(n) + '**x**',
+  ];
+  for (const md of cases) {
+    for (const render of [renderMarkdown, markdownParts]) {
+      const t = performance.now();
+      render(md);
+      const ms = performance.now() - t;
+      assert.ok(ms < 500, `${render.name} ${JSON.stringify(md.slice(0, 12))}…: ${Math.round(ms)} ms`);
+    }
+  }
+  assert.equal(renderMarkdown('<b>' + ' '.repeat(n) + '**x**'), `<p>&lt;b&gt;${' '.repeat(n)}**x**</p>`);
+  // The lines around it keep their Markdown.
+  assert.equal(renderMarkdown('# T\n' + 'x'.repeat(n) + '\n- a'), `<h1>T</h1><p>${'x'.repeat(n)}</p><ul><li>a</li></ul>`);
+});
+
+test('heading and fence edge cases keep their output', () => {
+  assert.equal(renderMarkdown('## a ##'), '<h2>a</h2>');
+  assert.equal(renderMarkdown('# a #  '), '<h1>a</h1>');
+  assert.equal(renderMarkdown('# a#'), '<h1>a#</h1>');
+  assert.equal(renderMarkdown('# #'), '<h1>#</h1>');
+  assert.equal(renderMarkdown('#'), '<h1></h1>');
+  assert.equal(renderMarkdown('####### seven'), '<p>####### seven</p>');
+  assert.equal(renderMarkdown('#x'), '<p>#x</p>');
+  assert.equal(renderMarkdown('    # indented'), '<p># indented</p>');
+  assert.equal(renderMarkdown('~~~~ js `x`\na\n~~~~'), '<p>~~~~ js <code>x</code> a</p><pre><code></code></pre>');
+  assert.equal(renderMarkdown('~~~~ js\na\n~~~\n~~~~'), '<pre><code class="language-js">a\n~~~</code></pre>');
+  assert.equal(renderMarkdown('- a\n- \u2028b'), '<ul><li>a - \u2028b</li></ul>'); // `.` stops at U+2028: no second item
+  assert.deepEqual(markdownParts('a\n```sql x\nSELECT\n```b'), [
+    { kind: 'text', html: '<p>a</p>' }, { kind: 'code', lang: 'sql', code: 'SELECT', open: false }, { kind: 'text', html: '<p>b</p>' },
+  ]);
 });
 
 test('code spans pair runs of the same length', () => {

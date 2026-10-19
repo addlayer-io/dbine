@@ -46,7 +46,11 @@ impl ParamValue {
     /// or `None`. Kept as `YYYY-MM-DDTHH:MM:SS[.fff]`.
     pub fn datetime(s: &str) -> Option<Self> {
         let s = s.trim();
-        if s.len() < 16 || !is_date(&s[..10]) || !matches!(s.as_bytes()[10], b'T' | b' ') {
+        // `get`: byte 10 may fall inside a character (`2026-10-1é…`). Past
+        // the ASCII date and its ASCII separator, every slice below is
+        // after ASCII bytes checked first.
+        let Some(date) = s.get(..10) else { return None };
+        if s.len() < 16 || !is_date(date) || !matches!(s.as_bytes()[10], b'T' | b' ') {
             return None;
         }
         let time = &s[11..];
@@ -76,14 +80,15 @@ impl ParamValue {
             }
             _ => return None,
         };
-        Some(ParamValue::DateTime(format!("{}T{full}", &s[..10])))
+        Some(ParamValue::DateTime(format!("{date}T{full}")))
     }
 
     /// The date and the time apart (`("2026-10-18", Some("14:30:00"))`).
     fn date_time(&self) -> (&str, Option<&str>) {
         match self {
             ParamValue::Date(d) => (d.as_str(), None),
-            ParamValue::DateTime(dt) => (&dt[..10], Some(&dt[11..])),
+            // Made by `datetime`, but a deserialized one wasn't checked.
+            ParamValue::DateTime(dt) => (dt.get(..10).unwrap_or(dt), dt.get(11..)),
             _ => ("", None),
         }
     }
@@ -408,6 +413,19 @@ mod tests {
         assert_eq!(ParamValue::datetime("2026-10-18T14:30:05.25"), Some(ParamValue::DateTime("2026-10-18T14:30:05.25".into())));
         for bad in ["2026-10-18", "2026-10-18T25:00", "2026-10-18T14:30:05'", "2026-10-18T14:30Z", "2026-10-18T14:30:05.", "2026-10-18x14:30"] {
             assert!(ParamValue::datetime(bad).is_none(), "{bad}");
+        }
+        // A character across byte 10, or after it: refused, not a panic.
+        for bad in ["2026-10-1é 00:00:00", "2026-10-18é00:00:00", "2026-10-18 é0:00:00", "2026-10-18 00:0é:00", "2026-10-18 00:00:é0", "2026-10-18 00:00:00.é", "ééééééééééé"] {
+            assert!(ParamValue::datetime(bad).is_none(), "{bad}");
+        }
+        for bad in ["2026-10-é", "2026-1é-18", "é026-10-18"] {
+            assert!(ParamValue::date(bad).is_none(), "{bad}");
+        }
+        // A deserialized value isn't checked: still no panic.
+        for v in [ParamValue::DateTime("2026-10-1é 00:00".into()), ParamValue::DateTime("x".into()), ParamValue::Date("é".into())] {
+            for lang in [Language::Sql, Language::Json, Language::Redis, Language::Flux, Language::Cypher] {
+                let _ = literal(lang, "postgres", "x", &v);
+            }
         }
     }
 

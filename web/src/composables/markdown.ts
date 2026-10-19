@@ -186,14 +186,84 @@ export function inline(s: string): string {
 
 // -- blocks ------------------------------------------------------------------------------
 
-// The lookahead keeps these linear: `\s*…[^`]*$` retried every split of a
-// long run of spaces.
-const FENCE = /^ {0,3}(`{3,}|~{3,})(?=[^`]*$)\s*([^\s`]*)/;
+// Every block matcher is linear in the line. Fences and headings are found
+// by hand: a regex with a variable run followed by a lookahead or optional
+// groups ending in `$` retries every split of the run (quadratic, cubic for a
+// heading whose `.*?` can't reach the end). The regexes left have no such
+// split: `(?![ \t])` stops ITEM's spaces from being handed back to `(.*)`.
 const HR = /^ {0,3}([-*_])(?:[ \t]*\1){2,}[ \t]*$/;
-const HEADING = /^ {0,3}(#{1,6})(?:[ \t]+(.*?))?(?:[ \t]+#+)?[ \t]*$/;
 const QUOTE = /^ {0,3}> ?(.*)$/;
-const ITEM = /^( *)([-*+]|\d{1,9}[.)])[ \t]+(.*)$/;
+const ITEM = /^( *)([-*+]|\d{1,9}[.)])[ \t]+(?![ \t])(.*)$/;
 const TABLE_SEP = /^ *(?:\| *)?:?-+:? *(?:\| *:?-+:? *)*(?:\| *)?$/;
+
+/** Longer lines are shown escaped, as text of their own: no block or
+ *  inline Markdown. */
+export const LINE_MAX = INLINE_MAX;
+const isLong = (l: string) => l.length > LINE_MAX;
+const isBlank = (c: string | undefined) => c === ' ' || c === '\t';
+
+/** The indentation before a block's marker: up to three spaces, else -1. */
+function lead(l: string): number {
+  let k = 0;
+  while (l[k] === ' ') k++;
+  return k <= 3 ? k : -1;
+}
+
+/** Where the run of `c` that starts at `k` ends. */
+function runEnd(l: string, k: number, c: string): number {
+  while (l[k] === c) k++;
+  return k;
+}
+
+interface Fence { mark: string; info: string }
+
+/** A fence's opening line: three or more ` or ~ (and no backtick after
+ *  them), then the info string's first word. */
+function fenceOf(l: string): Fence | null {
+  if (isLong(l)) return null;
+  const k = lead(l);
+  if (k < 0 || (l[k] !== '`' && l[k] !== '~')) return null;
+  const e = runEnd(l, k, l[k]);
+  if (e - k < 3 || l.indexOf('`', e) !== -1) return null;
+  let p = e;
+  while (p < l.length && /\s/.test(l[p])) p++;
+  let q = p;
+  while (q < l.length && !/[\s`]/.test(l[q])) q++;
+  return { mark: l.slice(k, e), info: l.slice(p, q) };
+}
+
+/** The line closes the fence `mark` opened: as long a run of its character,
+ *  then only whitespace. */
+function closesFence(l: string, mark: string): boolean {
+  const k = lead(l);
+  if (k < 0) return false;
+  const e = runEnd(l, k, mark[0]);
+  return e - k >= mark.length && !l.slice(e).trim();
+}
+
+/** An ATX heading: `#` to `######`, then its text without the spaces around
+ *  it or a closing run of `#` after a space. */
+function headingOf(l: string): { level: number; text: string } | null {
+  if (isLong(l)) return null;
+  const k = lead(l);
+  if (k < 0 || l[k] !== '#') return null;
+  const e = runEnd(l, k, '#');
+  if (e - k > 6 || (e < l.length && !isBlank(l[e]))) return null;
+  // The regex this replaces read the text with `.`, which stops at these:
+  // such a line was a paragraph.
+  if (/[\u2028\u2029]/.test(l.slice(e))) return null;
+  let s = e;
+  while (isBlank(l[s])) s++;
+  let t = l.length;
+  while (t > s && isBlank(l[t - 1])) t--;
+  let h = t;
+  while (h > s && l[h - 1] === '#') h--;
+  if (h < t && h > s && isBlank(l[h - 1])) {
+    while (isBlank(l[h - 1])) h--;
+    t = h;
+  }
+  return { level: e - k, text: l.slice(s, t) };
+}
 
 function cellsOf(line: string): string[] {
   let s = line.trim();
@@ -210,8 +280,11 @@ function isTableStart(lines: string[], i: number): boolean {
 
 function startsBlock(lines: string[], i: number): boolean {
   const l = lines[i];
-  return FENCE.test(l) || HR.test(l) || HEADING.test(l) || QUOTE.test(l) || ITEM.test(l) || isTableStart(lines, i);
+  return isLong(l) || !!fenceOf(l) || HR.test(l) || !!headingOf(l) || QUOTE.test(l) || ITEM.test(l) || isTableStart(lines, i);
 }
+
+/** A line of a list item that starts a block inside it. */
+const nestedStart = (l: string) => ITEM.test(l) || !!fenceOf(l) || QUOTE.test(l);
 
 const indentOf = (l: string) => l.length - l.trimStart().length;
 
@@ -222,13 +295,15 @@ function renderLines(lines: string[], o: MarkdownOptions): string {
     const line = lines[i];
     if (!line.trim()) { i++; continue; }
 
-    const fence = FENCE.exec(line);
+    if (isLong(line)) { out.push(`<p>${esc(line.trim())}</p>`); i++; continue; }
+
+    const fence = fenceOf(line);
     if (fence) {
-      const mark = fence[1];
-      const lang = /^[\w+#.-]+$/.test(fence[2]) ? fence[2] : '';
+      const { mark } = fence;
+      const lang = /^[\w+#.-]+$/.test(fence.info) ? fence.info : '';
       const body: string[] = [];
       i++;
-      while (i < lines.length && !new RegExp(`^ {0,3}${mark[0] === '`' ? '`' : '~'}{${mark.length},}\\s*$`).test(lines[i])) body.push(lines[i++]);
+      while (i < lines.length && !closesFence(lines[i], mark)) body.push(lines[i++]);
       i++; // the closing fence (or the end)
       out.push(`<pre><code${lang ? ` class="language-${esc(lang)}"` : ''}>${esc(body.join('\n'))}</code></pre>`);
       continue;
@@ -236,10 +311,10 @@ function renderLines(lines: string[], o: MarkdownOptions): string {
 
     if (HR.test(line)) { out.push('<hr>'); i++; continue; }
 
-    const h = HEADING.exec(line);
+    const h = headingOf(line);
     if (h) {
-      const level = h[1].length;
-      const text = inline(h[2] ?? '');
+      const { level } = h;
+      const text = inline(h.text);
       out.push(o.flatHeadings ? `<p class="md-h">${text}</p>` : `<h${level}>${text}</h${level}>`);
       i++;
       continue;
@@ -300,10 +375,10 @@ function renderLines(lines: string[], o: MarkdownOptions): string {
       const start = ordered ? parseInt(item[2], 10) : 1;
       const tag = ordered ? 'ol' : 'ul';
       const lis = items.map((body) => {
-        const nested = body.slice(1).some((l) => ITEM.test(l) || FENCE.test(l) || QUOTE.test(l) || !l.trim());
+        const nested = body.slice(1).some((l) => nestedStart(l) || !l.trim());
         if (!nested) return `<li>${inline(body.map((l) => l.trim()).join(o.breaks ? '\n' : ' ')).replace(/\n/g, '<br>')}</li>`;
         // The first line is its text; the rest, blocks of their own.
-        const firstEnd = body.findIndex((l, k) => k > 0 && (!l.trim() || ITEM.test(l) || FENCE.test(l) || QUOTE.test(l)));
+        const firstEnd = body.findIndex((l, k) => k > 0 && (!l.trim() || nestedStart(l)));
         const text = body.slice(0, firstEnd).map((l) => l.trim()).join(' ');
         return `<li>${inline(text)}${renderLines(body.slice(firstEnd), o)}</li>`;
       }).join('');
@@ -333,14 +408,24 @@ export type MdPart = { kind: 'text'; html: string } | { kind: 'code'; lang: stri
 
 export function markdownParts(md: string, o: MarkdownOptions = { breaks: true, flatHeadings: true }): MdPart[] {
   const out: MdPart[] = [];
-  const re = /```([\w+#.-]*)[^\n]*\n([\s\S]*?)(```|$)/g;
+  // A block: ``` and a language, the rest of that line, then up to the next
+  // ``` (or the end, still open). By hand: the regex
+  // /```([\w+#.-]*)[^\n]*\n([\s\S]*?)(```|$)/g split the language from the
+  // rest of the line every way, and rescanned the line from every backtick.
   let last = 0;
-  let m: RegExpExecArray | null;
-  while ((m = re.exec(md))) {
-    if (m.index > last) out.push({ kind: 'text', html: renderMarkdown(md.slice(last, m.index), o) });
-    out.push({ kind: 'code', lang: m[1] || '', code: m[2].replace(/\n$/, ''), open: m[3] !== '```' });
-    last = re.lastIndex;
-    if (m[3] !== '```') break;
+  for (let i = md.indexOf('```'); i !== -1; ) {
+    const nl = md.indexOf('\n', i + 3);
+    // No line break after this opener: none after a later one either.
+    if (nl === -1) break;
+    let l = i + 3;
+    while (l < nl && /[\w+#.-]/.test(md[l])) l++;
+    const close = md.indexOf('```', nl + 1);
+    if (i > last) out.push({ kind: 'text', html: renderMarkdown(md.slice(last, i), o) });
+    const end = close === -1 ? md.length : close;
+    out.push({ kind: 'code', lang: md.slice(i + 3, l), code: md.slice(nl + 1, end).replace(/\n$/, ''), open: close === -1 });
+    if (close === -1) { last = md.length; break; }
+    last = close + 3;
+    i = md.indexOf('```', last);
   }
   if (last < md.length) out.push({ kind: 'text', html: renderMarkdown(md.slice(last), o) });
   return out.filter((p) => p.kind === 'code' || p.html);

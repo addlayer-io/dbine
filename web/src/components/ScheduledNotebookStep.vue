@@ -4,6 +4,7 @@ import { open as openDialog } from '@tauri-apps/plugin-dialog';
 import { useTranslation } from 'i18next-vue';
 import { errorMessage } from '../api/client';
 import { scheduledApi, type NotebookPlan, type NotebookResolved } from '../api/scheduled';
+import { isCredentialParam } from '../composables/notebookParams';
 import { openPaths } from '../composables/openFiles';
 import { tb } from '../i18n/backend';
 import { useConnectionsStore } from '../stores/connections';
@@ -194,7 +195,12 @@ const sizeOf = (n: number) => (n < 1024 ? `${n} B` : n < 1048576 ? `${(n / 1024)
         <p class="sn-hint">{{ $t('scheduled:notebook.paramsHint') }}</p>
         <div class="sn-grid">
           <el-form-item v-for="p in plan.parameters" :key="p" :label="p">
-            <el-input :model-value="c.params[p] ?? ''" @update:model-value="(v: string) => { c.params[p] = v; changed(); }" />
+            <!-- A credential's value goes to the keychain: the task keeps none. -->
+            <el-input
+              v-if="isCredentialParam(p)" type="password" show-password autocomplete="off" :placeholder="$t('scheduled:step.secretKept')"
+              :model-value="c.params[p] ?? ''" @update:model-value="(v: string) => { c.params[p] = v; changed(); }"
+            />
+            <el-input v-else :model-value="c.params[p] ?? ''" @update:model-value="(v: string) => { c.params[p] = v; changed(); }" />
           </el-form-item>
         </div>
       </template>

@@ -19,6 +19,7 @@
   "notScheduled": "L'attività è stata salvata, ma il sistema non l'ha pianificata: {{error}}",
   "notRegistered": "Non pianificata nel sistema",
   "needsApproval": "Ci sono modifiche non approvate",
+  "approvalChanged": "Ciò che l'attività modifica non è più quello che hai approvato (un file è cambiato nel frattempo): controllalo di nuovo.",
   "prodHint": "Modifica dati su una connessione di produzione",
   "nextRun": "Prossima esecuzione",
   "nextRunAt": "Prossima: {{at}}.",

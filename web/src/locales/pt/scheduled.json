@@ -19,6 +19,7 @@
   "notScheduled": "A tarefa foi salva, mas o sistema não a agendou: {{error}}",
   "notRegistered": "Não está agendada no sistema",
   "needsApproval": "Há alterações não aprovadas",
+  "approvalChanged": "O que a tarefa altera já não é o que você aprovou (um arquivo mudou nesse meio-tempo): revise de novo.",
   "prodHint": "Altera dados em uma conexão de produção",
   "nextRun": "Próxima execução",
   "nextRunAt": "Próxima: {{at}}.",

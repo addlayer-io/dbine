@@ -19,6 +19,7 @@
   "notScheduled": "The task was saved, but the system didn't schedule it: {{error}}",
   "notRegistered": "Not scheduled in the system",
   "needsApproval": "There are unapproved changes",
+  "approvalChanged": "What the task changes is no longer what you approved (a file changed in the meantime): review it again.",
   "prodHint": "Changes data on a production connection",
   "nextRun": "Next run",
   "nextRunAt": "Next: {{at}}.",

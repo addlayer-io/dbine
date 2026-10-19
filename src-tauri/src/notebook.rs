@@ -792,7 +792,7 @@ fn read_params(v: Option<&Value>, w: &mut Warnings) -> Option<Map<String, Value>
 
 /// A parameter whose value a result doesn't record: a credential's or a
 /// server's (a user name or a port is fine).
-fn is_credential_param(name: &str) -> bool {
+pub(crate) fn is_credential_param(name: &str) -> bool {
     is_credential_key(name) && !matches!(name.to_ascii_lowercase().as_str(), "user" | "username" | "login" | "port")
 }
 

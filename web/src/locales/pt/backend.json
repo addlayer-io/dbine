@@ -11119,5 +11119,6 @@
   "{0} no tiene un valor nulo: el parámetro necesita un valor": "{0} não tem um valor nulo: o parâmetro precisa de um valor",
   "el texto tiene un carácter nulo (\\0)": "o texto tem um caractere nulo (\\0)",
   "Fila {0}, columna «{1}»: la clave tiene un campo que empieza con «$», que MongoDB leería como operador.": "Linha {0}, coluna «{1}»: a chave tem um campo que começa com «$», que o MongoDB leria como operador.",
-  "La columna «{0}» no se puede usar para actualizar en MongoDB: un nombre que empieza con «$» o tiene «.» se leería como operador o como ruta.": "A coluna «{0}» não pode ser usada para atualizar no MongoDB: um nome que começa com «$» ou contém «.» seria lido como operador ou como caminho."
+  "La columna «{0}» no se puede usar para actualizar en MongoDB: un nombre que empieza con «$» o tiene «.» se leería como operador o como ruta.": "A coluna «{0}» não pode ser usada para atualizar no MongoDB: um nome que começa com «$» ou contém «.» seria lido como operador ou como caminho.",
+  "lo que la tarea cambia ya no es lo que se aprobó (un archivo cambió mientras tanto): hay que revisarlo y aprobarlo de nuevo": "o que a tarefa altera já não é o que foi aprovado (um arquivo mudou nesse meio-tempo): é preciso revisar e aprovar de novo"
 }

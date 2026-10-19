@@ -393,6 +393,34 @@ fn notebook_parameters_become_binds() {
     assert!(all.contains("only mapped to SQLAlchemy binds"), "{all}");
 }
 
+/// A credential's default (or a connection string) is never written into
+/// the exported file: `None`, and where to set it from.
+#[test]
+fn credential_parameter_defaults_are_not_exported() {
+    use crate::notebook::params::{NotebookParameter, ParamType};
+    let p = |name: &str, default: Value| NotebookParameter { name: name.into(), kind: ParamType::Text, default: Some(default), description: None, required: false, options: vec![] };
+    let mut nb = empty_nb();
+    nb.parameters = vec![
+        p("db_password", json!("hunter2-secret")),
+        p("api_token", json!("tok-123-secret")),
+        p("origen", json!("Server=db;User Id=sa;Password=pw-secret;")),
+        p("region", json!("norte")),
+    ];
+    nb.cells = vec![cell("q", CellKind::Sql, "SELECT {{db_password}}, {{api_token}}, {{origen}}, {{region}}", on("Ventas PG"), Some("v"))];
+    let conns = HashMap::from([("q".to_string(), conn("Ventas PG", cfg("postgres", "pg", 5432, "d", "u", &[])))]);
+    let opts = PyExport { parameters: parameters(&nb), ..Default::default() };
+    let text = python(&nb, &conns, &opts);
+    assert!(!text.contains("secret"), "{text}");
+    let v: Value = serde_json::from_str(&text).unwrap();
+    let s = sources(&v);
+    let lines: Vec<&str> = s[1].lines().collect();
+    assert!(lines[0].starts_with("db_password = None  # a credential"), "{}", s[1]);
+    assert!(lines[0].ends_with("os.environ[\"DB_PASSWORD\"]"), "{}", s[1]);
+    assert!(lines[1].starts_with("api_token = None  #"), "{}", s[1]);
+    assert_eq!(lines[2], "origen = None");
+    assert_eq!(lines[3], "region = \"norte\"");
+}
+
 #[test]
 fn dataframe_names_that_clash_are_registered() {
     let mut nb = empty_nb();

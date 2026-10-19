@@ -11119,5 +11119,6 @@
   "{0} no tiene un valor nulo: el parámetro necesita un valor": "{0} has no null value: the parameter needs a value",
   "el texto tiene un carácter nulo (\\0)": "the text has a null character (\\0)",
   "Fila {0}, columna «{1}»: la clave tiene un campo que empieza con «$», que MongoDB leería como operador.": "Row {0}, column «{1}»: the key has a field that starts with «$», which MongoDB would read as an operator.",
-  "La columna «{0}» no se puede usar para actualizar en MongoDB: un nombre que empieza con «$» o tiene «.» se leería como operador o como ruta.": "The column «{0}» can't be used to update in MongoDB: a name that starts with «$» or contains «.» would be read as an operator or a path."
+  "La columna «{0}» no se puede usar para actualizar en MongoDB: un nombre que empieza con «$» o tiene «.» se leería como operador o como ruta.": "The column «{0}» can't be used to update in MongoDB: a name that starts with «$» or contains «.» would be read as an operator or a path.",
+  "lo que la tarea cambia ya no es lo que se aprobó (un archivo cambió mientras tanto): hay que revisarlo y aprobarlo de nuevo": "what the task changes is no longer what was approved (a file changed in the meantime): it must be reviewed and approved again"
 }

@@ -161,8 +161,9 @@ pub enum PlanMode {
 pub async fn execute_query(app: AppHandle, state: State<'_, AppState>, args: ExecuteArgs) -> CommandResult<ExecuteResponse> {
     let driver = state.store.get_connection(&args.connection_id).ok().flatten().and_then(|c| dbine_drivers::find(&c.config.driver));
     // A notebook cell's parameters: from here on `sql` has each value as
-    // the engine's literal (what the checks, the history and a driver that
-    // doesn't bind see); `prepared` keeps them apart for the ones that do.
+    // the engine's literal (what the checks and a driver that doesn't bind
+    // see); `prepared` keeps them apart for the ones that do. The history
+    // keeps the text as written ([`history_text`]).
     let prepared = match (&args.params, driver) {
         (Some(p), Some(d)) => {
             use crate::notebook::params;
@@ -388,9 +389,16 @@ pub async fn execute_query(app: AppHandle, state: State<'_, AppState>, args: Exe
     }
     if args.record {
         let origin = crate::commands::history::Origin { query_id: args.query_id.clone(), project_id: args.project_id.clone(), file_path: args.file_path.clone() };
-        crate::commands::history::record(&state, &args.connection_id, &args.database, sql, started_at, &out, origin);
+        crate::commands::history::record(&state, &args.connection_id, &args.database, history_text(&args), started_at, &out, origin);
     }
     Ok(ExecuteResponse { outcome: out, needs_confirmation: Vec::new(), session_closed })
+}
+
+/// What the history keeps of a run: the text the user wrote. A notebook
+/// cell's parameters stay as their `{{name}}` markers, never the literals
+/// the run wrote in (a password parameter's value among them).
+fn history_text(args: &ExecuteArgs) -> &str {
+    &args.sql
 }
 
 /// The units an editor run goes through one by one, or `None` to hand the
@@ -1448,5 +1456,27 @@ select
         let r = run_cancellable(std::future::pending(), &e, Duration::from_secs(30), || open.load(Ordering::SeqCst)).await;
         assert!(matches!(r, Run::Cancelled { keep: false, completed: false }), "{r:?}");
         assert!(started.elapsed() < Duration::from_secs(5));
+    }
+
+    #[test]
+    fn the_history_keeps_a_notebook_run_without_its_values() {
+        use crate::notebook::params;
+        let args: ExecuteArgs = serde_json::from_value(serde_json::json!({
+            "session_id": "s", "connection_id": "c", "database": "", "sql": "SELECT * FROM t WHERE pwd = {{db_password}} AND n = {{n}}",
+            "max_rows": null, "query_id": null, "record": true,
+            "params": {
+                "definitions": [{ "name": "db_password", "type": "text" }, { "name": "n", "type": "number" }],
+                "values": { "db_password": "hunter2-secret", "n": 7 },
+            },
+        }))
+        .unwrap();
+        let p = args.params.as_ref().unwrap();
+        let pg = dbine_drivers::find("postgres").unwrap();
+        let values = params::resolve(&p.definitions, &p.values).unwrap();
+        let run = params::prepare_text(&args.sql, &params::Engine::Driver(pg.as_ref()), &p.definitions, &values, None).unwrap();
+        // What runs has the values; what the history keeps doesn't.
+        assert!(run.text.contains("hunter2-secret"), "{}", run.text);
+        assert_eq!(history_text(&args), "SELECT * FROM t WHERE pwd = {{db_password}} AND n = {{n}}");
+        assert!(!history_text(&args).contains("hunter2"));
     }
 }

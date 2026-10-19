@@ -4,7 +4,7 @@ import { ElMessage } from 'element-plus';
 import { listen, type UnlistenFn } from '@tauri-apps/api/event';
 import { useTranslation } from 'i18next-vue';
 import { errorMessage } from '../api/client';
-import { newStep, newTask, scheduledApi, type ScheduledTask, type StepKind, type TaskRun, type WriteScope } from '../api/scheduled';
+import { newStep, newTask, scheduledApi, type Saved, type ScheduledTask, type StepKind, type TaskRun, type WriteScope } from '../api/scheduled';
 import { tb } from '../i18n/backend';
 import { confirmNative } from '../native';
 import { useScheduledStore } from '../stores/scheduled';
@@ -92,14 +92,25 @@ async function save() {
   if (saving.value) return;
   saving.value = true;
   try {
-    // Steps that write and aren't what was approved: ask.
-    const check = await scheduledApi.check(task.value);
-    let approve = false;
-    if (check.needs_approval) {
-      approve = await askApproval(check.scope);
-      if (!approve) return;
+    let r: Saved;
+    for (let attempt = 0; ; attempt++) {
+      // Steps that write and aren't what was approved: ask.
+      const check = await scheduledApi.check(task.value);
+      let approved: string | null = null;
+      if (check.needs_approval) {
+        if (!(await askApproval(check.scope))) return;
+        approved = check.fingerprint;
+      }
+      try {
+        r = await scheduledApi.save(task.value, approved);
+        break;
+      } catch (e) {
+        // What writes changed after the yes (a notebook edited meanwhile):
+        // the save refused it; show the steps again.
+        if (approved === null || attempt >= 2 || (await scheduledApi.check(task.value)).fingerprint === approved) throw e;
+        ElMessage.warning(t('scheduled:approvalChanged'));
+      }
     }
-    const r = await scheduledApi.save(task.value, approve);
     store.upsert(r.item);
     if (props.tab.taskId !== r.item.id) props.tab.taskId = r.item.id;
     load();
