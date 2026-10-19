@@ -104,7 +104,15 @@ pub async fn scheduled_task_save(state: State<'_, AppState>, args: SaveArgs) -> 
     let approved = args.approve_writes.then_some(args.approved_fingerprint.as_deref()).flatten();
     approve_writes(&state, &mut task, &ids_seen, approved)?;
     keep_secrets_apart(&state, &mut task)?;
+    // A step that was removed takes its kept secrets with it.
+    let removed: Vec<String> = match tasks::load(&state, &task.id) {
+        Ok(before) => before.steps.into_iter().map(|s| s.id).filter(|id| !task.steps.iter().any(|s| &s.id == id)).collect(),
+        Err(_) => Vec::new(),
+    };
     let saved = state.store.save_task(&task)?;
+    for id in removed {
+        let _ = dbine_core::secrets::delete_raw(&tasks::step_secret_name(&task.id, &id));
+    }
     let schedule_error = tasks::os::sync(&saved).err();
     if let Some(e) = &schedule_error {
         tracing::warn!(task = %saved.id, "scheduled task not registered: {e}");
