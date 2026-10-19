@@ -2,6 +2,8 @@
 
 ## [Unreleased]
 
+## [1.0.0] - 2026-10-19
+
 ### New
 - **Light theme:** a light theme and a **Same as system** option (the default) that follows your OS as it changes; interface zoom with Cmd/Ctrl + "+", "−", "0" or the mouse wheel, and separate font sizes for the editor and the results grid, in **Settings › General**.
 - **Vim mode and your own shortcuts:** Vim mode for the SQL editor (Settings › General), and every keyboard shortcut can be changed in **Settings › Keyboard shortcuts**, with search, reset and conflict warnings.
@@ -35,12 +37,9 @@
 - **Notebook parameters:** a notebook can define parameters (text, number, date, date and time, boolean or a fixed list, with a default) that its cells use as `{{name}}`; running asks for the missing values, each value goes to the database as data (bound by the driver, or quoted by the engine's own rules), and every result shows the values that produced it.
 
 ### Improvements
-- **Signed on Windows:** the Windows installer and the app are signed with a code-signing certificate, so Windows shows who publishes DBine instead of "Unknown publisher".
-
-## [0.1.15] - 2026-10-17
-
-### Improvements
 - **Signed on macOS:** the macOS app is signed with an Apple Developer ID and notarized by Apple, so it opens without the "can't verify the developer" warning or any terminal command. The first time the signed version opens, macOS asks once whether DBine may use its key in the keychain: choose **Always Allow**.
+- **Cloud sign-in only trusts the instance's certificate:** connections that sign in with AWS IAM, Google Cloud IAM or Microsoft Entra, and Cloud SQL and AlloyDB connections with the instance's CA file, now accept only that CA (or Amazon's RDS bundle), not any public certificate, before sending a token or password. A server that asks for the password in cleartext while **Trust server certificate** is on now fails instead of receiving it.
+- **Signed on Windows:** the Windows installer and the app are signed with a code-signing certificate, so Windows shows who publishes DBine instead of "Unknown publisher".
 
 ### Fixes
 - **Server monitor:** its figures, tables and notes are translated in every engine, instead of showing some labels in Spanish.
