@@ -787,16 +787,44 @@ fn extended_refused(e: &tokio_postgres::Error) -> bool {
     m.contains("extended query") || m.contains("extended protocol") || m.contains("simple query")
 }
 
-/// TLS as the form asks: the CA file, when given, is trusted on top of the
-/// system's (every certificate of a bundle, like AWS's global-bundle.pem).
+/// How much of the server's certificate is checked.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+struct TlsChecks {
+    /// The certificate must name the host dialed.
+    hostname: bool,
+    /// The system's roots anchor the chain (besides the CA file).
+    system_roots: bool,
+}
+
 /// Cloud SQL and AlloyDB certificates name the instance, not the IP the
-/// client dials, so with their CA only the chain is checked. `rds_roots`
-/// (AWS IAM, Aurora) trusts Amazon's RDS CAs when no file is given.
+/// client dials, so with their CA only the chain is checked, and then only
+/// that CA anchors it: with the system roots too, any publicly trusted
+/// certificate for any name would get the password or the Google token.
+fn tls_checks(v: Variant, cfg: &ConnectionConfig, has_ca: bool) -> TlsChecks {
+    if cfg.trust_server_certificate {
+        return TlsChecks { hostname: false, system_roots: true };
+    }
+    // Also a Cloud SQL instance reached as PostgreSQL with Google Cloud IAM.
+    let instance_ca = has_ca && (matches!(v, Variant::CloudSql | Variant::AlloyDb) || cloud_auth::method(cfg) == Some(cloud_auth::GCP));
+    if instance_ca {
+        TlsChecks { hostname: false, system_roots: false }
+    } else {
+        TlsChecks { hostname: true, system_roots: true }
+    }
+}
+
+/// TLS as the form asks: the CA file, when given, is trusted on top of the
+/// system's (every certificate of a bundle, like AWS's global-bundle.pem),
+/// except where `tls_checks` drops the name check. `rds_roots` (AWS IAM,
+/// Aurora) trusts Amazon's RDS CAs when no file is given.
 fn tls_connector(v: Variant, cfg: &ConnectionConfig, rds_roots: bool) -> Result<native_tls::TlsConnector> {
     let mut b = native_tls::TlsConnector::builder();
+    let ca = cfg.option("ssl_root_cert").map(str::trim).filter(|p| !p.is_empty());
+    let checks = tls_checks(v, cfg, ca.is_some());
     b.danger_accept_invalid_certs(cfg.trust_server_certificate)
-        .danger_accept_invalid_hostnames(cfg.trust_server_certificate);
-    if let Some(path) = cfg.option("ssl_root_cert").map(str::trim).filter(|p| !p.is_empty()) {
+        .danger_accept_invalid_hostnames(!checks.hostname)
+        .disable_built_in_roots(!checks.system_roots);
+    if let Some(path) = ca {
         let pem = std::fs::read(path).map_err(|e| Error::Connect(format!("no se pudo leer el certificado de CA «{path}»: {e}")))?;
         let bad = |e: String| Error::Connect(format!("el certificado de CA «{path}» no es un PEM válido: {e}"));
         let blocks = cloud_auth::pem_certificates(&pem);
@@ -805,10 +833,6 @@ fn tls_connector(v: Variant, cfg: &ConnectionConfig, rds_roots: bool) -> Result<
         }
         for block in blocks {
             b.add_root_certificate(native_tls::Certificate::from_pem(block).map_err(|e| bad(e.to_string()))?);
-        }
-        // Also a Cloud SQL instance reached as PostgreSQL with Google Cloud IAM.
-        if matches!(v, Variant::CloudSql | Variant::AlloyDb) || cloud_auth::method(cfg) == Some(cloud_auth::GCP) {
-            b.danger_accept_invalid_hostnames(true);
         }
     } else if rds_roots {
         for c in rds_certificates()? {
@@ -988,5 +1012,70 @@ mod tests {
         assert!(matches!(tls_connector(Variant::Aurora, &cfg, false), Err(Error::Connect(_))));
         assert!(tls_connector(Variant::Aurora, &ConnectionConfig::default(), false).is_ok());
         assert!(tls_connector(Variant::Aurora, &ConnectionConfig::default(), true).is_ok());
+    }
+
+    fn ca_cfg(options: &[(&str, &str)]) -> ConnectionConfig {
+        let mut cfg = ConnectionConfig { encrypt: true, ..Default::default() };
+        for (k, v) in options {
+            cfg.options.insert((*k).into(), (*v).into());
+        }
+        cfg
+    }
+
+    /// Whenever the certificate's name isn't checked, only the CA file
+    /// anchors the chain (no system roots).
+    #[test]
+    fn relaxed_hostname_checks_trust_only_the_ca_file() {
+        let relaxed = TlsChecks { hostname: false, system_roots: false };
+        let strict = TlsChecks { hostname: true, system_roots: true };
+        assert_eq!(tls_checks(Variant::CloudSql, &ca_cfg(&[]), true), relaxed);
+        assert_eq!(tls_checks(Variant::AlloyDb, &ca_cfg(&[]), true), relaxed);
+        let gcp = ca_cfg(&[(cloud_auth::AUTH, cloud_auth::GCP)]);
+        assert_eq!(tls_checks(Variant::Postgres, &gcp, true), relaxed);
+        // Without a CA file the name is checked against the system roots.
+        assert_eq!(tls_checks(Variant::CloudSql, &ca_cfg(&[]), false), strict);
+        assert_eq!(tls_checks(Variant::Postgres, &gcp, false), strict);
+        // Any other CA file: on top of the system roots, with the name checked.
+        assert_eq!(tls_checks(Variant::Postgres, &ca_cfg(&[]), true), strict);
+        let aws = ca_cfg(&[(cloud_auth::AUTH, cloud_auth::AWS)]);
+        assert_eq!(tls_checks(Variant::Aurora, &aws, true), strict);
+        // "Trust the server certificate" is the user's explicit choice.
+        let trust = ConnectionConfig { trust_server_certificate: true, ..ca_cfg(&[]) };
+        assert!(!tls_checks(Variant::CloudSql, &trust, true).hostname);
+        // Every variant: never the name check off with the system roots on,
+        // unless the user chose to trust any certificate.
+        for v in Variant::ALL {
+            for cfg in [ca_cfg(&[]), gcp.clone(), aws.clone()] {
+                for has_ca in [false, true] {
+                    let c = tls_checks(v, &cfg, has_ca);
+                    assert!(c.hostname || !c.system_roots, "{v:?}");
+                }
+            }
+        }
+    }
+
+    /// Live (needs the network): a publicly trusted certificate for another
+    /// name is refused on the Cloud SQL path, where the name isn't checked.
+    /// `cargo test -p dbine-driver-postgres -- --ignored public_cert`
+    #[test]
+    #[ignore]
+    fn a_public_cert_for_another_name_is_refused_without_the_name_check() {
+        let dir = std::env::temp_dir().join(format!("dbine-pg-ca-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let ca = dir.join("ca.pem");
+        // Any CA that didn't sign the site's certificate: Amazon's RDS bundle.
+        std::fs::write(&ca, cloud_auth::RDS_CA_BUNDLE).unwrap();
+        let cfg = ca_cfg(&[("ssl_root_cert", ca.to_str().unwrap())]);
+        let dial = |c: native_tls::TlsConnector| {
+            let tcp = std::net::TcpStream::connect("www.google.com:443").unwrap();
+            c.connect("not-this-host.invalid", tcp).map(|_| ())
+        };
+        assert!(dial(tls_connector(Variant::CloudSql, &cfg, false).unwrap()).is_err(), "Cloud SQL accepted a public certificate");
+        assert!(dial(tls_connector(Variant::AlloyDb, &cfg, false).unwrap()).is_err(), "AlloyDB accepted a public certificate");
+        // Control: with the system roots and no name check, it would pass.
+        let mut b = native_tls::TlsConnector::builder();
+        b.danger_accept_invalid_hostnames(true);
+        assert!(dial(b.build().unwrap()).is_ok());
+        let _ = std::fs::remove_dir_all(&dir);
     }
 }

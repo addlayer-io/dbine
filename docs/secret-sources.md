@@ -700,11 +700,16 @@ and runs it only if you confirm.
 
 - The confirmation is kept on this computer only, next to the state
   (`secret-source-approvals.json`), never in the cloud backup or an export.
-  It's bound to the connection, the field and the exact text: any change to
-  the definition asks again.
+  It's bound to the connection, the field and the definition as the form
+  writes it (spaces around the values and inputs that do nothing don't
+  count): any other change to the definition asks again.
 - What you type in the form on this computer counts as confirmed. Leaving an
   imported definition as it was, or duplicating it into a new connection,
-  doesn't.
+  doesn't; and while a connection's imported definition for a field is
+  unconfirmed, whatever you type over it in that connection's form also
+  asks before it first runs.
+- A connection whose definitions can't be read (a damaged or unknown entry)
+  counts as one from elsewhere: its fields ask first.
 - Without a confirmation, scheduled tasks, the MCP server and the AI
   assistant get an error that says to open the connection in DBine; the error
   doesn't include the definition.
