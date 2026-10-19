@@ -6,7 +6,9 @@
 //! fails. What it reuses and what it does again:
 //!
 //! - A connection cell runs on one session per connection and database
-//!   (kept for the whole run, as the tab keeps them), through the same
+//!   (kept for the whole run, as the tab keeps them; the cells that write,
+//!   which the task approved, on a writable one of their own and the rest
+//!   on a read-only one), through the same
 //!   script runner as the scheduled scripts
 //!   ([`crate::commands::query::run_on_entry`]): split as the editor's Auto
 //!   mode, the connection's read-only setting kept.
@@ -130,6 +132,7 @@ pub fn executable_cells(
 
 /// Each SQL cell's text as it runs (cell id → text, the values as the
 /// engine's literals); see [`executable_cells`].
+#[cfg(test)]
 pub fn executable_sources(
     nb: &Notebook,
     params: &BTreeMap<String, Value>,
@@ -502,13 +505,17 @@ pub fn load(opts: &Options) -> CommandResult<Notebook> {
 
 /// The cells of `nb` (the notebook a step runs, see [`load`]) whose SQL
 /// writes, on connections that aren't read-only: (cell name, target, first
-/// write, SQL).
+/// write, what the approval's fingerprint covers). The fingerprint covers
+/// the cell's source with its `{{markers}}` and the values of the
+/// parameters it uses that aren't credentials: a credential's value never
+/// enters it (it would be a digest of the secret kept in the task's JSON).
 pub fn writing_cells(state: &AppState, opts: &Options, nb: &Notebook) -> Vec<(String, Resolved, String, String)> {
     let Ok(ctx) = Context::new(state, Path::new(opts.path.trim())) else { return Vec::new() };
-    let sources = executable_sources(nb, &opts.params, &|c| ctx.driver_of(state, c, nb, &opts.targets)).unwrap_or_default();
+    let cells = executable_cells(nb, &opts.params, &|c| ctx.driver_of(state, c, nb, &opts.targets)).unwrap_or_default();
     let mut out = Vec::new();
     for c in nb.cells.iter().filter(|c| c.kind == CellKind::Sql) {
-        let sql = sources.get(&c.id).cloned().unwrap_or_else(|| c.source.clone());
+        let prepared = cells.get(&c.id);
+        let sql = prepared.map_or_else(|| c.source.clone(), |p| p.prepared.text.clone());
         if sql.trim().is_empty() {
             continue;
         }
@@ -517,7 +524,15 @@ pub fn writing_cells(state: &AppState, opts: &Options, nb: &Notebook) -> Vec<(St
                 continue;
             }
             if let Some(what) = first_write(&ctx, &r.connection_id, &sql) {
-                out.push((c.name.clone().unwrap_or_default(), r, what, sql));
+                // Without parameters the text is the source, as before.
+                let covered = match prepared.filter(|p| !p.prepared.used.is_empty()) {
+                    None => sql,
+                    Some(p) => {
+                        let values: serde_json::Map<String, Value> = p.values.iter().filter(|(k, _)| !super::is_credential_param(k)).map(|(k, v)| (k.clone(), v.clone())).collect();
+                        format!("{}\u{0}{}", c.source, Value::Object(values))
+                    }
+                };
+                out.push((c.name.clone().unwrap_or_default(), r, what, covered));
             }
         }
     }
@@ -661,7 +676,9 @@ pub async fn run_loaded(state: &AppState, key: &str, opts: &Options, policy: Pol
     let max_rows = setting_u64(state, "query.maxRows").unwrap_or(5000) as usize;
     let cap = setting_u64(state, "notebook.resultsRowCap").unwrap_or(local::DEFAULT_ROW_CAP);
     let tab = format!("{key}:nb");
-    let mut sessions: HashMap<(String, String), (String, Arc<SessionEntry>)> = HashMap::new();
+    let mut sessions: Sessions = HashMap::new();
+    // The connections and databases this run writes on (approved cells).
+    let write_pairs: HashSet<(String, String)> = writing_cells(state, opts, &nb).into_iter().map(|(_, r, _, _)| (r.connection_id, r.database)).collect();
     let mut live: HashMap<String, Live> = HashMap::new();
     let mut counter = 0u32;
     let mut run_seq = 0u64;
@@ -757,19 +774,24 @@ pub async fn run_loaded(state: &AppState, key: &str, opts: &Options, policy: Pol
                         break;
                     }
                     let driver = crate::commands::schema::driver_of(state, &r.connection_id)?;
+                    // Only the cells the task's approval covers (those that
+                    // write, see `writing_cells`) run on a writable session,
+                    // their own; every other cell runs on a read-only one
+                    // (the guard, and the server where it enforces it). A
+                    // cell the guard reads as harmless (a function with side
+                    // effects, `USE other`) can then neither change data nor
+                    // move the approved writes to another database.
+                    let writes = !r.read_only && first_write(&ctx, &r.connection_id, &script).is_some();
                     let pair = (r.connection_id.clone(), r.database.clone());
-                    let entry = match sessions.get(&pair) {
-                        Some((_, e)) => Ok(e.clone()),
-                        None => {
-                            let skey = format!("{key}:{}", sessions.len());
-                            match state.dedicated_session(&skey, &r.connection_id, &r.database, false).await {
-                                Ok(e) => {
-                                    sessions.insert(pair.clone(), (skey, e.clone()));
-                                    Ok(e)
-                                }
-                                Err(e) => Err(e),
-                            }
-                        }
+                    // An engine that keeps one open database per file
+                    // (DuckDB) opens it as the first session asks: the
+                    // writable one goes first when this run writes there.
+                    let entry = match (writes, write_pairs.contains(&pair)) {
+                        (false, true) => match session(state, key, &mut sessions, &r, true).await {
+                            Ok(_) => session(state, key, &mut sessions, &r, false).await,
+                            Err(e) => Err(e),
+                        },
+                        _ => session(state, key, &mut sessions, &r, writes).await,
                     };
                     let o = match entry {
                         Ok(e) => {
@@ -795,6 +817,12 @@ pub async fn run_loaded(state: &AppState, key: &str, opts: &Options, policy: Pol
             // The values that produced it (those of the parameters it used).
             if let (Some(r), Some(p)) = (c.result.as_mut(), cells.get(&cell.id).filter(|p| !p.values.is_empty())) {
                 r.params = Some(p.values.clone());
+            }
+            // With parameters, each statement as the file keeps it: from the
+            // source, with its `{{markers}}` (never the values written in).
+            if let (Some(r), Some(_)) = (c.result.as_mut(), cells.get(&cell.id).filter(|p| !p.prepared.used.is_empty())) {
+                let driver = source.as_ref().and_then(|(id, _)| crate::commands::schema::driver_of(state, id).ok().cloned());
+                marker_statements(r, &outcome, &script, cell.source.trim(), driver.as_deref());
             }
             if failed(&outcome) {
                 let msg = c.result.as_ref().and_then(|r| r.error.clone()).unwrap_or_default();
@@ -823,7 +851,98 @@ pub async fn run_loaded(state: &AppState, key: &str, opts: &Options, policy: Pol
         c.write_result = None;
         c.execution_count = None;
     }
+    // Defence in depth: what a server echoed of a credential's value (an
+    // error, a message) never reaches the copy, its export or the run's log.
+    let secrets = credential_values(&opts.params, cells.values().map(|c| &c.values));
+    scrub_credentials(&mut nb, &mut failure, &secrets);
     Ok(Ran { notebook: nb, ran, failure })
+}
+
+/// The sessions of a run: one per connection, database and whether it
+/// writes (key, entry).
+type Sessions = HashMap<(String, String, bool), (String, Arc<SessionEntry>)>;
+
+/// The run's session for `r`: writable (`writes`) or read-only, opened on
+/// first use and kept for the run.
+async fn session(state: &AppState, key: &str, sessions: &mut Sessions, r: &Resolved, writes: bool) -> CommandResult<Arc<SessionEntry>> {
+    let id = (r.connection_id.clone(), r.database.clone(), writes);
+    if let Some((_, e)) = sessions.get(&id) {
+        return Ok(e.clone());
+    }
+    let skey = format!("{key}:{}", sessions.len());
+    let e = state.dedicated_session(&skey, &r.connection_id, &r.database, !writes).await?;
+    sessions.insert(id, (skey, e.clone()));
+    Ok(e)
+}
+
+/// Each result's statement from the cell's `source` (with its markers)
+/// instead of `script` (the text that ran, the values as literals): the
+/// unit at the same place in the driver's cut of both. The whole source
+/// for a single result; no text when the cuts don't match.
+fn marker_statements(r: &mut CellResult, o: &QueryOutcome, script: &str, source: &str, driver: Option<&dyn dbine_driver::Driver>) {
+    let kept: Vec<&dbine_driver::StatementResult> = o.results.iter().filter(|r| !r.columns.is_empty() || r.rows_affected.is_some()).collect();
+    let single = kept.len() == 1 && kept[0].offset.is_none();
+    let units = driver.map(|d| (d.split_script(script), d.split_script(source))).filter(|(a, b)| a.len() == b.len());
+    for (s, k) in r.results.iter_mut().zip(&kept) {
+        let text = if single {
+            Some(source.to_string())
+        } else {
+            units.as_ref().zip(k.offset).and_then(|((ran, src), o)| ran.iter().position(|u| u.start == o).map(|i| src[i].text.clone()))
+        };
+        s.statement = text.map(|t| t.trim().trim_end_matches(';').trim_end().chars().take(4000).collect::<String>()).filter(|t| !t.is_empty());
+    }
+}
+
+/// The values of the credential parameters (a password's, a token's) a
+/// run had: the step's and each cell's.
+fn credential_values<'a>(params: &BTreeMap<String, Value>, cells: impl Iterator<Item = &'a serde_json::Map<String, Value>>) -> Vec<String> {
+    let mut out: Vec<String> = Vec::new();
+    let all = params.iter().chain(cells.flat_map(|m| m.iter()));
+    for (_, v) in all.filter(|(k, _)| super::is_credential_param(k)) {
+        let text = match v {
+            Value::Null => continue,
+            Value::String(s) => s.clone(),
+            other => other.to_string(),
+        };
+        if !text.is_empty() && !out.contains(&text) {
+            out.push(text);
+        }
+    }
+    // The longest first: a value inside another is replaced after it.
+    out.sort_by_key(|s| std::cmp::Reverse(s.len()));
+    out
+}
+
+/// `***` for each of `secrets` (as given and as a SQL literal writes it,
+/// quotes doubled) in the statements, messages and errors of every
+/// result, and in the failure.
+fn scrub_credentials(nb: &mut Notebook, failure: &mut Option<(String, String)>, secrets: &[String]) {
+    if secrets.is_empty() {
+        return;
+    }
+    let scrub = |t: &mut String| {
+        for s in secrets {
+            for form in [s.replace('\'', "''"), s.clone()] {
+                if t.contains(&form) {
+                    *t = t.replace(&form, "***");
+                }
+            }
+        }
+    };
+    for c in &mut nb.cells {
+        if let Some(r) = c.result.as_mut() {
+            r.results.iter_mut().filter_map(|s| s.statement.as_mut()).for_each(scrub);
+            r.messages.iter_mut().for_each(scrub);
+            r.error.iter_mut().for_each(scrub);
+        }
+        if let Some(w) = c.write_result.as_mut() {
+            w.error.iter_mut().for_each(scrub);
+            w.warnings.iter_mut().for_each(scrub);
+        }
+    }
+    if let Some((_, msg)) = failure.as_mut() {
+        scrub(msg);
+    }
 }
 
 /// A DataFrame SQL cell: its sources resolved (each one's opt-in checked),

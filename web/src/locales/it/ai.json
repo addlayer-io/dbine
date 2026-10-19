@@ -112,5 +112,10 @@
     "reject": "Rifiuta",
     "approveAll": "Approva le letture in questa conversazione",
     "note": "Sola lettura: DBine la esegue in una sessione che rifiuta qualsiasi modifica. Se la rifiuti, il modello prosegue senza quei dati."
+  },
+  "link": {
+    "title": "Apri link",
+    "body": "La risposta dell'assistente porta a questo indirizzo. Aprilo solo se ti fidi: un link può inviare dati della conversazione a un altro sito.",
+    "open": "Apri nel browser"
   }
 }

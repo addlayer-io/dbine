@@ -112,5 +112,10 @@
     "reject": "Refuser",
     "approveAll": "Approuver les lectures dans cette conversation",
     "note": "Lecture seule : DBine l'exécute dans une session qui refuse toute modification. Si vous la refusez, le modèle continue sans ces données."
+  },
+  "link": {
+    "title": "Ouvrir le lien",
+    "body": "La réponse de l'assistant mène à cette adresse. Ouvrez-la seulement si vous lui faites confiance : un lien peut envoyer des données de la conversation à un autre site.",
+    "open": "Ouvrir dans le navigateur"
   }
 }

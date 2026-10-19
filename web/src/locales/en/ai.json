@@ -112,5 +112,10 @@
     "reject": "Reject",
     "approveAll": "Approve reads in this conversation",
     "note": "Read-only: DBine runs it in a session that rejects any change. If you reject it, the model carries on without that data."
+  },
+  "link": {
+    "title": "Open link",
+    "body": "The assistant's answer leads to this address. Open it only if you trust it: a link can send data from the conversation to another site.",
+    "open": "Open in browser"
   }
 }

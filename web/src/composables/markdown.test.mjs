@@ -3,7 +3,7 @@
 // app's build: nothing imports this file.
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { esc, inline, markdownParts, renderMarkdown, safeHref } from './markdown.ts';
+import { esc, inline, linkDestination, markdownParts, renderMarkdown, safeHref, withDestinations } from './markdown.ts';
 
 test('raw HTML is always escaped', () => {
   const html = renderMarkdown('<script>alert(1)</script>\n\n<img src=x onerror="alert(1)">');
@@ -184,4 +184,19 @@ test('text over the length cap is shown escaped, without Markdown', () => {
   const html = inline(md);
   assert.ok(performance.now() - t < 250);
   assert.ok(html.startsWith('**&lt;b&gt;**'));
+});
+
+test("the assistant's links show where they go: the host beside the label, the whole address as tooltip", () => {
+  const html = withDestinations(renderMarkdown('[Open the DBine docs](https://attacker.example/d?q=a&b="x") and [mail](mailto:a@b.example?subject=x)'));
+  assert.ok(html.includes('title="https://attacker.example/d?q=a&amp;b=&quot;x&quot;"'), html);
+  assert.ok(html.includes('Open the DBine docs</a> <span class="md-link-host">(attacker.example)</span>'), html);
+  assert.ok(html.includes('mail</a> <span class="md-link-host">(a@b.example)</span>'), html);
+  // The href itself is the same one, escaped once.
+  assert.ok(html.includes('href="https://attacker.example/d?q=a&amp;b=&quot;x&quot;"'), html);
+  // A label can't fake the destination: it stays text, and the real host follows it.
+  const fake = withDestinations(renderMarkdown('[https://dbine.com](https://evil.example/x)'));
+  assert.ok(fake.includes('https://dbine.com</a> <span class="md-link-host">(evil.example)</span>'), fake);
+  // Text that only looks like a link is escaped, never turned into one.
+  assert.equal(withDestinations(renderMarkdown('`<a href="https://x.example">y</a>`')).includes('<a '), false);
+  assert.equal(linkDestination('https://user@host.example:8443/p'), 'host.example:8443');
 });

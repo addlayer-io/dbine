@@ -695,3 +695,199 @@ async fn notebook_headless_runs_with_the_steps_parameter_values() {
     o.params.remove("nota");
     assert!(run(&w.state, "t:params2", &o, Policy::default()).await.unwrap_err().to_string().contains("nota"));
 }
+
+// -- credentials and sessions (security fixes) ----------------------------------------------------
+
+/// A notebook with `cells` and a required text parameter `name`.
+fn with_param(path: &Path, name: &str, cells: Vec<NotebookCell>) {
+    use crate::notebook::params::{NotebookParameter, ParamType};
+    let nb = Notebook {
+        target: None,
+        save_results: true,
+        save_results_set: true,
+        cells,
+        parameters: vec![NotebookParameter { name: name.into(), kind: ParamType::Text, default: None, description: None, required: true, options: vec![] }],
+        origin: "dbine".into(),
+        extra_metadata: json!({}),
+        warnings: vec![],
+    };
+    std::fs::write(path, serialize(&nb, PreviewLimits::default())).unwrap();
+}
+
+/// A credential parameter's value never reaches the executed copy: each
+/// result keeps its statement with the `{{marker}}`, as the tab does.
+#[tokio::test(flavor = "multi_thread")]
+async fn notebook_headless_copy_never_holds_a_credential_value() {
+    let w = world("cred", vec![]);
+    let path = w.dir.join("cred.ipynb");
+    with_param(
+        &path,
+        "api_token",
+        vec![cell("c1", "c1", on("Ventas"), "SELECT count(*) AS n FROM ventas WHERE {{api_token}} <> '';\nSELECT {{api_token}} = '' AS vacio")],
+    );
+    let mut o = opts(&path);
+    o.params = BTreeMap::from([("api_token".to_string(), json!("S3cr3t-T0ken"))]);
+    let ran = run(&w.state, "t:cred", &o, Policy::default()).await.unwrap();
+    assert!(ran.failure.is_none(), "{:?}", ran.failure);
+    let r = ran.notebook.cells[0].result.as_ref().unwrap();
+    let statements: Vec<Option<&str>> = r.results.iter().map(|s| s.statement.as_deref()).collect();
+    assert_eq!(statements, vec![Some("SELECT count(*) AS n FROM ventas WHERE {{api_token}} <> ''"), Some("SELECT {{api_token}} = '' AS vacio")]);
+    let text = serialize(&ran.notebook, PreviewLimits::default());
+    assert!(!text.contains("S3cr3t-T0ken"), "{text}");
+}
+
+/// Defence in depth: whatever a server echoes of a credential value (an
+/// error, a message) is scrubbed before the copy is written.
+#[test]
+fn notebook_headless_scrubs_credential_values_from_results() {
+    let mut nb = Notebook {
+        target: None,
+        save_results: true,
+        save_results_set: true,
+        cells: vec![cell("c1", "c1", on("Ventas"), "SELECT 1")],
+        parameters: vec![],
+        origin: "dbine".into(),
+        extra_metadata: json!({}),
+        warnings: vec![],
+    };
+    nb.cells[0].result = Some(CellResult {
+        results: vec![StoredStatement {
+            columns: vec![],
+            rows: vec![],
+            rows_total: 0,
+            rows_kept: 0,
+            truncated: false,
+            rows_affected: Some(0),
+            statement: Some("ALTER USER app PASSWORD 'it''s-S3cr3t'".into()),
+        }],
+        messages: vec!["changed to it's-S3cr3t".into()],
+        error: Some("bad password it''s-S3cr3t".into()),
+        ..Default::default()
+    });
+    let mut failure = Some(("c1".to_string(), "bad password it's-S3cr3t".to_string()));
+    let secrets = credential_values(&BTreeMap::from([("db_password".to_string(), json!("it's-S3cr3t")), ("region".to_string(), json!("eu"))]), std::iter::empty());
+    scrub_credentials(&mut nb, &mut failure, &secrets);
+    let text = format!("{:?} {:?}", nb.cells[0].result, failure);
+    assert!(!text.contains("S3cr3t"), "{text}");
+    assert!(text.contains("ALTER USER app PASSWORD '***'"), "{text}");
+}
+
+/// Cells outside the task's approved writes run on a read-only session of
+/// their own, apart from the approved writes' session: nothing a read cell
+/// sets on its session reaches the writes, and the other way round.
+#[tokio::test(flavor = "multi_thread")]
+async fn notebook_headless_reads_and_approved_writes_never_share_a_session() {
+    let w = world("split", vec![]);
+    let path = w.dir.join("split.ipynb");
+    write_nb(
+        &path,
+        vec![
+            cell("c1", "c1", on("Ventas"), "CREATE TEMP TABLE tmp AS SELECT 1 AS x"),
+            cell("c2", "c2", on("Ventas"), "SELECT x FROM tmp"),
+        ],
+    );
+    let ran = run(&w.state, "t:split", &opts(&path), Policy::default()).await.unwrap();
+    let (at, why) = ran.failure.expect("the read cell can't see the write session's temp table");
+    assert_eq!(at, "c2");
+    assert!(why.contains("tmp"), "{why}");
+    // A read cell's session refuses writes on its own (the file opened read-only).
+    write_nb(&path, vec![cell("c1", "c1", on("Ventas"), "SELECT count(*) FROM ventas"), cell("c2", "borra", on("Ventas"), "DELETE FROM ventas WHERE id = 2")]);
+    let ran = run(&w.state, "t:split2", &opts(&path), Policy::default()).await.unwrap();
+    assert!(ran.failure.is_none(), "{:?}", ran.failure);
+    let left = rusqlite::Connection::open(w.dir.join("ventas.sqlite")).unwrap().query_row("SELECT COUNT(*) FROM ventas", [], |r| r.get::<_, i64>(0)).unwrap();
+    assert_eq!(left, 2, "the approved write still runs");
+}
+
+/// Against the `dbine-test-*` containers: a write disguised as a function
+/// call in a read cell can't change data (PostgreSQL), and a `USE` in a
+/// read cell can't move the approved write to another database (MySQL).
+///
+/// ```sh
+/// cargo test -p dbine --lib -- --ignored notebook_headless_live_read_cells --test-threads=1 --nocapture
+/// ```
+#[tokio::test(flavor = "multi_thread")]
+#[ignore]
+async fn notebook_headless_live_read_cells_cant_write() {
+    let w = world("live-ro", vec![]);
+    // PostgreSQL: `SELECT purge()` reads as a read to the guard.
+    let mut pg = server("postgres", "localhost", 25010, "postgres");
+    pg.database = "postgres".into();
+    save_conn(&w.state, "pg", "PG prueba", pg.clone(), vec![]);
+    w.state.typed_secrets.insert("pg".into(), [("password".to_string(), "pw".to_string())].into_iter().collect());
+    let setup = "DROP TABLE IF EXISTS nb_purge; CREATE TABLE nb_purge (id int); INSERT INTO nb_purge VALUES (1), (2);
+        CREATE OR REPLACE FUNCTION nb_purge_all() RETURNS int LANGUAGE sql AS 'DELETE FROM nb_purge RETURNING 1';";
+    let path = w.dir.join("pg.ipynb");
+    write_nb(&path, vec![cell("c0", "c0", on("PG prueba"), setup)]);
+    let ran = run(&w.state, "t:pg0", &opts(&path), Policy::default()).await.unwrap();
+    assert!(ran.failure.is_none(), "{:?}", ran.failure);
+    write_nb(&path, vec![cell("c1", "c1", on("PG prueba"), "SELECT nb_purge_all()"), cell("c2", "c2", on("PG prueba"), "SELECT count(*) AS n FROM nb_purge")]);
+    assert!(crate::notebook::headless::writing_cells(&w.state, &opts(&path), &load(&opts(&path)).unwrap()).is_empty(), "nothing to approve");
+    let ran = run(&w.state, "t:pg1", &opts(&path), Policy::default()).await.unwrap();
+    let (_, why) = ran.failure.expect("refused by the read-only session");
+    assert!(why.contains("read-only") || why.contains("solo lectura"), "{why}");
+    write_nb(&path, vec![cell("c2", "c2", on("PG prueba"), "SELECT count(*)::text AS n FROM nb_purge")]);
+    let ran = run(&w.state, "t:pg2", &opts(&path), Policy::default()).await.unwrap();
+    assert_eq!(rows(&ran.notebook.cells[0]), vec![vec![json!("2")]], "no row deleted");
+}
+
+#[tokio::test(flavor = "multi_thread")]
+#[ignore]
+async fn notebook_headless_live_read_cells_cant_move_writes() {
+    let w = world("live-use", vec![]);
+    // MySQL: `USE nb_b` in a read cell, then the approved DELETE on nb_a.
+    let mut my = server("mysql", "localhost", 25011, "root");
+    my.database = "mysql".into();
+    save_conn(&w.state, "my", "My prueba", my.clone(), vec![]);
+    w.state.typed_secrets.insert("my".into(), [("password".to_string(), "pw".to_string())].into_iter().collect());
+    let path = w.dir.join("my.ipynb");
+    let setup = "DROP DATABASE IF EXISTS nb_a; DROP DATABASE IF EXISTS nb_b; CREATE DATABASE nb_a; CREATE DATABASE nb_b;
+        CREATE TABLE nb_a.t (id int); CREATE TABLE nb_b.t (id int); INSERT INTO nb_a.t VALUES (1); INSERT INTO nb_b.t VALUES (1);";
+    write_nb(&path, vec![cell("c0", "c0", on("My prueba"), setup)]);
+    let ran = run(&w.state, "t:my0", &opts(&path), Policy::default()).await.unwrap();
+    assert!(ran.failure.is_none(), "{:?}", ran.failure);
+    let a = Some(NotebookTarget { connection: Some("My prueba".into()), database: Some("nb_a".into()), ..Default::default() });
+    write_nb(&path, vec![cell("c1", "c1", a.clone(), "USE nb_b"), cell("c2", "borra", a, "DELETE FROM t")]);
+    let ran = run(&w.state, "t:my1", &opts(&path), Policy::default()).await.unwrap();
+    assert!(ran.failure.is_none(), "{:?}", ran.failure);
+    let count = "SELECT (SELECT count(*) FROM nb_a.t) AS a, (SELECT count(*) FROM nb_b.t) AS b";
+    write_nb(&path, vec![cell("c3", "c3", on("My prueba"), count)]);
+    let ran = run(&w.state, "t:my2", &opts(&path), Policy::default()).await.unwrap();
+    assert_eq!(rows(&ran.notebook.cells[0]), vec![vec![json!(0), json!(1)]], "the DELETE ran on nb_a, the approved database");
+}
+
+/// The approval's fingerprint never holds a credential value: the cell's
+/// source with its markers and the other parameters' values. A new
+/// credential value doesn't ask again; another value of a parameter that
+/// isn't a credential does.
+#[test]
+fn notebook_step_fingerprint_leaves_credential_values_out() {
+    let w = world("fp", vec![]);
+    let path = w.dir.join("fp.ipynb");
+    use crate::notebook::params::{NotebookParameter, ParamType};
+    let p = |name: &str| NotebookParameter { name: name.into(), kind: ParamType::Text, default: None, description: None, required: true, options: vec![] };
+    let nb = Notebook {
+        cells: vec![cell("c1", "borra", on("Ventas"), "DELETE FROM ventas WHERE {{db_password}} <> '' AND {{zona}} <> ''")],
+        parameters: vec![p("db_password"), p("zona")],
+        target: None,
+        save_results: true,
+        save_results_set: true,
+        origin: "dbine".into(),
+        extra_metadata: json!({}),
+        warnings: vec![],
+    };
+    std::fs::write(&path, serialize(&nb, PreviewLimits::default())).unwrap();
+    let t = |pw: &str, zona: &str| {
+        task(vec![Step {
+            id: "nb".into(),
+            kind: kinds::RUN_NOTEBOOK.into(),
+            config: json!({"path": path.to_string_lossy(), "params": {"db_password": pw, "zona": zona}}),
+            ..Default::default()
+        }])
+    };
+    let scope = crate::tasks::write_scope(&w.state, &t("hunter2-pw", "norte"));
+    assert_eq!(scope.len(), 1);
+    assert!(!scope[0].script.contains("hunter2-pw") && scope[0].script.contains("{{db_password}}"), "{}", scope[0].script);
+    let fp = |pw: &str, zona: &str| crate::tasks::fingerprint_of(&crate::tasks::write_scope(&w.state, &t(pw, zona)));
+    assert_eq!(fp("hunter2-pw", "norte"), fp("other-pw", "norte"));
+    assert_ne!(fp("hunter2-pw", "norte"), fp("hunter2-pw", "sur"));
+}

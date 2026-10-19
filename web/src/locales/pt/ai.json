@@ -112,5 +112,10 @@
     "reject": "Rejeitar",
     "approveAll": "Aprovar leituras nesta conversa",
     "note": "Somente leitura: o DBine a executa em uma sessão que rejeita qualquer alteração. Se você a rejeitar, o modelo segue sem esses dados."
+  },
+  "link": {
+    "title": "Abrir link",
+    "body": "A resposta do assistente leva a este endereço. Abra-o apenas se confiar nele: um link pode enviar dados da conversa para outro site.",
+    "open": "Abrir no navegador"
   }
 }

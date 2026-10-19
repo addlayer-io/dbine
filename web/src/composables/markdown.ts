@@ -31,6 +31,31 @@ export function safeHref(url: string): string | null {
   return /^(https?:\/\/|mailto:)/i.test(u) ? u : null;
 }
 
+/** `esc` undone (an attribute's value back to its text). */
+function unesc(s: string): string {
+  return s.replace(/&lt;/g, '<').replace(/&gt;/g, '>').replace(/&quot;/g, '"').replace(/&#39;/g, "'").replace(/&amp;/g, '&');
+}
+
+/** Where a link goes, as the assistant's answers show it beside the
+ *  label: the host (the address, for mailto:). */
+export function linkDestination(href: string): string {
+  if (/^mailto:/i.test(href)) return href.slice(7).split('?')[0];
+  try {
+    return new URL(href).host || href;
+  } catch {
+    return href;
+  }
+}
+
+/** Rendered Markdown with each link's destination in sight: the host after
+ *  the label and the whole address as its tooltip, so a label can't hide
+ *  where it goes (the assistant's answers, which can carry text from
+ *  anywhere). */
+export function withDestinations(html: string): string {
+  return html.replace(/<a href="([^"]*)" rel="noopener noreferrer" target="_blank">([\s\S]*?)<\/a>/g, (_, href: string, label: string) =>
+    `<a href="${href}" title="${href}" rel="noopener noreferrer" target="_blank">${label}</a> <span class="md-link-host">(${esc(linkDestination(unesc(href)))})</span>`);
+}
+
 /** `s` with each `open…close` pair wrapped in `tag`, as the lazy regex
  *  `open(?=\S)([\s\S]*?\S)close` would (with `left`/`right` for the
  *  characters allowed before the opener and after the closer), in linear

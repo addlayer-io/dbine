@@ -11,8 +11,8 @@ import { useAiStore, type UiMessage } from '../stores/ai';
 import { useConnectionsStore } from '../stores/connections';
 import { useTabsStore } from '../stores/tabs';
 import { locale } from '../i18n';
-import { markdownParts } from '../composables/markdown';
-import { onMarkdownClick } from '../composables/externalLink';
+import { markdownParts, withDestinations } from '../composables/markdown';
+import { confirmExternalLink, onMarkdownClick } from '../composables/externalLink';
 
 // The AI assistant (right sidebar, ⌘I). It writes code; it never runs it:
 // its code goes into the open query (appended, or replacing it when it
@@ -120,7 +120,10 @@ const suggestions = computed(() => {
 });
 
 // -- rendering (composables/markdown.ts: everything is escaped first) ----------------
-const parts = (md: string) => markdownParts(md);
+// Each link shows where it goes and asks before opening (an answer can
+// carry links a prompt injection wrote).
+const parts = (md: string) => markdownParts(md).map((p) => (p.kind === 'text' ? { ...p, html: withDestinations(p.html) } : p));
+const onAnswerClick = (e: MouseEvent) => onMarkdownClick(e, confirmExternalLink);
 /** Hide a model's <think>…</think> (some local models inline it). */
 function visible(m: UiMessage) {
   return m.content.replace(/<think>[\s\S]*?(<\/think>|$)/g, '').trimStart();
@@ -338,7 +341,7 @@ const phaseText = computed(() => ({
               <pre class="nm-selectable">{{ thinkingOf(m) }}</pre>
             </details>
             <template v-for="(p, i) in parts(visible(m))" :key="i">
-              <div v-if="p.kind === 'text'" class="ai-md nm-selectable" @click="onMarkdownClick" v-html="p.html" />
+              <div v-if="p.kind === 'text'" class="ai-md nm-selectable" @click="onAnswerClick" v-html="p.html" />
               <div v-else class="ai-code">
                 <div class="ai-code-bar">
                   <span>{{ p.lang || $t('ai:code.code') }}</span>
@@ -453,6 +456,7 @@ const phaseText = computed(() => ({
 .ai-md :deep(th), .ai-md :deep(td) { padding: 2px 6px; border: 1px solid var(--nm-border); }
 .ai-md :deep(hr) { border: 0; border-top: 1px solid var(--nm-border); margin: 8px 0; }
 .ai-md :deep(a) { color: var(--nm-syn-link, var(--nm-primary)); }
+.ai-md :deep(.md-link-host) { color: var(--nm-text-dim); font-size: 11px; }
 .ai-md :deep(ul), .ai-md :deep(ol) { margin: 0 0 6px; padding-left: 18px; line-height: 1.55; }
 .ai-md :deep(code) { font-family: var(--nm-mono); font-size: 12px; padding: 0 4px; border-radius: 3px; background: var(--nm-overlay-code); }
 .ai-code { margin: 4px 0 8px; border: 1px solid var(--nm-border); border-radius: 6px; overflow: hidden; background: var(--ide-editor); }

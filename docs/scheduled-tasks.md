@@ -193,11 +193,20 @@ as **Run all** does in its tab, and stops at the first cell that fails. With
 
 How cells run:
 
-- **Connection cells** run on one session per connection and database for
+- **Connection cells** run on sessions kept per connection and database for
   the whole run (a transaction a cell opens stays open for the next ones,
   as in the tab; one still open at the end is rolled back when the session
   closes), split as the editor's Auto mode does, each statement committed.
-  The connection's **read-only** setting holds.
+  The cells that write (the ones the task's approval covers) run on a
+  writable session of their own; every other cell runs on a **read-only**
+  session, so a cell that reads as harmless (a function with side effects,
+  `USE other`) can neither change data nor move the approved writes to
+  another database. The two never share state (temporary tables, `USE`,
+  `SET`). The connection's **read-only** setting holds.
+- **Parameters:** each result keeps its statement with the `{{markers}}`,
+  as in the tab; a credential parameter's value is never written to the
+  copy or the export, and the approval's fingerprint covers the cell's
+  source and the other parameters' values, never a credential's.
 - **DataFrame SQL cells** run as in the app: the same DuckDB lockdown, the
   same refused statements, the same row cap per DataFrame (**Settings ›
   Notebooks**) and the same always-blocked folders. Their sources are the
@@ -441,7 +450,8 @@ Tasks add no methods to the drivers: each step type uses what already exists.
   ([`database-docs.md`](database-docs.md)), in a read-only session.
 - **Run a notebook:** the notebook's own paths, run without a window
   (`src-tauri/src/notebook/headless.rs`): connection cells through the
-  scheduled scripts' runner on a session per connection and database,
+  scheduled scripts' runner on a session per connection and database
+  (a read-only one for the cells outside the approved writes),
   DataFrame SQL cells through `notebook::local::run_local` (the function
   behind the app's `notebook_run_local`), the export through
   `notebook::export`. What the tab does in TypeScript (resolving targets,
