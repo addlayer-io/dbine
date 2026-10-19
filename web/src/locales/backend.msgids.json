@@ -519,6 +519,9 @@
  "1: una etapa": [
   "crates/drivers/tdengine/src/create_db.rs"
  ],
+ "1Password no encontró «{0}»: el elemento no tiene ese campo": [
+  "src-tauri/src/secret_sources/onepassword.rs"
+ ],
  "1Password no encontró «{0}»: {1}": [
   "src-tauri/src/secret_sources/onepassword.rs"
  ],
@@ -25310,7 +25313,7 @@
   "crates/dbine-core/src/tasks.rs"
  ],
  "el elemento de 1Password no tiene usuario ({0})": [
-  "src-tauri/src/secret_sources/mod.rs"
+  "src-tauri/src/secret_sources/onepassword.rs"
  ],
  "el elemento de la lista tiene que ser un número desde 1": [
   "crates/dbine-core/src/secret_sources.rs"

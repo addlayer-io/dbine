@@ -188,9 +188,14 @@ ID / Windows Hello itself (DBine waits up to 60 s). The errors say which case
 it is: CLI not installed, not signed in (`op signin`), unlock cancelled, item
 or field not found.
 
-As the credentials, the user comes from the same item: a second `op read` of
-`op://<vault>/<item>/username`, or of the field chosen as **User field**
-under **Configuración avanzada** (`[section/]field`).
+As the credentials, the user comes from the same item: its `username`
+field, or the field chosen as **User field** under **Configuración
+avanzada** (`[section/]field`). Both are read with one call,
+`op item get <item> --vault <vault> --reveal --format=json` (so 1Password
+asks to unlock once), and taken from the item by label (any case) or ID;
+the rest of the item's JSON is wiped right away. A reference with a query
+(`?attribute=…`) reads each field with its own `op read`. No value ever goes
+on a command line.
 
 ## HashiCorp Vault
 

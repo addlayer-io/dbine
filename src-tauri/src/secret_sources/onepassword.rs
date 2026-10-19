@@ -1,7 +1,10 @@
 //! 1Password: `op read <op://vault/item/field>` with the 1Password CLI,
-//! run directly (no shell) with the reference as one argument.
+//! run directly (no shell) with the reference as one argument. With the
+//! user too, one `op item get` reads the item once and both fields are
+//! taken from it (one unlock prompt, not two).
 
 use super::cloud_auth;
+use dbine_core::secret_sources::wipe;
 use super::exec::{self, Failure};
 use std::path::PathBuf;
 use std::time::Duration;
@@ -58,6 +61,78 @@ fn explain(stderr: &str, reference: &str) -> String {
     }
 }
 
+/// The parts of an `op://<vault>/<item>/[section/]field` reference, when
+/// it's one of those (no `?attribute=` query).
+fn split_reference(reference: &str) -> Option<(&str, &str, &str)> {
+    let r = reference.trim().strip_prefix("op://")?;
+    if r.contains('?') {
+        return None;
+    }
+    let mut parts = r.splitn(3, '/');
+    let (vault, item, field) = (parts.next()?, parts.next()?, parts.next()?);
+    let ok = |p: &str| !p.is_empty() && !p.starts_with('-');
+    (ok(vault) && ok(item) && ok(field) && field.split('/').count() <= 2 && field.split('/').all(|f| !f.is_empty())).then_some((vault, item, field))
+}
+
+/// A field's value in `op item get --format json`'s item, as a reference
+/// names it: `[section/]field`, by label (any case) or ID; without a
+/// section, one outside every section first.
+pub fn field_value(item: &serde_json::Value, spec: &str) -> Option<String> {
+    use serde_json::Value;
+    let spec = spec.trim().trim_matches('/');
+    let (section, field) = match spec.split_once('/') {
+        Some((s, f)) => (Some(s), f),
+        None => (None, spec),
+    };
+    let fields = item.get("fields").and_then(Value::as_array)?;
+    let text = |f: &Value, k: &str| f.get(k).and_then(Value::as_str).unwrap_or("").to_string();
+    let named = |f: &&Value| text(f, "id") == field || text(f, "label").eq_ignore_ascii_case(field);
+    let in_section = |f: &&Value, sec: &str| {
+        f.get("section").is_some_and(|s| s.get("id").and_then(Value::as_str) == Some(sec) || s.get("label").and_then(Value::as_str).is_some_and(|l| l.eq_ignore_ascii_case(sec)))
+    };
+    let found = match section {
+        Some(sec) => fields.iter().filter(named).find(|f| in_section(f, sec)),
+        None => fields.iter().filter(named).find(|f| f.get("section").and_then(|s| s.get("label")).and_then(Value::as_str).unwrap_or("").is_empty()).or_else(|| fields.iter().find(named)),
+    };
+    found.and_then(|f| f.get("value")).and_then(Value::as_str).map(str::to_string)
+}
+
+/// The value and the user of the same item (`user_field`: `[section/]field`,
+/// else `username`) with one `op` call: `op item get <item> --vault <vault>
+/// --reveal --format=json`, both fields taken from it and the rest wiped.
+/// A reference with a query (`?attribute=…`) reads each one with `op read`.
+pub async fn read_with_user(reference: &str, user_field: &str, account: &str) -> Result<(String, String), String> {
+    let user_ref = user_reference(reference, user_field);
+    let no_user = || format!("el elemento de 1Password no tiene usuario ({user_ref})");
+    let Some((vault, item, field)) = split_reference(reference) else {
+        let mut value = read(reference, account).await?;
+        return match read(&user_ref, account).await {
+            Ok(u) if !u.is_empty() => Ok((value, u)),
+            other => {
+                wipe(&mut value);
+                if let Ok(mut u) = other {
+                    wipe(&mut u);
+                }
+                Err(no_user())
+            }
+        };
+    };
+    let mut json = op_json_for(&["item", "get", item, "--vault", vault, "--reveal"], account, reference.trim()).await?;
+    let value = field_value(&json, field);
+    let user = field_value(&json, Some(user_field.trim()).filter(|f| !f.trim_matches('/').is_empty()).unwrap_or("username"));
+    super::browse::wipe_json(&mut json);
+    match (value, user) {
+        (Some(v), Some(u)) if !u.is_empty() => Ok((v, u)),
+        (value, user) => {
+            let no_value = value.is_none();
+            for mut s in [value, user].into_iter().flatten() {
+                wipe(&mut s);
+            }
+            Err(if no_value { format!("1Password no encontró «{}»: el elemento no tiene ese campo", reference.trim()) } else { no_user() })
+        }
+    }
+}
+
 /// The reference of the same item's user field: `op://<vault>/<item>/` and
 /// `user_field` (`[section/]field`), else `username`.
 pub fn user_reference(reference: &str, user_field: &str) -> String {
@@ -74,6 +149,11 @@ const LIST_LIMIT: u64 = 8 * 1024 * 1024;
 
 /// Run `op <args> --format json` and parse it.
 async fn op_json(args: &[&str], account: &str) -> Result<serde_json::Value, String> {
+    op_json_for(args, account, &args.join(" ")).await
+}
+
+/// [`op_json`], naming `what` in a "not found" error.
+async fn op_json_for(args: &[&str], account: &str, what: &str) -> Result<serde_json::Value, String> {
     if cloud_auth::sandboxed() {
         return Err(cloud_auth::sandbox_message("op"));
     }
@@ -85,14 +165,14 @@ async fn op_json(args: &[&str], account: &str) -> Result<serde_json::Value, Stri
     }
     let mut out = match exec::run_capped(cmd, LIMIT, LIST_LIMIT).await {
         Ok(out) => out,
-        Err(Failure::Exit { stderr, .. }) => return Err(explain(&stderr, &args.join(" "))),
+        Err(Failure::Exit { stderr, .. }) => return Err(explain(&stderr, what)),
         Err(Failure::Timeout(d)) => return Err(format!("«op» no respondió en {} s (¿quedó esperando que desbloquees 1Password?)", d.as_secs())),
         Err(Failure::Spawn(e)) => return Err(format!("«op» no se pudo ejecutar: {e}")),
         Err(Failure::TooLong) => return Err("la lista de 1Password es demasiado larga".into()),
         Err(Failure::NotText) => return Err("la respuesta de 1Password no es texto".into()),
     };
     let parsed = serde_json::from_str(&out).map_err(|_| "«op» no devolvió JSON".to_string());
-    dbine_core::secret_sources::wipe(&mut out);
+    wipe(&mut out);
     parsed
 }
 
@@ -213,6 +293,32 @@ mod tests {
     }
 
     #[test]
+    fn references_and_item_fields() {
+        assert_eq!(split_reference("op://Private Vault/DB/password"), Some(("Private Vault", "DB", "password")));
+        assert_eq!(split_reference(" op://v/i/Database/pass "), Some(("v", "i", "Database/pass")));
+        for r in ["op://v/i", "op://v/i/a/b/c", "op://v/i/f?attribute=otp", "op://-v/i/f", "op://v//f", "v/i/f"] {
+            assert_eq!(split_reference(r), None, "{r}");
+        }
+        let item = serde_json::json!({ "id": "i1", "fields": [
+            { "id": "username", "purpose": "USERNAME", "label": "username", "value": "app" },
+            { "id": "password", "purpose": "PASSWORD", "label": "password", "value": "hunter2" },
+            { "id": "k1", "section": { "id": "s1", "label": "Database" }, "label": "login", "value": "db_admin" },
+            { "id": "k2", "section": { "id": "s2", "label": "Other" }, "label": "username", "value": "other" },
+            { "id": "k3", "label": "no value" }
+        ] });
+        assert_eq!(field_value(&item, "username").as_deref(), Some("app"), "outside a section first");
+        assert_eq!(field_value(&item, "Password").as_deref(), Some("hunter2"), "a label in any case");
+        assert_eq!(field_value(&item, "Database/login").as_deref(), Some("db_admin"));
+        assert_eq!(field_value(&item, "s1/login").as_deref(), Some("db_admin"), "the section's ID");
+        assert_eq!(field_value(&item, "Other/username").as_deref(), Some("other"));
+        assert_eq!(field_value(&item, "k1").as_deref(), Some("db_admin"), "the field's ID");
+        assert_eq!(field_value(&item, "login").as_deref(), Some("db_admin"), "only one, in a section");
+        assert_eq!(field_value(&item, "Other/login"), None);
+        assert_eq!(field_value(&item, "missing"), None);
+        assert_eq!(field_value(&item, "no value"), None);
+    }
+
+    #[test]
     fn item_fields_without_values() {
         let item = serde_json::json!({ "id": "abc", "title": "pg", "fields": [
             { "id": "username", "type": "STRING", "purpose": "USERNAME", "label": "username", "value": "app" },
@@ -252,6 +358,51 @@ mod tests {
         assert_eq!(read("op://Private Vault/DB/password", "").await.unwrap(), "hunter2", "a reference with spaces is one argument");
         assert!(read("op://signed/out/x", "").await.unwrap_err().contains("op signin"));
         assert!(read("op://nope/nope/nope", "").await.unwrap_err().starts_with("1Password no encontró"));
+        std::env::set_var("PATH", old);
+    }
+
+    /// The value and the user in one `op` call: `DBINE_TEST_FAKE_OP=1 cargo
+    /// test -p dbine secret_sources::onepassword -- --ignored --test-threads=1`.
+    #[cfg(unix)]
+    #[tokio::test]
+    #[ignore]
+    async fn live_fake_op_one_call_for_user_and_password() {
+        if std::env::var("DBINE_TEST_FAKE_OP").is_err() {
+            return;
+        }
+        use std::os::unix::fs::PermissionsExt;
+        let dir = super::super::tests::temp_dir("fake-op-item");
+        let log = dir.join("calls.log");
+        let item = r#"{"id":"i1","title":"DB","fields":[{"id":"username","purpose":"USERNAME","label":"username","value":"app"},{"id":"password","purpose":"PASSWORD","label":"password","value":"hunter2"},{"id":"k1","section":{"id":"s1","label":"Database"},"label":"login","value":"db_admin"},{"id":"k2","section":{"id":"s1","label":"Database"},"label":"pass","value":"s3c"}]}"#;
+        let no_user = r#"{"id":"i2","title":"NoUser","fields":[{"id":"password","purpose":"PASSWORD","label":"password","value":"pw"}]}"#;
+        let script = format!(
+            "#!/bin/sh\nfor a in \"$@\"; do printf '[%s]' \"$a\"; done >> '{log}'; echo >> '{log}'\ncase \"$1 $2 $3\" in\n  'item get DB') echo '{item}' ;;\n  'item get NoUser') echo '{no_user}' ;;\n  *) echo \"[ERROR] 2026/10/18 10:00:00 \\\"x\\\" isn't an item in the \\\"y\\\" vault.\" >&2; exit 1 ;;\nesac\n",
+            log = log.display()
+        );
+        let op = dir.join("op");
+        std::fs::write(&op, script).unwrap();
+        std::fs::set_permissions(&op, std::fs::Permissions::from_mode(0o755)).unwrap();
+        let old = std::env::var_os("PATH").unwrap_or_default();
+        let mut paths = vec![dir.clone()];
+        paths.extend(std::env::split_paths(&old));
+        std::env::set_var("PATH", std::env::join_paths(paths).unwrap());
+        let calls = || std::fs::read_to_string(&log).unwrap_or_default().lines().map(str::to_string).collect::<Vec<_>>();
+        // One call, both values; the vault with a space is one argument.
+        let got = read_with_user("op://Private Vault/DB/password", "", "my.1password.com").await.unwrap();
+        assert_eq!(got, ("hunter2".to_string(), "app".to_string()));
+        assert_eq!(calls(), ["[item][get][DB][--vault][Private Vault][--reveal][--format=json][--account=my.1password.com]"]);
+        // A custom user field (and a value) in a section.
+        let got = read_with_user("op://Private Vault/DB/Database/pass", "Database/login", "").await.unwrap();
+        assert_eq!(got, ("s3c".to_string(), "db_admin".to_string()));
+        assert_eq!(calls().len(), 2, "one call each time");
+        assert!(calls().iter().all(|c| !c.contains("hunter2") && !c.contains("s3c")), "no secret on a command line");
+        // A missing field: the user, then the value.
+        let e = read_with_user("op://Private Vault/NoUser/password", "", "").await.unwrap_err();
+        assert_eq!(e, "el elemento de 1Password no tiene usuario (op://Private Vault/NoUser/username)");
+        let e = read_with_user("op://Private Vault/DB/nope", "", "").await.unwrap_err();
+        assert_eq!(e, "1Password no encontró «op://Private Vault/DB/nope»: el elemento no tiene ese campo");
+        let e = read_with_user("op://Private Vault/Gone/password", "", "").await.unwrap_err();
+        assert!(e.starts_with("1Password no encontró «op://Private Vault/Gone/password»"), "{e}");
         std::env::set_var("PATH", old);
     }
 }

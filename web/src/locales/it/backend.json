@@ -10480,6 +10480,7 @@
   "no existe el archivo «{0}»": "il file «{0}» non esiste",
   "El cliente de Oracle que usa DBine no lee tipos de objeto ({0}). Las columnas SDO_GEOMETRY se convierten solas; para otros tipos, seleccioná sus atributos, o convertí las geometrías con SDO_UTIL.TO_WKTGEOMETRY(columna).": "Il client Oracle usato da DBine non legge i tipi oggetto ({0}). Le colonne SDO_GEOMETRY vengono convertite automaticamente; per gli altri tipi, seleziona i loro attributi oppure converti le geometrie con SDO_UTIL.TO_WKTGEOMETRY(colonna).",
   "{0}: SDO_GEOMETRY como texto (EWKT, con SDO_UTIL.TO_WKTGEOMETRY), porque el cliente de Oracle no lee tipos de objeto.": "{0}: SDO_GEOMETRY come testo (EWKT, con SDO_UTIL.TO_WKTGEOMETRY), perché il client Oracle non legge i tipi oggetto.",
+  "1Password no encontró «{0}»: el elemento no tiene ese campo": "1Password non ha trovato «{0}»: l'elemento non ha quel campo",
   "1Password no encontró «{0}»: {1}": "1Password non ha trovato «{0}»: {1}",
   "AWS Secrets Manager no devolvió un valor para «{0}»": "AWS Secrets Manager non ha restituito un valore per «{0}»",
   "AWS Secrets Manager respondió {0}": "AWS Secrets Manager ha risposto {0}",

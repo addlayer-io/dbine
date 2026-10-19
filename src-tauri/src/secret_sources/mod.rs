@@ -326,27 +326,17 @@ pub async fn fetch(src: &SecretSource, slots: &Secrets) -> Result<Resolved, Stri
     let mut raw = match src {
         SecretSource::Command { command, .. } => exec::run(exec::shell_command(command), exec::COMMAND_LIMIT).await.map(exec::trim_newline).map_err(command_failure)?,
         SecretSource::OnePassword { reference, account, fill_username, user_field, .. } => {
-            let value = onepassword::read(reference, account).await?;
             if *fill_username {
-                let user_ref = onepassword::user_reference(reference, user_field);
-                match onepassword::read(&user_ref, account).await {
-                    Ok(u) if !u.is_empty() => {
-                        let picked = defs::pick_json(&value, src.json_key()).map_err(|e| e.to_string());
-                        let mut value = value;
-                        defs::wipe(&mut value);
-                        return finish(src, picked.map(|v| (v, Some(u))));
-                    }
-                    other => {
-                        let mut value = value;
-                        defs::wipe(&mut value);
-                        if let Ok(mut u) = other {
-                            defs::wipe(&mut u);
-                        }
-                        return Err(format!("el elemento de 1Password no tiene usuario ({user_ref})"));
-                    }
+                // One `op` call for both: one unlock prompt.
+                let (mut value, mut user) = onepassword::read_with_user(reference, user_field, account).await?;
+                let picked = defs::pick_json(&value, src.json_key()).map_err(|e| e.to_string());
+                defs::wipe(&mut value);
+                if picked.is_err() {
+                    defs::wipe(&mut user);
                 }
+                return finish(src, picked.map(|v| (v, Some(user))));
             }
-            value
+            onepassword::read(reference, account).await?
         }
         SecretSource::Vault { address, path, key, namespace, kv_version, ca_file, auth, approle_mount, role_id, .. } => {
             let req = vault::Request { address, path, key, namespace, kv_version: *kv_version, ca_file };
