@@ -2,6 +2,12 @@
 //! the same chain as the Google Cloud IAM sign-in (cloud_auth.rs: gcloud,
 //! the application default credentials, the metadata server). The endpoint
 //! is Google's; only the project, secret and version come from the form.
+//!
+//! With a gcloud account (an e-mail, kept by the account or the definition)
+//! the token is always that account's (`gcloud auth print-access-token
+//! --account <e-mail>`), whatever gcloud's active account is; without one,
+//! the chain as before. DBine never signs in itself: when that account has
+//! no valid sign-in, the error says the command to run ([`no_sign_in`]).
 
 use super::cloud_auth::{self, uri_encode};
 use base64::Engine;
@@ -10,26 +16,121 @@ use std::time::Duration;
 
 pub const ENDPOINT: &str = "https://secretmanager.googleapis.com";
 
-pub async fn get_secret(project: &str, secret: &str, version: &str) -> Result<String, String> {
-    let (token, _, _) = cloud_auth::gcp_token(None, true).await.map_err(|e| e.to_string())?;
+/// An access token: the gcloud `account`'s, else the chain's (gcloud's
+/// active account, the application default credentials, the metadata
+/// server), with the e-mail when known.
+pub(super) async fn token(account: &str) -> Result<(String, Option<String>), String> {
+    let a = account.trim();
+    if a.is_empty() {
+        return cloud_auth::gcp_token(None, true).await.map(|(t, _, e)| (t, e)).map_err(|e| e.to_string());
+    }
+    if !dbine_core::secret_sources::valid_gcloud_account(a) {
+        return Err("la cuenta de gcloud tiene que ser un correo (ana@example.com)".into());
+    }
+    // `--account` and the e-mail go as two arguments (no shell).
+    match cloud_auth::gcp_token(Some(a), true).await {
+        Ok((t, _, _)) => Ok((t, Some(a.to_string()))),
+        Err(e) => {
+            let e = e.to_string();
+            Err(if needs_sign_in(&e) { no_sign_in(a) } else { e })
+        }
+    }
+}
+
+/// gcloud has no valid sign-in for the account (a valid e-mail: it goes
+/// into the command the user copies).
+pub fn no_sign_in(account: &str) -> String {
+    format!("gcloud no tiene una sesión válida con esa cuenta: iniciá sesión con «gcloud auth login {account}» y probá de nuevo")
+}
+
+/// What gcloud says when an account isn't signed in on this computer or
+/// its credentials expired or were revoked.
+const SIGN_IN_MARKERS: &[&str] = &[
+    "does not have any valid credentials",
+    "credentialed accounts",
+    "no credentials",
+    "not found in the credential store",
+    "reauthentication",
+    "re-authenticate",
+    "reauth",
+    "invalid_grant",
+    "invalid_rapt",
+    "token has been expired or revoked",
+    "problem refreshing",
+    "gcloud auth login",
+    "please run",
+];
+
+/// Whether a token error (cloud_auth's chain) is gcloud asking for a
+/// sign-in: only its own line, without the hint cloud_auth adds to every
+/// CLI failure («(¿falta gcloud auth login?)»).
+pub fn needs_sign_in(err: &str) -> bool {
+    let line = err.lines().map(str::trim).find_map(|l| l.strip_prefix("- gcloud:")).unwrap_or(if err.contains('\n') { "" } else { err });
+    let line = line.trim();
+    let line = line.strip_suffix("(¿falta gcloud auth login?)").unwrap_or(line).to_lowercase();
+    SIGN_IN_MARKERS.iter().any(|m| line.contains(m))
+}
+
+pub async fn get_secret(project: &str, secret: &str, version: &str, account: &str) -> Result<String, String> {
+    let (token, _) = token(account).await?;
     let client = reqwest::Client::builder().connect_timeout(Duration::from_secs(10)).timeout(Duration::from_secs(20)).build().map_err(|e| e.to_string())?;
     get_secret_at(&client, ENDPOINT, project.trim(), secret.trim(), version.trim(), &token).await
 }
 
 /// What `gcloud config list` says (the wizard's starting point): the
-/// account and the project. Nothing secret.
+/// active account and the project, and the accounts gcloud has signed in
+/// (`gcloud auth list`, [`parse_auth_list`]). Nothing secret.
 pub async fn current_config() -> Result<Value, String> {
     let out = cloud_auth::run_cli("gcloud", &["config", "list", "--format", "json"], &[], &[], "gcloud auth login").await.map_err(|e| e.to_string())?;
     let json: Value = serde_json::from_str(&out).map_err(|_| "«gcloud config list» no devolvió JSON".to_string())?;
     let s = |p: &str| json.pointer(p).and_then(Value::as_str).unwrap_or("").to_string();
-    Ok(serde_json::json!({ "account": s("/core/account"), "project": s("/core/project") }))
+    let active = s("/core/account");
+    let mut accounts = match cloud_auth::run_cli("gcloud", &["auth", "list", "--format", "json"], &[], &[], "gcloud auth login").await {
+        Ok(out) => parse_auth_list(&out).unwrap_or_default(),
+        Err(_) => vec![],
+    };
+    if dbine_core::secret_sources::valid_gcloud_account(&active) && !accounts.iter().any(|a| a.account.eq_ignore_ascii_case(&active)) {
+        accounts.insert(0, GcloudAccount { account: active.clone(), active: true });
+    }
+    Ok(serde_json::json!({ "account": active, "project": s("/core/project"), "accounts": accounts }))
 }
 
-/// The account wizard's check: a token comes from the same chain the
-/// connections use (gcloud, the application default credentials, the
-/// metadata server); who it's for, as far as the chain says.
-pub async fn whoami() -> Result<String, String> {
-    let (mut token, _, email) = cloud_auth::gcp_token(None, true).await.map_err(|e| e.to_string())?;
+/// An account gcloud has signed in (the wizard's list): nothing secret.
+#[derive(Debug, Clone, PartialEq, Eq, serde::Serialize)]
+pub struct GcloudAccount {
+    pub account: String,
+    pub active: bool,
+}
+
+/// At most this many accounts go to the wizard.
+const MAX_ACCOUNTS: usize = 200;
+
+/// `gcloud auth list --format json`: `[{"account": "…", "status":
+/// "ACTIVE" | ""}]`; well-formed e-mails only, once each, the active first.
+pub fn parse_auth_list(stdout: &str) -> Option<Vec<GcloudAccount>> {
+    let json: Value = serde_json::from_str(stdout).ok()?;
+    let mut out: Vec<GcloudAccount> = Vec::new();
+    for a in json.as_array()? {
+        let account = a.get("account").and_then(Value::as_str).unwrap_or("").trim();
+        if !dbine_core::secret_sources::valid_gcloud_account(account) || out.iter().any(|o| o.account.eq_ignore_ascii_case(account)) {
+            continue;
+        }
+        let active = a.get("status").and_then(Value::as_str).is_some_and(|s| s.eq_ignore_ascii_case("active"));
+        out.push(GcloudAccount { account: account.to_string(), active });
+        if out.len() >= MAX_ACCOUNTS {
+            break;
+        }
+    }
+    out.sort_by_key(|a| !a.active);
+    Some(out)
+}
+
+/// The account wizard's check: a token comes from the same place the
+/// connections get it (the gcloud `account`'s; without one, the chain:
+/// gcloud, the application default credentials, the metadata server);
+/// who it's for, as far as that says.
+pub async fn whoami(account: &str) -> Result<String, String> {
+    let (mut token, email) = token(account).await?;
     dbine_core::secret_sources::wipe(&mut token);
     if let Some(e) = email {
         return Ok(e);
@@ -72,8 +173,8 @@ pub async fn get_secret_at(client: &reqwest::Client, base: &str, project: &str, 
 
 /// The project's secret names (paged), or a secret's JSON keys (`item`,
 /// its latest version).
-pub async fn browse(project: &str, at: super::browse::At<'_>) -> Result<super::browse::Listing, String> {
-    let (token, _, _) = cloud_auth::gcp_token(None, true).await.map_err(|e| e.to_string())?;
+pub async fn browse(project: &str, account: &str, at: super::browse::At<'_>) -> Result<super::browse::Listing, String> {
+    let (token, _) = token(account).await?;
     let client = reqwest::Client::builder().connect_timeout(Duration::from_secs(10)).timeout(Duration::from_secs(20)).build().map_err(|e| e.to_string())?;
     browse_at(&client, ENDPOINT, project.trim(), &token, at).await
 }
@@ -122,6 +223,24 @@ pub async fn browse_at(client: &reqwest::Client, base: &str, project: &str, toke
 pub(crate) mod tests {
     use super::*;
     use tokio::io::{AsyncReadExt, AsyncWriteExt};
+
+    #[test]
+    fn gcloud_accounts_and_sign_in() {
+        let list = r#"[{"account":"bob@example.com","status":""},{"account":"ana@example.com","status":"ACTIVE"},{"account":"--debug","status":""},{"account":"ANA@example.com","status":""},{"account":"dbine@p.iam.gserviceaccount.com"}]"#;
+        let got = parse_auth_list(list).unwrap();
+        let names: Vec<(&str, bool)> = got.iter().map(|a| (a.account.as_str(), a.active)).collect();
+        assert_eq!(names, [("ana@example.com", true), ("bob@example.com", false), ("dbine@p.iam.gserviceaccount.com", false)]);
+        assert_eq!(parse_auth_list("[]").unwrap(), []);
+        assert!(parse_auth_list("not json").is_none());
+        // gcloud's own line asks for a sign-in; cloud_auth's hint alone doesn't.
+        let chain = |line: &str| format!("no se pudo obtener un token de Google Cloud. Se probó:\n- gcloud: {line} (¿falta gcloud auth login?)");
+        assert!(needs_sign_in(&chain("(gcloud.auth.print-access-token) Your current active account [bob@example.com] does not have any valid credentials")));
+        assert!(needs_sign_in(&chain("(gcloud.auth.print-access-token) There was a problem refreshing your current auth tokens: Reauthentication failed. Please run: $ gcloud auth login")));
+        assert!(needs_sign_in(&chain("(gcloud.auth.print-access-token) invalid_grant: Token has been expired or revoked.")));
+        assert!(!needs_sign_in(&chain("terminó con exit status: 3")));
+        assert!(!needs_sign_in("«gcloud» no está instalada"));
+        assert_eq!(no_sign_in("bob@example.com"), "gcloud no tiene una sesión válida con esa cuenta: iniciá sesión con «gcloud auth login bob@example.com» y probá de nuevo");
+    }
 
     #[test]
     fn urls() {

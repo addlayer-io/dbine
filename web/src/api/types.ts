@@ -205,7 +205,7 @@ export type SecretSource =
   }
   | { kind: 'aws'; secret_id: string; region?: string; profile?: string; json_key?: string; fill_username?: boolean; secret_account?: string }
   | { kind: 'azure'; vault_url?: string; name: string; version?: string; json_key?: string; tenant?: string; secret_account?: string }
-  | { kind: 'gcp'; project?: string; secret: string; version?: string; json_key?: string; secret_account?: string }
+  | { kind: 'gcp'; project?: string; secret: string; version?: string; json_key?: string; account?: string; secret_account?: string }
   | {
     kind: 'keepass'; file?: string; entry: string; attribute?: string; key_file?: string;
     master?: 'ask' | 'command' | 'none'; master_command?: string; fill_username?: boolean; user_field?: string; secret_account?: string;
@@ -1386,7 +1386,7 @@ export type SecretAccountConfig =
   | { kind: 'onepassword'; account: string }
   | { kind: 'aws'; profile?: string; region: string }
   | { kind: 'azure'; tenant?: string; vault_url: string }
-  | { kind: 'gcp'; project: string }
+  | { kind: 'gcp'; project: string; account?: string }
   | { kind: 'keepass'; file: string; key_file?: string; master?: 'ask' | 'command' | 'none'; master_command?: string };
 
 /** A secret manager's account saved on this computer (dbine_core::secret_accounts):

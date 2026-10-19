@@ -24,7 +24,7 @@
 
 use crate::secret_sources::{
     azure_vault_host, bitwarden_urls, check_master_command, check_vault_auth, delinea_platform_host, is_uuid, service_url, url_segment, valid_aws_profile, valid_aws_region,
-    valid_azure_tenant, MasterSource, VaultAuth,
+    valid_azure_tenant, valid_gcloud_account, MasterSource, VaultAuth,
 };
 use crate::state::StateStore;
 use dbine_driver::{Error, Result};
@@ -159,8 +159,14 @@ pub enum AccountConfig {
         tenant: String,
         vault_url: String,
     },
-    /// Google Secret Manager: a project. The token comes from gcloud.
-    Gcp { project: String },
+    /// Google Secret Manager: a project and the gcloud account the token is
+    /// asked for (an e-mail; empty, as saved before it existed: gcloud's
+    /// active one). The token comes from gcloud.
+    Gcp {
+        project: String,
+        #[serde(default, skip_serializing_if = "String::is_empty")]
+        account: String,
+    },
     /// A KeePass database: the file, its key file and where the master
     /// password comes from (slot `passphrase` when kept).
     #[serde(rename = "keepass")]
@@ -357,9 +363,12 @@ impl AccountConfig {
                     return Err(bad("la URL del almacén tiene que ser https://<nombre>.vault.azure.net"));
                 }
             }
-            Self::Gcp { project } => {
+            Self::Gcp { project, account } => {
                 if !url_segment(project.trim()) || project.contains(':') {
                     return Err(bad("falta el proyecto de Google Cloud (o no es válido)"));
+                }
+                if !account.is_empty() && !valid_gcloud_account(account) {
+                    return Err(bad("la cuenta de gcloud tiene que ser un correo (ana@example.com)"));
                 }
             }
             Self::KeePass { file, key_file, master, master_command } => {
@@ -635,7 +644,7 @@ mod tests {
             AccountConfig::OnePassword { account: "my.1password.com".into() },
             AccountConfig::Aws { profile: "prod".into(), region: "eu-west-1".into() },
             AccountConfig::Azure { tenant: "contoso.onmicrosoft.com".into(), vault_url: "https://kv1.vault.azure.net".into() },
-            AccountConfig::Gcp { project: "my-proj".into() },
+            AccountConfig::Gcp { project: "my-proj".into(), account: "ana@example.com".into() },
             AccountConfig::KeePass { file: "~/db.kdbx".into(), key_file: "~/db.keyx".into(), master: MasterSource::Command, master_command: "pass kp".into() },
         ]
     }
@@ -712,13 +721,21 @@ mod tests {
             AccountConfig::Aws { profile: String::new(), region: "evil.com/".into() },
             AccountConfig::Azure { tenant: "--debug".into(), vault_url: "https://kv1.vault.azure.net".into() },
             AccountConfig::Azure { tenant: String::new(), vault_url: "https://kv1.vault.azure.net.evil.com".into() },
-            AccountConfig::Gcp { project: "a/b".into() },
+            AccountConfig::Gcp { project: "a/b".into(), account: String::new() },
+            AccountConfig::Gcp { project: "p".into(), account: "--debug".into() },
+            AccountConfig::Gcp { project: "p".into(), account: "ana".into() },
             AccountConfig::KeePass { file: String::new(), key_file: String::new(), master: MasterSource::Keychain, master_command: String::new() },
             AccountConfig::KeePass { file: "~/db.kdbx".into(), key_file: String::new(), master: MasterSource::None, master_command: String::new() },
         ];
         for c in bad {
             assert!(c.validate().is_err(), "{c:?}");
         }
+        // A Google account saved before the gcloud account was kept: the
+        // active one, as before; and it saves back the same.
+        let old: AccountConfig = serde_json::from_str(r#"{"kind":"gcp","project":"my-proj"}"#).unwrap();
+        assert_eq!(old, AccountConfig::Gcp { project: "my-proj".into(), account: String::new() });
+        assert!(old.validate().is_ok());
+        assert_eq!(serde_json::to_string(&old).unwrap(), r#"{"kind":"gcp","project":"my-proj"}"#);
         let local = AccountConfig::Vault { address: "http://127.0.0.1:8200".into(), namespace: String::new(), ca_file: String::new(), auth: VaultAuth::Token, approle_mount: String::new(), role_id: String::new() };
         assert!(local.validate().is_ok(), "plain HTTP to this computer");
     }

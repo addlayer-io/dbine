@@ -188,9 +188,14 @@ ID / Windows Hello itself (DBine waits up to 60 s). The errors say which case
 it is: CLI not installed, not signed in (`op signin`), unlock cancelled, item
 or field not found.
 
-As the credentials, the user comes from the same item: a second `op read` of
-`op://<vault>/<item>/username`, or of the field chosen as **User field**
-under **Configuración avanzada** (`[section/]field`).
+As the credentials, the user comes from the same item: its `username`
+field, or the field chosen as **User field** under **Configuración
+avanzada** (`[section/]field`). Both are read with one call,
+`op item get <item> --vault <vault> --reveal --format=json` (so 1Password
+asks to unlock once), and taken from the item by label (any case) or ID;
+the rest of the item's JSON is wiped right away. A reference with a query
+(`?attribute=…`) reads each field with its own `op read`. No value ever goes
+on a command line.
 
 ## HashiCorp Vault
 
@@ -246,6 +251,20 @@ from the same chain as the Google Cloud IAM sign-in
 the application default credentials, the metadata server. The request goes
 to `secretmanager.googleapis.com`. Errors: token rejected, permission denied
 (*Secret Manager Secret Accessor*), secret or version not found.
+
+Through an account (or with the definition's optional `account`, an e-mail),
+the token is always that gcloud account's: `gcloud auth print-access-token
+--account <e-mail>` (the flag and the e-mail as two arguments, no shell),
+whatever gcloud's active account is, so `gcloud config set account` doesn't
+change the identity DBine uses. Only a well-formed e-mail (nothing that reads
+as a flag) goes to gcloud. When that account isn't signed in on this computer
+or its credentials expired, the error names the command to run,
+«gcloud auth login <e-mail>», and the wizard shows it in a box with **Copy**;
+DBine never signs in itself. Without an account (accounts saved before the
+e-mail was kept, and inline definitions, whose JSON and confirmation are
+unchanged), the chain above runs as before, starting with gcloud's active
+account; Settings › **Gestores de secretos** says so next to such an account, and
+**Reconectar…** pins one.
 
 ## KeePass
 
@@ -338,7 +357,7 @@ The providers' labels below are quoted as their interfaces show them
 | 1Password | The CLI account (sign-in address or ID) | Detected with `op account list`; if there are none: the 1Password app's **Settings → Developer → Integrate with 1Password CLI** (on Linux first **Settings → Security → Unlock using system authentication**), or `op account add` | `op whoami --account …`; shows the e-mail | None from DBine: the `op` CLI talks to 1Password |
 | AWS | Profile (detected from `~/.aws/config` and `~/.aws/credentials`, or the default chain) and region | `aws configure`, `aws configure sso` | `sts:GetCallerIdentity`, signed with SigV4; shows the ARN | `sts.<region>.amazonaws.com` (`.amazonaws.com.cn` in China), or `AWS_ENDPOINT_URL_STS` / `AWS_ENDPOINT_URL` when set |
 | Azure Key Vault | Vault URL and tenant (detected with `az account show`) | Azure portal, the key vault's **Overview → Vault URI** | A token for Key Vault from the Azure CLI (`az account get-access-token --resource https://vault.azure.net --tenant …`); shows who it's for, and refuses a token of another tenant | None from DBine: `az` signs in; connections then go to the `*.vault.azure.net` host only |
-| Google Secret Manager | Project (detected with `gcloud config list`) | `gcloud auth login` or `gcloud auth application-default login` | A token from gcloud (or the application default credentials, or the metadata server); shows the account | None from DBine: gcloud signs in; connections then go to `secretmanager.googleapis.com` |
+| Google Secret Manager | Project (detected with `gcloud config list`) and gcloud account (a select with `gcloud auth list`'s accounts, the active one preselected) | `gcloud auth login` (`gcloud auth login <e-mail>` for another account), or `gcloud auth application-default login` with no account | A token from gcloud for that account (`--account`); with none, from the active account, the application default credentials or the metadata server; shows the account | None from DBine: gcloud signs in; connections then go to `secretmanager.googleapis.com` |
 | KeePass | Database file and key file → master password (keychain, ask, command, none) | — | Opens the database; says how many entries it has | None: a local file |
 
 Vault's OIDC and userpass sign-ins aren't account modes of their own: they
@@ -520,7 +539,7 @@ How long the credentials live:
   then removes the database user. If DBine can't reach Vault at that moment
   (or is killed), the lease ends at its TTL anyway.
 - **Test** next to the field asks for credentials and revokes them at once;
-  **Test connection** revokes them two minutes after the test.
+  **Test connection** revokes them as soon as the test's session is closed.
 - A static role has no lease: its credentials are reused until shortly
   before Vault's next rotation, and nothing is revoked.
 

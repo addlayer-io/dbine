@@ -342,6 +342,9 @@
  "(¿falta az login?)": [
   "src-tauri/src/secret_sources/azure.rs"
  ],
+ "(¿falta gcloud auth login?)": [
+  "src-tauri/src/secret_sources/gcp.rs"
+ ],
  ", Procedimiento {0}, Línea {1}": [
   "crates/drivers/sqlserver/src/script.rs"
  ],
@@ -518,6 +521,9 @@
  ],
  "1: una etapa": [
   "crates/drivers/tdengine/src/create_db.rs"
+ ],
+ "1Password no encontró «{0}»: el elemento no tiene ese campo": [
+  "src-tauri/src/secret_sources/onepassword.rs"
  ],
  "1Password no encontró «{0}»: {1}": [
   "src-tauri/src/secret_sources/onepassword.rs"
@@ -25310,7 +25316,7 @@
   "crates/dbine-core/src/tasks.rs"
  ],
  "el elemento de 1Password no tiene usuario ({0})": [
-  "src-tauri/src/secret_sources/mod.rs"
+  "src-tauri/src/secret_sources/onepassword.rs"
  ],
  "el elemento de la lista tiene que ser un número desde 1": [
   "crates/dbine-core/src/secret_sources.rs"
@@ -27906,6 +27912,9 @@
  "función": [
   "crates/drivers/sqlserver/src/clone.rs"
  ],
+ "gcloud no tiene una sesión válida con esa cuenta: iniciá sesión con «gcloud auth login {0}» y probá de nuevo": [
+  "src-tauri/src/secret_sources/gcp.rs"
+ ],
  "getCollection necesita el nombre de la colección": [
   "crates/drivers/mongodb/src/shell.rs"
  ],
@@ -29008,6 +29017,11 @@
  ],
  "la cuenta de filas no es un número: {0}": [
   "crates/dbine-driver/src/write.rs"
+ ],
+ "la cuenta de gcloud tiene que ser un correo (ana@example.com)": [
+  "crates/dbine-core/src/secret_accounts.rs",
+  "crates/dbine-core/src/secret_sources.rs",
+  "src-tauri/src/secret_sources/gcp.rs"
  ],
  "la cuenta de {0} de esta conexión no está en esta computadora: elegí o conectá una cuenta de {1} en la conexión": [
   "src-tauri/src/secret_sources/accounts.rs"
@@ -30286,7 +30300,8 @@
   "crates/drivers/odbc/src/plan.rs"
  ],
  "no credentials": [
-  "crates/drivers/sqlserver/src/lib.rs"
+  "crates/drivers/sqlserver/src/lib.rs",
+  "src-tauri/src/secret_sources/gcp.rs"
  ],
  "no devolvió JSON": [
   "crates/drivers/postgres/src/cloud_auth.rs"

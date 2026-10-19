@@ -9,7 +9,7 @@ import type { SecretAccount } from '../api/types';
 import { tb } from '../i18n/backend';
 import { loadSecretAccounts, PROVIDER } from '../composables/secretAccounts';
 import {
-  azureTenants, back, configOf, destinations, emptyForm, formFromAccount, isLast, keepsSecrets, SECRET_INPUTS, secretsOf, stepForError, stepProblems, STEPS,
+  azureTenants, back, configOf, destinations, emptyForm, formFromAccount, gcloudAccounts, gcloudPreselect, gcloudSignIn, isLast, keepsSecrets, SECRET_INPUTS, secretsOf, stepForError, stepProblems, STEPS,
   suggestedLabel, tenantChoices, tenantLabel, tenantSignIn, type WizardForm, type WizardKind,
 } from '../composables/accountWizards';
 
@@ -102,6 +102,8 @@ function prefill() {
   if (props.kind === 'onepassword' && !s.op_account && Array.isArray(d.accounts) && d.accounts.length === 1) s.op_account = str((d.accounts[0] as Record<string, unknown>).url);
   if (props.kind === 'azure' && !s.tenant && !props.account) s.tenant = str(d.tenant);
   if (props.kind === 'gcp' && !s.project) s.project = str(d.project);
+  // The account the tokens are asked for: the one kept, else gcloud's active one.
+  if (props.kind === 'gcp') s.gcp_account = gcloudPreselect(gcloudAccounts(d), s.gcp_account);
   if (props.kind === 'aws') {
     if (!s.profile && !props.account && str(d.env_profile)) s.profile = str(d.env_profile);
     if (!s.region) s.region = profileRegion(s.profile) || str(d.region);
@@ -117,6 +119,10 @@ const tenants = computed(() => azureTenants(detected.value));
 const currentTenant = computed(() => (typeof detected.value?.tenant === 'string' ? detected.value.tenant : '').toLowerCase());
 const tenantQuery = ref('');
 const tenantOptions = computed(() => tenantChoices(tenants.value, tenantQuery.value, s.tenant));
+/** Google: the accounts gcloud has signed in (the active one first). */
+const gAccounts = computed(() => gcloudAccounts(detected.value));
+/** Reconnecting a Google account saved before the gcloud account was kept. */
+const unpinned = computed(() => props.kind === 'gcp' && props.account?.kind === 'gcp' && !props.account.account);
 watch(() => s.profile, (p, old) => {
   const r = profileRegion(p);
   if (r && (!s.region || s.region === profileRegion(old))) s.region = r;
@@ -144,8 +150,10 @@ const errorText = computed(() => error.value.charAt(0).toUpperCase() + error.val
 const errorStep = computed(() => (error.value ? stepForError(props.kind, rawError || error.value) : null));
 /** Azure without a sign-in in the chosen tenant: the command that signs in there (DBine never runs it). */
 const signInTenant = computed(() => (props.kind === 'azure' && error.value ? tenantSignIn(rawError || error.value) : null));
-const signInCommand = computed(() => (signInTenant.value ? `az login --tenant ${signInTenant.value}` : ''));
-const signInText = computed(() => t('secretAccounts:acct.azure.signIn', { command: `«${signInCommand.value}»`, interpolation: { escapeValue: false } }));
+/** Google without a valid sign-in for the chosen account: the same, with gcloud. */
+const signInGcloud = computed(() => (props.kind === 'gcp' && error.value ? gcloudSignIn(rawError || error.value) : null));
+const signInCommand = computed(() => (signInTenant.value ? `az login --tenant ${signInTenant.value}` : signInGcloud.value ? `gcloud auth login ${signInGcloud.value}` : ''));
+const signInText = computed(() => t(signInGcloud.value ? 'secretAccounts:acct.gcp.signIn' : 'secretAccounts:acct.azure.signIn', { command: `«${signInCommand.value}»`, interpolation: { escapeValue: false } }));
 const copied = ref(false);
 async function copyCommand() {
   try {
@@ -530,7 +538,22 @@ const ambient = computed(() => ['onepassword', 'aws', 'azure', 'gcp'].includes(p
           <el-form-item :label="$t('secretAccounts:acct.input.project')" required>
             <el-input v-model="s.project" class="aw-mono" placeholder="my-project" spellcheck="false" />
           </el-form-item>
+          <el-form-item :label="$t('secretAccounts:acct.input.gcp_account')">
+            <el-select
+              v-model="s.gcp_account" filterable allow-create default-first-option clearable style="width: 100%" data-gcp-account
+              :placeholder="gAccounts.length ? $t('secretAccounts:acct.gcp.project.accountPlaceholder') : 'ana@example.com'"
+            >
+              <el-option v-for="ga in gAccounts" :key="ga.account" :value="ga.account" :label="ga.account">
+                <span class="aw-tenant-name">
+                  <span>{{ ga.account }}</span>
+                  <span v-if="ga.active" class="aw-tenant-current">{{ $t('secretAccounts:acct.azure.vault.current') }}</span>
+                </span>
+              </el-option>
+            </el-select>
+          </el-form-item>
         </el-form>
+        <p v-if="unpinned" class="aw-muted aw-note" data-unpinned>{{ $t('secretAccounts:acct.gcp.project.unpinned') }}</p>
+        <p class="aw-muted aw-note">{{ $t('secretAccounts:acct.gcp.project.accountHelp') }}</p>
       </template>
 
       <!-- KeePass: the database. -->
@@ -570,7 +593,7 @@ const ambient = computed(() => ['onepassword', 'aws', 'azure', 'gcp'].includes(p
     </section>
 
     <div v-if="error && !busy && !done" class="aw-error-actions">
-      <div v-if="signInTenant" class="aw-signin" role="alert" data-signin>
+      <div v-if="signInCommand" class="aw-signin" role="alert" data-signin>
         <div class="aw-error">{{ signInText }}</div>
         <div class="aw-cmd"><code>{{ signInCommand }}</code><el-button size="small" data-copy @click="copyCommand">{{ copied ? $t('common:copied') : $t('common:copy') }}</el-button></div>
       </div>

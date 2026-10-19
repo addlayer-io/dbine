@@ -326,27 +326,17 @@ pub async fn fetch(src: &SecretSource, slots: &Secrets) -> Result<Resolved, Stri
     let mut raw = match src {
         SecretSource::Command { command, .. } => exec::run(exec::shell_command(command), exec::COMMAND_LIMIT).await.map(exec::trim_newline).map_err(command_failure)?,
         SecretSource::OnePassword { reference, account, fill_username, user_field, .. } => {
-            let value = onepassword::read(reference, account).await?;
             if *fill_username {
-                let user_ref = onepassword::user_reference(reference, user_field);
-                match onepassword::read(&user_ref, account).await {
-                    Ok(u) if !u.is_empty() => {
-                        let picked = defs::pick_json(&value, src.json_key()).map_err(|e| e.to_string());
-                        let mut value = value;
-                        defs::wipe(&mut value);
-                        return finish(src, picked.map(|v| (v, Some(u))));
-                    }
-                    other => {
-                        let mut value = value;
-                        defs::wipe(&mut value);
-                        if let Ok(mut u) = other {
-                            defs::wipe(&mut u);
-                        }
-                        return Err(format!("el elemento de 1Password no tiene usuario ({user_ref})"));
-                    }
+                // One `op` call for both: one unlock prompt.
+                let (mut value, mut user) = onepassword::read_with_user(reference, user_field, account).await?;
+                let picked = defs::pick_json(&value, src.json_key()).map_err(|e| e.to_string());
+                defs::wipe(&mut value);
+                if picked.is_err() {
+                    defs::wipe(&mut user);
                 }
+                return finish(src, picked.map(|v| (v, Some(user))));
             }
-            value
+            onepassword::read(reference, account).await?
         }
         SecretSource::Vault { address, path, key, namespace, kv_version, ca_file, auth, approle_mount, role_id, .. } => {
             let req = vault::Request { address, path, key, namespace, kv_version: *kv_version, ca_file };
@@ -354,7 +344,7 @@ pub async fn fetch(src: &SecretSource, slots: &Secrets) -> Result<Resolved, Stri
         }
         SecretSource::Aws { secret_id, region, profile, .. } => aws::get_secret(secret_id, region, profile).await?,
         SecretSource::Azure { vault_url, name, version, tenant, .. } => azure::get_secret(vault_url, name, version, tenant).await?,
-        SecretSource::Gcp { project, secret, version, .. } => gcp::get_secret(project, secret, version).await?,
+        SecretSource::Gcp { project, secret, version, account, .. } => gcp::get_secret(project, secret, version, account).await?,
         SecretSource::BitwardenSm { server, secret, .. } => bitwarden::read_secret(server, secret, token).await?,
         SecretSource::Ssm { parameter, version, region, profile, list_index, .. } => ssm::get_parameter(&ssm::Request { parameter, version, region, profile, list_index }).await?,
         SecretSource::KeePass { .. }
@@ -398,6 +388,12 @@ fn vault_db_source<'a>(src: &'a SecretSource, slots: &'a Secrets) -> vault_db::S
 pub fn release_leases(connection_id: &str) {
     let id = connection_id.to_string();
     tauri::async_runtime::spawn(async move { vault_db::release(&id).await });
+}
+
+/// Run a form's test connection (resolve, connect, close the session) and
+/// revoke the Vault database leases it got as soon as it ends.
+pub async fn with_form_leases<F: std::future::Future>(f: F) -> F::Output {
+    vault_db::form_scope(f).await
 }
 
 /// Revoke every Vault lease held (DBine is closing).
@@ -1116,6 +1112,36 @@ pub(crate) mod tests {
         let e = fill(&store, &mut base.clone(), &ar_sources, &wrong, saved).await.unwrap_err().to_string();
         assert!(e.contains("role_id o el secret_id") && !e.contains("nope"), "{e}");
         defs::forget(&[defs::digest(&id, "password", &src), defs::digest(&id, "password", &approle)]).unwrap();
+    }
+
+    /// "Probar conexión": the credentials the form's test leased are revoked
+    /// as soon as the test ends (its session closed), not two minutes later.
+    #[tokio::test]
+    async fn vault_database_test_connection_revokes_at_once() {
+        let (addr, m) = vault_mock().await;
+        let dir = temp_dir("vault-db-test-conn");
+        let store = StateStore::open(&dir.join("s.sqlite")).unwrap();
+        let src = vault_db_src(&addr, "ro", defs::VaultAuth::Token);
+        let sources: SecretSources = [("password".to_string(), src)].into();
+        let root: Secrets = [(defs::token_key("password", ""), "root".to_string())].into();
+        let base = ConnectionConfig { driver: "postgres".into(), host: "h".into(), ..Default::default() };
+        let form = Origin::Form { id: None, name: "" };
+        let m2 = m.clone();
+        let user = with_form_leases(async {
+            let mut cfg = base.clone();
+            fill(&store, &mut cfg, &sources, &root, form).await.unwrap();
+            // While the test's session is open, the lease is still there.
+            assert!(m2.revoked.lock().unwrap().is_empty(), "not revoked while the test runs");
+            cfg.username.unwrap_or_default()
+        })
+        .await;
+        let lease = format!("database/creds/ro/L{}", user.trim_start_matches("v-ro-"));
+        assert_eq!(m.revoked.lock().unwrap().as_slice(), [lease], "revoked right after the test");
+        // Outside a test's scope (a form's other uses) nothing changes: the
+        // two-minute fallback still applies, nothing is revoked yet.
+        let mut cfg = base.clone();
+        fill(&store, &mut cfg, &sources, &root, form).await.unwrap();
+        assert_eq!(m.revoked.lock().unwrap().len(), 1);
     }
 
     /// AppRole for a KV read: signs in, reads, revokes its token.

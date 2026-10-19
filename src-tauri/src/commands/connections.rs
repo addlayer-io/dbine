@@ -244,6 +244,12 @@ pub struct TestResult {
 /// Never fails: the outcome is in the result, for the dialog to show.
 #[tauri::command(rename_all = "camelCase")]
 pub async fn test_connection(state: State<'_, AppState>, args: TestConnectionArgs) -> CommandResult<TestResult> {
+    // Vault database credentials the test asks for are revoked as soon as
+    // its session is closed (not held like a saved connection's).
+    crate::secret_sources::with_form_leases(test_connection_with(&state, args)).await
+}
+
+async fn test_connection_with(state: &AppState, args: TestConnectionArgs) -> CommandResult<TestResult> {
     let mut cfg = args.config;
     // The form's sources (resolved below) and Vault tokens it typed.
     let sources = match source_defs::take(&mut cfg) {

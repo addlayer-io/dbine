@@ -17,7 +17,7 @@ const FILLED: Record<WizardKind, Partial<WizardForm>> = {
   onepassword: { op_account: 'my.1password.com' },
   aws: { profile: 'prod', region: 'eu-west-1' },
   azure: { vault_url: 'https://kv-ventas.vault.azure.net', tenant: '11111111-2222-4333-8444-555555555555' },
-  gcp: { project: 'ventas-prod' },
+  gcp: { project: 'ventas-prod', gcp_account: 'ana@example.com' },
   keepass: { file: '~/Passwords/databases.kdbx', passphrase: 'dummy-master' },
 };
 
@@ -64,7 +64,7 @@ const DETECT: Partial<Record<WizardKind, Record<string, unknown>>> = {
       { id: '44444444-2222-4333-8444-555555555555', display_name: '', default_domain: '' },
     ],
   },
-  gcp: { account: 'ana@example.com', project: 'ventas-prod' },
+  gcp: { account: 'ana@example.com', project: 'ventas-prod', accounts: [{ account: 'ana@example.com', active: true }, { account: 'ana@ventas.example.com', active: false }] },
 };
 
 export function accountWizardSample(params: URLSearchParams) {
