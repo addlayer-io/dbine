@@ -312,7 +312,7 @@ fn renamed_index(ix: &IndexDef, old: &str, new: &str) -> Option<IndexDef> {
             changed = true;
         }
     }
-    let json = |s: &str| serde_json::from_str::<Value>(s).or_else(|_| crate::ddl::relaxed(s, "índice").map_err(|_| ())).ok();
+    let json = |s: &str| serde_json::from_str::<Value>(s).or_else(|_| crate::ddl::relaxed(s, |e| e).map_err(|_| ())).ok();
     if let Some(mut f) = out.filter.as_deref().and_then(json) {
         if rename_query(&mut f, old, new) {
             out.filter = Some(f.to_string());

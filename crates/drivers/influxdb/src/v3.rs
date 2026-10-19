@@ -173,10 +173,11 @@ impl SqlSession {
             .collect())
     }
 
-    /// A call to the database configuration API.
-    pub(crate) async fn configure(&self, req: reqwest::RequestBuilder, what: &str) -> Result<()> {
+    /// A call to the database configuration API (`refusal`: the whole message
+    /// for a read-only connection).
+    pub(crate) async fn configure(&self, req: reqwest::RequestBuilder, refusal: &str) -> Result<()> {
         if self.read_only {
-            return Err(Error::Query(format!("Conexión de solo lectura: no se pueden {what} bases.")));
+            return Err(Error::Query(refusal.into()));
         }
         http::text(self.auth(req).send().await.map_err(send_err)?).await?;
         Ok(())
@@ -443,7 +444,7 @@ impl Session for SqlSession {
     async fn create_database_with(&mut self, name: &str, options: &std::collections::BTreeMap<String, String>) -> Result<()> {
         let body = crate::create_db::database(name, options)?;
         let url = format!("{}{}", self.base, crate::create_db::V3_PATH);
-        self.configure(self.http.post(url).json(&body), "crear").await
+        self.configure(self.http.post(url).json(&body), "Conexión de solo lectura: no se pueden crear bases.").await
     }
 
     async fn drop_database(&mut self, name: &str) -> Result<()> {
@@ -451,7 +452,7 @@ impl Session for SqlSession {
             return Err(Error::Query(format!("No se puede borrar «{name}»: es la base de datos de esta conexión.")));
         }
         let url = format!("{}/api/v3/configure/database", self.base);
-        self.configure(self.http.delete(url).query(&[("db", name)]), "borrar").await
+        self.configure(self.http.delete(url).query(&[("db", name)]), "Conexión de solo lectura: no se pueden borrar bases.").await
     }
 
     fn browse_query(&self, obj: &ObjectRef, limit: u32) -> String {

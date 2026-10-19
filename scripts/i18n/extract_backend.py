@@ -192,6 +192,13 @@ def user_facing(s: str) -> bool:
 # tooltips: `ProfilerStarted::units`); the filter above drops such words.
 UNITS = ["páginas", "bloques", "filas", "bytes", "documentos", "claves"]
 
+# Messages the filter above can't tell from code (no Spanish-looking word),
+# with the file that writes them.
+KNOWN = {
+    # SQL Server's error header, as SSMS writes it ("Msg 208, Level 16, State 1").
+    "Msg {0}, Nivel {1}, Estado {2}": "crates/drivers/sqlserver/src/script.rs",
+}
+
 
 # Files whose strings only go to an AI model (prompts and what they carry),
 # or into a file DBine generates in English (the Python notebook export):
@@ -246,6 +253,8 @@ def main():
     msgs: dict[str, set[str]] = {}
     for u in UNITS:
         msgs.setdefault(u, set()).add("crates/dbine-driver/src/profiler.rs")
+    for m, f in KNOWN.items():
+        msgs.setdefault(m, set()).add(f)
     files = [p for p in (ROOT / "crates").rglob("*.rs") if "/tests/" not in str(p) and p.name != "build.rs"]
     files += list((ROOT / "src-tauri/src").rglob("*.rs"))
     # The phone app's Rust (its errors reach the phone's screen).

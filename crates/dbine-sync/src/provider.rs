@@ -42,8 +42,19 @@ pub trait CloudStore: Send + Sync {
     async fn delete(&self, name: &str) -> Result<()>;
 }
 
+/// What a cloud call was doing when it failed: each has its own whole
+/// message, so the UI translates it as a sentence.
+#[derive(Clone, Copy)]
+pub(crate) enum HttpOp {
+    ReadAccount,
+    FindBackup,
+    DownloadBackup,
+    UploadBackup,
+    DeleteBackup,
+}
+
 /// A readable message for a failed provider response.
-pub(crate) async fn http_error(provider: ProviderKind, what: &str, resp: reqwest::Response) -> crate::SyncError {
+pub(crate) async fn http_error(provider: ProviderKind, what: HttpOp, resp: reqwest::Response) -> crate::SyncError {
     let status = resp.status();
     let body = resp.text().await.unwrap_or_default();
     if status == reqwest::StatusCode::UNAUTHORIZED {
@@ -59,7 +70,14 @@ pub(crate) async fn http_error(provider: ProviderKind, what: &str, resp: reqwest
                 .and_then(|m| m.as_str().map(str::to_string))
         })
         .unwrap_or_else(|| body.chars().take(200).collect());
-    crate::SyncError::Remote(format!("{} ({what}): HTTP {} {msg}", provider.label(), status.as_u16()))
+    let (label, code) = (provider.label(), status.as_u16());
+    crate::SyncError::Remote(match what {
+        HttpOp::ReadAccount => format!("{label}: no se pudo leer la cuenta (HTTP {code}): {msg}"),
+        HttpOp::FindBackup => format!("{label}: no se pudo buscar el backup (HTTP {code}): {msg}"),
+        HttpOp::DownloadBackup => format!("{label}: no se pudo descargar el backup (HTTP {code}): {msg}"),
+        HttpOp::UploadBackup => format!("{label}: no se pudo subir el backup (HTTP {code}): {msg}"),
+        HttpOp::DeleteBackup => format!("{label}: no se pudo borrar el backup (HTTP {code}): {msg}"),
+    })
 }
 
 pub(crate) fn net_error(provider: ProviderKind, e: reqwest::Error) -> crate::SyncError {

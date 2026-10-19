@@ -620,7 +620,7 @@ pub async fn open_sandboxed_with(spatial: bool) -> CommandResult<Box<dyn Session
     cfg.options.insert("isolated".into(), "true".into());
     let mut s = dbine_drivers::open_session(&cfg, None).await?;
     if spatial {
-        files::load_extension(s.as_mut(), "spatial", "las funciones geográficas (ST_…) de esta celda").await?;
+        files::load_extension(s.as_mut(), "spatial", files::ExtensionUse::CellSpatial).await?;
     }
     sandbox(s.as_mut()).await?;
     Ok(s)

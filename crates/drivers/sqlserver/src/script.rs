@@ -39,12 +39,13 @@ fn affected(n: u64) -> String {
 
 /// `Msg 208, Nivel 16, Estado 1[, Procedimiento p, Línea 5]`, as SSMS heads
 /// an error (the script line is the message's own `line`).
+/// One whole line each way (not a piece appended), so the UI translates it.
 fn header(m: &ServerMessage) -> String {
-    let mut h = format!("Msg {}, Nivel {}, Estado {}", m.number, m.class, m.state);
-    if !m.procedure.is_empty() {
-        h.push_str(&format!(", Procedimiento {}, Línea {}", m.procedure, m.line));
+    if m.procedure.is_empty() {
+        format!("Msg {}, Nivel {}, Estado {}", m.number, m.class, m.state)
+    } else {
+        format!("Msg {}, Nivel {}, Estado {}, Procedimiento {}, Línea {}", m.number, m.class, m.state, m.procedure, m.line)
     }
-    h
 }
 
 /// The error at its line of the text the driver got: the batch's line plus

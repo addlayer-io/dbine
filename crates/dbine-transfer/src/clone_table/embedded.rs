@@ -1018,7 +1018,8 @@ mod tests {
         let p = super::super::plan_clone(&d("firebird"), &t5, "ADV5_C").unwrap();
         assert_eq!(p.table.checks[0].expression, "(NOT EXISTS (SELECT 1 FROM \"ADV5_C\" X WHERE X.ID <> \"ADV5_C\".ID))");
         assert_eq!(p.table.columns[1].data_type, "COMPUTED BY ((SELECT COUNT(*) FROM \"ADV5_C\" Z))");
-        assert!(p.notes.iter().any(|n| n.contains("CK_ADV5_C_U") && n.contains("columna calculada T") && n.contains("leen la misma tabla")), "{:?}", p.notes);
+        assert!(p.notes.iter().any(|n| n.contains("CK_ADV5_C_U") && n.contains("lee la misma tabla")), "{:?}", p.notes);
+        assert!(p.notes.iter().any(|n| n.contains("columna calculada T") && n.contains("lee la misma tabla")), "{:?}", p.notes);
         // A name another table's object has gets a new one.
         let p = super::super::plan_clone_with(&d("firebird"), &t, "ADV4_C", &["CK_ADV4_C_V".into()]).unwrap();
         assert!(p.table.checks[0].name.as_deref().is_some_and(|n| n.starts_with("CK_ADV4_C_V_") && n.len() <= 31), "{:?}", p.table.checks[0].name);

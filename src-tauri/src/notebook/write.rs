@@ -363,12 +363,14 @@ pub fn modes_of(driver: &dyn Driver) -> Vec<WriteMode> {
     }
 }
 
-fn mode_name(m: WriteMode) -> &'static str {
+/// "<engine> doesn't write in this mode", one whole message per mode so the
+/// mode's name isn't a Spanish word glued into a translated sentence.
+fn mode_refused(engine: &str, m: WriteMode) -> String {
     match m {
-        WriteMode::Insert => "insertar",
-        WriteMode::Update => "actualizar por clave",
-        WriteMode::Upsert => "insertar o actualizar",
-        WriteMode::Replace => "reemplazar el contenido",
+        WriteMode::Insert => format!("{engine} no escribe en modo «insertar» desde un notebook"),
+        WriteMode::Update => format!("{engine} no escribe en modo «actualizar por clave» desde un notebook"),
+        WriteMode::Upsert => format!("{engine} no escribe en modo «insertar o actualizar» desde un notebook"),
+        WriteMode::Replace => format!("{engine} no escribe en modo «reemplazar el contenido» desde un notebook"),
     }
 }
 
@@ -573,7 +575,7 @@ pub async fn prepare(state: &AppState, a: &WriteArgs, policy: super::access::Pol
         return Err(CommandError::BadRequest(if modes.is_empty() {
             format!("{} no escribe datos desde un notebook", driver.info().name)
         } else {
-            format!("{} no escribe en modo «{}» desde un notebook", driver.info().name, mode_name(a.mode))
+            mode_refused(&driver.info().name, a.mode)
         }));
     }
     if a.target.table.trim().is_empty() {
@@ -827,7 +829,7 @@ async fn write(state: &AppState, a: &WriteArgs, p: &Pending, duck: &Arc<SessionE
     let driver = crate::commands::schema::driver_of(state, &a.target.connection_id)?;
     let modes = modes_of(driver.as_ref());
     if !modes.contains(&a.mode) {
-        return Err(CommandError::BadRequest(format!("{} no escribe en modo «{}» desde un notebook", driver.info().name, mode_name(a.mode))));
+        return Err(CommandError::BadRequest(mode_refused(&driver.info().name, a.mode)));
     }
     let mut ds = duck.session.lock().await;
     let n = count(&mut **ds, &format!("SELECT count(*) FROM main.{}", q(&p.snapshot))).await?;

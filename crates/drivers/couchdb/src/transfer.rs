@@ -979,7 +979,7 @@ impl CouchSession {
         source: &mut dyn BatchSource,
         progress: Progress<'_>,
     ) -> Result<u64> {
-        self.refuse_if_read_only("cargar datos")?;
+        self.refuse_if_read_only("Conexión de solo lectura: no se pueden cargar datos.")?;
         if spec.table.kind == kinds::VIEW {
             return Err(Error::Unsupported("no se insertan documentos en una vista de CouchDB".into()));
         }

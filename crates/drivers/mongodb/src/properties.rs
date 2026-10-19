@@ -216,7 +216,7 @@ impl MongoSession {
     }
 
     pub(crate) async fn alter_database_impl(&mut self, database: &str, changes: &BTreeMap<String, String>) -> Result<()> {
-        self.refuse_if_read_only("modificar las propiedades de una base")?;
+        self.refuse_if_read_only("Conexión de solo lectura: no se pueden modificar las propiedades de una base.")?;
         let cmds = commands(self.flavor, database, changes)?;
         let db = self.client.database(database);
         for (i, cmd) in cmds.iter().enumerate() {

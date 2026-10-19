@@ -781,8 +781,29 @@ pub struct WriteOut {
     pub stat: FileStat,
 }
 
-fn io_err(what: &str, e: std::io::Error) -> CommandError {
-    CommandError::Internal(format!("no se pudo {what}: {e}"))
+/// One whole message per operation (`what` names it), so each translates as
+/// a sentence instead of a verb glued into "no se pudo …".
+#[derive(Clone, Copy)]
+enum IoOp {
+    SaveFile,
+    ReadFolder,
+    ReadFile,
+    CreateFile,
+    CreateFolder,
+    Rename,
+    Delete,
+}
+
+fn io_err(what: IoOp, e: std::io::Error) -> CommandError {
+    CommandError::Internal(match what {
+        IoOp::SaveFile => format!("no se pudo guardar el archivo: {e}"),
+        IoOp::ReadFolder => format!("no se pudo leer la carpeta: {e}"),
+        IoOp::ReadFile => format!("no se pudo leer el archivo: {e}"),
+        IoOp::CreateFile => format!("no se pudo crear el archivo: {e}"),
+        IoOp::CreateFolder => format!("no se pudo crear la carpeta: {e}"),
+        IoOp::Rename => format!("no se pudo renombrar: {e}"),
+        IoOp::Delete => format!("no se pudo eliminar: {e}"),
+    })
 }
 
 pub(crate) fn sha256_hex(b: &[u8]) -> String {
@@ -822,7 +843,7 @@ pub fn atomic_write(path: &Path, bytes: &[u8]) -> CommandResult<()> {
     })();
     if let Err(e) = res {
         let _ = std::fs::remove_file(&tmp);
-        return Err(io_err("guardar el archivo", e));
+        return Err(io_err(IoOp::SaveFile, e));
     }
     Ok(())
 }
@@ -848,7 +869,7 @@ pub async fn list_dir(store: &StateStore, args: ListDirArgs) -> CommandResult<Ve
         return Err(CommandError::BadRequest(format!("«{dir_rel}» no es una carpeta")));
     }
     let mut out = Vec::new();
-    for e in std::fs::read_dir(&dir).map_err(|e| io_err("leer la carpeta", e))?.flatten() {
+    for e in std::fs::read_dir(&dir).map_err(|e| io_err(IoOp::ReadFolder, e))?.flatten() {
         let name = e.file_name().to_string_lossy().to_string();
         if name.eq_ignore_ascii_case(".git") || name.contains(".dbine-tmp-") {
             continue;
@@ -900,7 +921,7 @@ pub fn decode_text(bytes: &[u8]) -> Option<(String, bool, bool)> {
 pub fn read_file(store: &StateStore, args: FileArgs) -> CommandResult<FileContent> {
     let (_, root) = root_of(store, &args.id)?;
     let abs = resolve_existing(&root, &args.path)?;
-    let meta = std::fs::metadata(&abs).map_err(|e| io_err("leer el archivo", e))?;
+    let meta = std::fs::metadata(&abs).map_err(|e| io_err(IoOp::ReadFile, e))?;
     if !meta.is_file() {
         return Err(CommandError::BadRequest(format!("«{}» no es un archivo", args.path)));
     }
@@ -910,7 +931,7 @@ pub fn read_file(store: &StateStore, args: FileArgs) -> CommandResult<FileConten
             meta.len() as f64 / (1024.0 * 1024.0)
         )));
     }
-    let bytes = std::fs::read(&abs).map_err(|e| io_err("leer el archivo", e))?;
+    let bytes = std::fs::read(&abs).map_err(|e| io_err(IoOp::ReadFile, e))?;
     let (text, bom, crlf) = decode_text(&bytes).ok_or_else(|| CommandError::BadRequest("no es un archivo de texto UTF-8".into()))?;
     Ok(FileContent {
         path: args.path,
@@ -1046,8 +1067,8 @@ pub fn create_file(store: &StateStore, ev: &dyn ProjectEvents, args: CreateFileA
     if std::fs::symlink_metadata(&abs).is_ok() {
         return Err(exists_err(&args.path));
     }
-    let mut f = std::fs::OpenOptions::new().write(true).create_new(true).open(&abs).map_err(|e| io_err("crear el archivo", e))?;
-    f.write_all(args.text.unwrap_or_default().as_bytes()).map_err(|e| io_err("crear el archivo", e))?;
+    let mut f = std::fs::OpenOptions::new().write(true).create_new(true).open(&abs).map_err(|e| io_err(IoOp::CreateFile, e))?;
+    f.write_all(args.text.unwrap_or_default().as_bytes()).map_err(|e| io_err(IoOp::CreateFile, e))?;
     drop(f);
     files_changed(ev, &p.id, vec![args.path.clone()], "create");
     Ok(stat_of(&abs, &args.path))
@@ -1064,7 +1085,7 @@ pub fn create_dir(store: &StateStore, ev: &dyn ProjectEvents, args: FileArgs) ->
     if std::fs::symlink_metadata(&abs).is_ok() {
         return Err(exists_err(&args.path));
     }
-    std::fs::create_dir(&abs).map_err(|e| io_err("crear la carpeta", e))?;
+    std::fs::create_dir(&abs).map_err(|e| io_err(IoOp::CreateFolder, e))?;
     files_changed(ev, &p.id, vec![args.path], "create");
     Ok(())
 }
@@ -1096,7 +1117,7 @@ pub fn rename(store: &StateStore, ev: &dyn ProjectEvents, args: RenameArgs) -> C
     if to.starts_with(&from) && to != from {
         return Err(CommandError::BadRequest("no se puede mover una carpeta adentro de sí misma".into()));
     }
-    std::fs::rename(&from, &to).map_err(|e| io_err("renombrar", e))?;
+    std::fs::rename(&from, &to).map_err(|e| io_err(IoOp::Rename, e))?;
     files_changed(ev, &p.id, vec![args.from, args.to], "rename");
     Ok(())
 }
@@ -1123,7 +1144,7 @@ pub fn remove_entry(abs: &Path) -> std::io::Result<()> {
 pub fn delete(store: &StateStore, ev: &dyn ProjectEvents, args: FileArgs) -> CommandResult<()> {
     let (p, root) = root_of(store, &args.id)?;
     let abs = resolve_entry(&root, &args.path)?;
-    remove_entry(&abs).map_err(|e| io_err("eliminar", e))?;
+    remove_entry(&abs).map_err(|e| io_err(IoOp::Delete, e))?;
     files_changed(ev, &p.id, vec![args.path], "delete");
     Ok(())
 }

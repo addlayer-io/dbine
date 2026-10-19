@@ -201,7 +201,7 @@ pub(crate) async fn processes(s: &mut GraphSession) -> Result<Vec<ServerProcess>
 
 pub(crate) async fn cancel(s: &mut GraphSession, id: &str) -> Result<()> {
     let id = id.trim();
-    s.refuse_if_read_only("cancelar consultas de otras sesiones")?;
+    s.refuse_if_read_only("Conexión de solo lectura: no se pueden cancelar consultas de otras sesiones.")?;
     match s.flavor {
         Flavor::Neo4j => {
             if !crate::blocking::valid_id(id) {

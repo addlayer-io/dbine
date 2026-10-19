@@ -1268,14 +1268,14 @@ pub(super) fn drop_temporal_sql(clone: &TableSchema) -> String {
 pub(super) async fn make_temporal(s: &mut dyn Session, clone: &TableSchema, x: &Extras, with_data: bool) -> Result<Option<String>> {
     let Some(p) = &x.period else { return Ok(None) };
     let name = table_name(clone);
-    let fail = |what: &str, e: Error| Error::Query(format!("tabla temporal: no se pudo {what} en el clon ({e}); no se clona"));
+    // One whole message per step (not a verb glued into a pattern), so each translates as a sentence.
     exec(s, &format!("ALTER TABLE {name} ADD PERIOD FOR SYSTEM_TIME ({}, {})", quote_ident(Quote::Bracket, &p.start), quote_ident(Quote::Bracket, &p.end)))
         .await
-        .map_err(|e| fail("agregar el período PERIOD FOR SYSTEM_TIME", e))?;
+        .map_err(|e| Error::Query(format!("tabla temporal: no se pudo agregar el período PERIOD FOR SYSTEM_TIME en el clon ({e}); no se clona")))?;
     for h in &p.hidden {
         exec(s, &format!("ALTER TABLE {name} ALTER COLUMN {} ADD HIDDEN", quote_ident(Quote::Bracket, h)))
             .await
-            .map_err(|e| fail("ocultar (HIDDEN) la columna del período", e))?;
+            .map_err(|e| Error::Query(format!("tabla temporal: no se pudo ocultar (HIDDEN) la columna del período en el clon ({e}); no se clona")))?;
     }
     let Some((ohs, ohn)) = &p.history else {
         return Ok(Some(format!("el clon tiene el período PERIOD FOR SYSTEM_TIME ({}, {}) del original", p.start, p.end)));
@@ -1286,7 +1286,7 @@ pub(super) async fn make_temporal(s: &mut dyn Session, clone: &TableSchema, x: &
         format!("ALTER TABLE {name} SET (SYSTEM_VERSIONING = ON ({h}DATA_CONSISTENCY_CHECK = ON{retention}))")
     };
     let wanted = p.clone_history.as_ref().map(|(hs, hn)| qualified_name(Quote::Bracket, Some(hs), hn));
-    exec(s, &on(wanted.as_deref())).await.map_err(|e| fail("activar las versiones del sistema (SYSTEM_VERSIONING)", e))?;
+    exec(s, &on(wanted.as_deref())).await.map_err(|e| Error::Query(format!("tabla temporal: no se pudieron activar las versiones del sistema (SYSTEM_VERSIONING) en el clon ({e}); no se clona")))?;
     // The history table the server made (or named).
     let lit = literal(clone);
     let made = strings(
@@ -1319,13 +1319,13 @@ pub(super) async fn make_temporal(s: &mut dyn Session, clone: &TableSchema, x: &
                 return Err(Error::State("tabla temporal: no se pudieron leer las columnas de la tabla de historial del original; no se clona".into()));
             }
             let list = cols.join(", ");
-            exec(s, &format!("ALTER TABLE {name} SET (SYSTEM_VERSIONING = OFF)")).await.map_err(|e| fail("copiar el historial", e))?;
+            exec(s, &format!("ALTER TABLE {name} SET (SYSTEM_VERSIONING = OFF)")).await.map_err(|e| Error::Query(format!("tabla temporal: no se pudo copiar el historial en el clon ({e}); no se clona")))?;
             let loaded = exec(s, &format!("INSERT INTO {history} ({list}) SELECT {list} FROM {source_history}")).await;
             let back = exec(s, &on(Some(&history))).await;
             if let Err(e) = loaded.and(back) {
                 // Unlinked, the cleanup wouldn't find it.
                 let _ = exec(s, &format!("DROP TABLE IF EXISTS {history}")).await;
-                return Err(fail("copiar las filas de historial del original", e));
+                return Err(Error::Query(format!("tabla temporal: no se pudieron copiar las filas de historial del original en el clon ({e}); no se clona")));
             }
             copied = total;
         }

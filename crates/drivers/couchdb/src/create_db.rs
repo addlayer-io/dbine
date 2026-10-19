@@ -62,7 +62,7 @@ impl CouchSession {
     }
 
     pub(crate) async fn create_database_with_impl(&mut self, name: &str, o: &BTreeMap<String, String>) -> Result<()> {
-        self.refuse_if_read_only("crear una base")?;
+        self.refuse_if_read_only("Conexión de solo lectura: no se puede crear una base.")?;
         let p = path(name, o)?;
         self.call(Method::PUT, &p, None).await.map(|_| ())
     }

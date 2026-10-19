@@ -4,7 +4,7 @@
 //! the app's access (Drive › Settings › Manage apps).
 
 use crate::oauth::{authed, TokenSource};
-use crate::provider::{http_error, net_error, CloudStore, ProviderKind, RemoteMeta};
+use crate::provider::{http_error, net_error, HttpOp, CloudStore, ProviderKind, RemoteMeta};
 use crate::Result;
 use async_trait::async_trait;
 use serde::Deserialize;
@@ -66,7 +66,7 @@ impl GoogleDrive {
         })
         .await?;
         if !resp.status().is_success() {
-            return Err(http_error(KIND, "buscar el backup", resp).await);
+            return Err(http_error(KIND, HttpOp::FindBackup, resp).await);
         }
         #[derive(Deserialize)]
         struct List {
@@ -87,7 +87,7 @@ impl CloudStore for GoogleDrive {
         let url = format!("{}/drive/v3/about", self.api);
         let resp = authed(&self.auth, |t| self.http().get(&url).bearer_auth(t).query(&[("fields", "user(displayName,emailAddress)")])).await?;
         if !resp.status().is_success() {
-            return Err(http_error(KIND, "leer la cuenta", resp).await);
+            return Err(http_error(KIND, HttpOp::ReadAccount, resp).await);
         }
         let v: serde_json::Value = resp.json().await.map_err(|e| net_error(KIND, e))?;
         let s = |p: &str| v.pointer(p).and_then(|x| x.as_str()).map(str::to_string);
@@ -106,7 +106,7 @@ impl CloudStore for GoogleDrive {
             return Ok(None);
         }
         if !resp.status().is_success() {
-            return Err(http_error(KIND, "descargar el backup", resp).await);
+            return Err(http_error(KIND, HttpOp::DownloadBackup, resp).await);
         }
         Ok(Some(resp.bytes().await.map_err(|e| net_error(KIND, e))?.to_vec()))
     }
@@ -145,7 +145,7 @@ impl CloudStore for GoogleDrive {
             }
         };
         if !resp.status().is_success() {
-            return Err(http_error(KIND, "subir el backup", resp).await);
+            return Err(http_error(KIND, HttpOp::UploadBackup, resp).await);
         }
         let f: DriveFile = resp.json().await.map_err(|e| net_error(KIND, e))?;
         Ok(f.meta())
@@ -156,7 +156,7 @@ impl CloudStore for GoogleDrive {
         let url = format!("{}/drive/v3/files/{}", self.api, f.id);
         let resp = authed(&self.auth, |t| self.http().delete(&url).bearer_auth(t)).await?;
         if !resp.status().is_success() && resp.status() != reqwest::StatusCode::NOT_FOUND {
-            return Err(http_error(KIND, "borrar el backup", resp).await);
+            return Err(http_error(KIND, HttpOp::DeleteBackup, resp).await);
         }
         Ok(())
     }

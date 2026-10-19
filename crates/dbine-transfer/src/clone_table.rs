@@ -535,21 +535,21 @@ pub fn plan_clone_within(driver: &dyn Driver, source: &TableSchema, new_name: &s
     if info.id == "firebird" {
         let bare = dbine_driver::sql::quote_ident(Quote::Double, new_name);
         let rq = |e: &str| embedded::requalify(e, &old, &bare);
-        let mut reads: Vec<String> = Vec::new();
+        // One note per object, each a whole sentence (a list glued to a verb
+        // doesn't translate).
         for c in &t.checks {
             if embedded::reads_table(&c.expression, &old) {
-                reads.push(format!("la restricción CHECK {}", c.name.as_deref().unwrap_or("")).trim_end().to_string());
+                notes.push(match c.name.as_deref() {
+                    Some(n) if !n.is_empty() => format!("la restricción CHECK {n} lee la misma tabla: en el clon lee el clon"),
+                    _ => "una restricción CHECK sin nombre lee la misma tabla: en el clon lee el clon".to_string(),
+                });
             }
         }
         for c in t.columns.iter().filter(|c| generated(c, info.dialect) && embedded::reads_table(&c.data_type, &old)) {
-            reads.push(format!("la columna calculada {}", c.name));
+            notes.push(format!("la columna calculada {} lee la misma tabla: en el clon lee el clon", c.name));
         }
         for ix in t.indexes.iter().filter(|ix| ix.columns.iter().chain(ix.filter.iter()).any(|e| embedded::reads_table(e, &old))) {
-            reads.push(format!("el índice {}", ix.name));
-        }
-        if !reads.is_empty() {
-            let (v, n) = if reads.len() == 1 { ("lee", "lee") } else { ("leen", "leen") };
-            notes.push(format!("{} {v} la misma tabla: en el clon {n} el clon", reads.join(", ")));
+            notes.push(format!("el índice {} lee la misma tabla: en el clon lee el clon", ix.name));
         }
         for c in &mut t.checks {
             c.expression = rq(&c.expression);

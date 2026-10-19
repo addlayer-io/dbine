@@ -346,7 +346,7 @@ impl FluxSession {
     }
 
     pub(crate) async fn alter_database_impl(&mut self, database: &str, changes: &BTreeMap<String, String>) -> Result<()> {
-        self.check_writable("modificar")?;
+        self.check_writable("Conexión de solo lectura: no se pueden modificar buckets.")?;
         let Some(body) = bucket_patch(changes)? else { return Ok(()) };
         let id = self.bucket_by_name(database).await?.get("id").and_then(J::as_str).unwrap_or_default().to_string();
         if id.is_empty() {
@@ -429,7 +429,7 @@ impl SqlSession {
     pub(crate) async fn alter_database_impl(&mut self, database: &str, changes: &BTreeMap<String, String>) -> Result<()> {
         let Some(body) = v3_body(database, changes)? else { return Ok(()) };
         let url = format!("{}{V3_PATH}", self.base);
-        self.configure(self.http.put(url).json(&body), "modificar").await
+        self.configure(self.http.put(url).json(&body), "Conexión de solo lectura: no se pueden modificar bases.").await
     }
 }
 
