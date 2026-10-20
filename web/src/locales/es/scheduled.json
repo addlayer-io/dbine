@@ -61,7 +61,7 @@
   },
   "steps": "Pasos",
   "addStep": "Agregar paso",
-  "varsHint": "En nombres de archivo, scripts y mails se pueden usar:",
+  "varsHint": "En nombres de archivo, scripts, mails y mensajes se pueden usar:",
   "kinds": {
     "run_script": "Ejecutar un script",
     "export": "Exportar a archivo",
@@ -69,7 +69,8 @@
     "backup": "Backup",
     "document": "Documentar la base",
     "run_notebook": "Ejecutar notebook",
-    "send_mail": "Enviar un mail"
+    "send_mail": "Enviar un mail",
+    "send_message": "Enviar un mensaje"
   },
   "step": {
     "namePlaceholder": "Nombre (opcional)",
@@ -200,5 +201,47 @@
     "chartsHint": "En una tarea se exportan las tablas: los gráficos se incluyen al exportar desde la app.",
     "outputsHint": "En los pasos siguientes: {steps.N.file} es la exportación (o la copia), {steps.N.html} la exportación HTML (para el cuerpo de un mail) y {steps.N.notebook} la copia.",
     "planError": "No se pudo leer el notebook: {{error}}"
+  },
+  "message": {
+    "channel": "Canal",
+    "channels": {
+      "teams": "Microsoft Teams",
+      "slack": "Slack",
+      "telegram": "Telegram",
+      "ntfy": "ntfy"
+    },
+    "urlLabel": {
+      "teams": "URL del webhook del canal",
+      "slack": "URL del Incoming Webhook",
+      "ntfy": "URL del tema"
+    },
+    "botToken": "Token del bot",
+    "chatId": "Chat",
+    "ntfyToken": "Token de acceso",
+    "optional": "Opcional",
+    "howTo": {
+      "teams": "En el canal de Teams: «Flujos de trabajo» › «Publicar en un canal cuando se recibe una solicitud de webhook», y copiá la URL que te da.",
+      "slack": "En Slack, creá una app con «Incoming Webhooks» activado y agregá un webhook para el canal: la URL empieza con https://hooks.slack.com/.",
+      "telegram": "Creá un bot con @BotFather y copiá su token. El chat es el número del grupo o del canal (con el bot como miembro), o el @nombre de un canal público.",
+      "ntfy": "La URL del tema en ntfy.sh o en tu propio servidor (público y con https), por ejemplo https://ntfy.sh/mi-tema. El token hace falta solo si el tema está protegido."
+    },
+    "problems": {
+      "missingUrl": "Falta la URL.",
+      "badUrl": "No es una URL válida (y no puede llevar usuario ni contraseña).",
+      "notHttps": "La URL tiene que empezar con https://.",
+      "teamsHost": "La URL del webhook de Teams tiene que ser de Microsoft (logic.azure.com, api.powerplatform.com o webhook.office.com).",
+      "slackHost": "La URL del webhook de Slack tiene que ser de hooks.slack.com.",
+      "ntfyLocal": "El servidor de ntfy tiene que ser público: no puede ser esta computadora ni la red local.",
+      "ntfyTopic": "La URL tiene que ser la del tema, por ejemplo https://ntfy.sh/mi-tema.",
+      "missingToken": "Falta el token del bot.",
+      "badToken": "El token no tiene la forma esperada.",
+      "missingChat": "Falta el chat.",
+      "badChat": "El chat tiene que ser un número (-100…) o un @canal."
+    },
+    "test": "Probar",
+    "testText": "Mensaje de prueba de DBine: si lo ves, el paso está bien configurado.",
+    "text": "Texto",
+    "textHint": "Acepta las variables de la tarea. {results} es lo que hizo cada paso anterior (✓ bien, ✗ falló, – no se ejecutó) y {alerts} sus alertas. Los mensajes de más de 3.500 caracteres se cortan.",
+    "privacy": "La URL del webhook y los tokens se guardan en el llavero de esta computadora, nunca en la tarea ni en el historial. El mensaje sale solo por HTTPS hacia el servicio elegido."
   }
 }

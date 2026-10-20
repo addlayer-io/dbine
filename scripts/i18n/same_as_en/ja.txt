@@ -75,3 +75,7 @@ tunnel.json:jumpPlaceholder
 backend:AlloyDB para PostgreSQL
 backend:Cloud SQL para MySQL
 backend:Cloud SQL para PostgreSQL
+scheduled.json:message.channels.teams
+scheduled.json:message.channels.slack
+scheduled.json:message.channels.telegram
+scheduled.json:message.channels.ntfy

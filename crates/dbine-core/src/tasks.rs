@@ -23,6 +23,7 @@ pub mod kinds {
     pub const DOCUMENT: &str = "document";
     pub const SEND_MAIL: &str = "send_mail";
     pub const RUN_NOTEBOOK: &str = "run_notebook";
+    pub const SEND_MESSAGE: &str = "send_message";
 }
 
 #[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]

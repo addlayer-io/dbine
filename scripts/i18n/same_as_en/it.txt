@@ -300,3 +300,8 @@ mobile:conn.f.host
 mobile:conn.f.database
 mobile:conn.f.client
 connString.json:database
+scheduled.json:message.channels.teams
+scheduled.json:message.channels.slack
+scheduled.json:message.channels.telegram
+scheduled.json:message.channels.ntfy
+scheduled.json:message.chatId

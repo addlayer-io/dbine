@@ -2485,6 +2485,9 @@
  "Bogotá": [
   "src-tauri/src/commands/datagen.rs"
  ],
+ "Bolder": [
+  "src-tauri/src/tasks/message.rs"
+ ],
  "Bool": [
   "crates/dbine-schema/src/dialect/clickhouse.rs",
   "crates/drivers/clickhouse/src/schema.rs",
@@ -13391,6 +13394,12 @@
   "crates/drivers/hana/src/backup.rs",
   "crates/drivers/mysql/src/backup.rs"
  ],
+ "Mensaje de prueba enviado a {0}": [
+  "src-tauri/src/tasks/message.rs"
+ ],
+ "Mensaje enviado a {0}": [
+  "src-tauri/src/tasks/message.rs"
+ ],
  "Mensajes consumidos": [
   "crates/drivers/ksqldb/src/monitor.rs"
  ],
@@ -19968,6 +19977,9 @@
  "Skip scan sobre la clave": [
   "crates/drivers/phoenix/src/plan.rs"
  ],
+ "Slack": [
+  "src-tauri/src/tasks/message.rs"
+ ],
  "Sleep": [
   "crates/drivers/mysql/src/blocking.rs",
   "crates/drivers/mysql/src/monitor.rs",
@@ -21226,6 +21238,15 @@
  ],
  "Tasa de compresión": [
   "crates/drivers/tdengine/src/properties.rs"
+ ],
+ "Teams": [
+  "src-tauri/src/tasks/message.rs"
+ ],
+ "Telegram": [
+  "src-tauri/src/tasks/message.rs"
+ ],
+ "Telegram no usa URL: va con el token del bot y el chat": [
+  "src-tauri/src/tasks/message.rs"
  ],
  "Temporal en disco (MB)": [
   "crates/drivers/duckdb/src/monitor.rs"
@@ -25051,6 +25072,9 @@
   "src-tauri/src/secret_sources/https.rs",
   "src-tauri/src/secret_sources/vault.rs"
  ],
+ "el chat de Telegram tiene que ser un número (-100…) o un @canal": [
+  "src-tauri/src/tasks/message.rs"
+ ],
  "el cliente necesita un nombre": [
   "src-tauri/src/mcp/mod.rs"
  ],
@@ -25481,6 +25505,9 @@
  "el mail no tiene destinatarios": [
   "src-tauri/src/tasks/mail.rs"
  ],
+ "el mensaje quedó vacío": [
+  "src-tauri/src/tasks/message.rs"
+ ],
  "el modelo configurado en Codex": [
   "crates/dbine-ai/src/detect.rs"
  ],
@@ -25686,6 +25713,9 @@
  "el paso necesita las dos bases": [
   "src-tauri/src/tasks/steps.rs"
  ],
+ "el paso no envía mensajes": [
+  "src-tauri/src/commands/scheduled.rs"
+ ],
  "el paso no tiene carpeta de destino": [
   "src-tauri/src/tasks/steps.rs"
  ],
@@ -25866,6 +25896,21 @@
  "el secreto «{0}» está borrado o no tiene datos": [
   "src-tauri/src/secret_sources/vault.rs"
  ],
+ "el servicio no encontró el destino ({0}): revisá la URL o el chat. {1}": [
+  "src-tauri/src/tasks/message.rs"
+ ],
+ "el servicio no respondió en {0} s": [
+  "src-tauri/src/tasks/message.rs"
+ ],
+ "el servicio rechazó el envío ({0}): revisá el token o la URL. {1}": [
+  "src-tauri/src/tasks/message.rs"
+ ],
+ "el servicio respondió con una redirección ({0}): DBine no sigue redirecciones, revisá la URL": [
+  "src-tauri/src/tasks/message.rs"
+ ],
+ "el servicio respondió {0}. {1}": [
+  "src-tauri/src/tasks/message.rs"
+ ],
  "el servidor SSH del túnel de «{0}» no está verificado: el usuario tiene que conectarse una vez desde DBine": [
   "src-tauri/src/mcp/tools.rs"
  ],
@@ -25908,6 +25953,9 @@
  ],
  "el servidor de correo {0} rechazó la conexión: revisá el puerto (587 con STARTTLS, 465 con SSL/TLS, 25 sin cifrado)": [
   "src-tauri/src/tasks/mail.rs"
+ ],
+ "el servidor de ntfy tiene que ser público: no puede ser esta computadora, la red local ni un servicio interno": [
+  "src-tauri/src/tasks/message.rs"
  ],
  "el servidor de paso {0} tiene que usar https": [
   "crates/dbine-link/src/net.rs"
@@ -26083,8 +26131,17 @@
  "el token de acceso de Bitwarden Secrets Manager no tiene el formato esperado (0.<id>.<secreto>:<clave>)": [
   "src-tauri/src/secret_sources/bitwarden.rs"
  ],
+ "el token de acceso de ntfy no es válido": [
+  "src-tauri/src/tasks/message.rs"
+ ],
  "el token de actualización de Zoho no es válido, venció o se revocó: generá uno nuevo": [
   "src-tauri/src/secret_sources/zoho.rs"
+ ],
+ "el token del bot de Telegram no es válido": [
+  "src-tauri/src/tasks/message.rs"
+ ],
+ "el token del bot de Telegram no tiene la forma del que da @BotFather («123456:ABC…»)": [
+  "src-tauri/src/tasks/message.rs"
  ],
  "el token es del inquilino {0}, no de {1}": [
   "src-tauri/src/secret_sources/azure.rs"
@@ -27474,6 +27531,9 @@
  "falta el catálogo": [
   "crates/drivers/databricks/src/backup.rs"
  ],
+ "falta el chat de Telegram al que mandar el mensaje": [
+  "src-tauri/src/tasks/message.rs"
+ ],
  "falta el client_id de la clave de API de Bitwarden (user.xxxxxxxx-…)": [
   "crates/dbine-core/src/secret_accounts.rs",
   "crates/dbine-core/src/secret_sources.rs"
@@ -27610,6 +27670,9 @@
  ],
  "falta el token de acceso de la cuenta de máquina: escribilo en el formulario (o definí BWS_ACCESS_TOKEN)": [
   "src-tauri/src/secret_sources/bitwarden.rs"
+ ],
+ "falta el token del bot de Telegram (el que da @BotFather, «123456:ABC…»)": [
+  "src-tauri/src/tasks/message.rs"
  ],
  "falta el usuario": [
   "crates/drivers/sqlserver/src/variant.rs"
@@ -28388,6 +28451,9 @@
  "la URL de Secret Server tiene que ser https:// (http:// solo para esta computadora)": [
   "crates/dbine-core/src/secret_sources.rs"
  ],
+ "la URL de ntfy tiene que ser la del tema, por ejemplo https://ntfy.sh/mi-tema": [
+  "src-tauri/src/tasks/message.rs"
+ ],
  "la URL de {0} tiene que ser https:// (http:// solo para esta computadora)": [
   "crates/dbine-core/src/secret_accounts.rs",
   "src-tauri/src/secret_sources/https.rs"
@@ -28399,6 +28465,24 @@
   "crates/dbine-core/src/secret_accounts.rs",
   "crates/dbine-core/src/secret_sources.rs",
   "src-tauri/src/secret_sources/azure.rs"
+ ],
+ "la URL del tema de ntfy": [
+  "src-tauri/src/tasks/message.rs"
+ ],
+ "la URL del webhook de Slack": [
+  "src-tauri/src/tasks/message.rs"
+ ],
+ "la URL del webhook de Slack tiene que ser de hooks.slack.com": [
+  "src-tauri/src/tasks/message.rs"
+ ],
+ "la URL del webhook de Teams": [
+  "src-tauri/src/tasks/message.rs"
+ ],
+ "la URL del webhook de Teams tiene que ser de Microsoft (logic.azure.com, api.powerplatform.com o webhook.office.com)": [
+  "src-tauri/src/tasks/message.rs"
+ ],
+ "la URL no tiene servidor": [
+  "src-tauri/src/tasks/message.rs"
  ],
  "la actualización todavía no se descargó": [
   "src-tauri/src/commands/updates.rs"
@@ -28928,6 +29012,7 @@
  ],
  "la configuración del paso no es válida: {0}": [
   "src-tauri/src/tasks/mail.rs",
+  "src-tauri/src/tasks/message.rs",
   "src-tauri/src/tasks/mod.rs",
   "src-tauri/src/tasks/steps.rs"
  ],
@@ -30722,7 +30807,8 @@
   "src-tauri/src/notebook/files.rs"
  ],
  "no se encontró la dirección de «{0}»": [
-  "src-tauri/src/notebook/remote.rs"
+  "src-tauri/src/notebook/remote.rs",
+  "src-tauri/src/tasks/message.rs"
  ],
  "no se encontró la sesión de la consulta {0}": [
   "crates/drivers/snowflake/src/processes.rs"
@@ -31235,6 +31321,9 @@
  "no se pudo eliminar: {0}": [
   "src-tauri/src/commands/projects.rs"
  ],
+ "no se pudo enviar el mensaje a {0}: {1}": [
+  "src-tauri/src/tasks/message.rs"
+ ],
  "no se pudo escribir el archivo: {0}": [
   "src-tauri/src/commands/export.rs",
   "src-tauri/src/tasks/steps.rs"
@@ -31593,7 +31682,8 @@
   "src-tauri/src/notebook/remote.rs"
  ],
  "no se pudo resolver «{0}»: {1}": [
-  "src-tauri/src/notebook/remote.rs"
+  "src-tauri/src/notebook/remote.rs",
+  "src-tauri/src/tasks/message.rs"
  ],
  "no se pudo saber cómo terminó la carga en «{0}» (trabajo {1}), se pidió cancelarla: {2}": [
   "crates/drivers/bigquery/src/transfer.rs"
@@ -33174,6 +33264,9 @@
  "solo se editan filas con las columnas key y value de etcd": [
   "crates/drivers/etcd/src/ddl.rs"
  ],
+ "solo se envía por HTTPS": [
+  "src-tauri/src/tasks/message.rs"
+ ],
  "solo un SELECT se agrupa en el servidor": [
   "crates/dbine-driver/src/aggregate.rs"
  ],
@@ -34554,6 +34647,9 @@
  "{0} no es una IP pública: Azure ve la IP pública de tu red (usá «Ver mi IP pública»)": [
   "src-tauri/src/commands/azure_firewall.rs"
  ],
+ "{0} no es una URL válida": [
+  "src-tauri/src/tasks/message.rs"
+ ],
  "{0} no es una fecha": [
   "crates/drivers/hana/src/transfer.rs"
  ],
@@ -34658,6 +34754,9 @@
  ],
  "{0} no ofrece planes de ejecución": [
   "src-tauri/src/mcp/tools.rs"
+ ],
+ "{0} no puede llevar usuario ni contraseña": [
+  "src-tauri/src/tasks/message.rs"
  ],
  "{0} no puede tener espacios, comillas, comas ni «;».": [
   "crates/drivers/mysql/src/backup.rs"
@@ -35082,6 +35181,9 @@
  ],
  "{0} tiene más precisión de la que guarda un REAL (quedaría {1})": [
   "crates/drivers/hana/src/transfer.rs"
+ ],
+ "{0} tiene que empezar con https://": [
+  "src-tauri/src/tasks/message.rs"
  ],
  "{0} tiene que ser un número entero.": [
   "crates/drivers/mysql/src/backup.rs"
@@ -35872,6 +35974,9 @@
  "«{0}» apunta a {1} (esta computadora, la red local o un servicio interno de la nube): estas celdas leen de la red solo servidores públicos": [
   "src-tauri/src/notebook/remote.rs"
  ],
+ "«{0}» apunta a {1} (esta computadora, la red local o un servicio interno de la nube): los mensajes van solo a servidores públicos": [
+  "src-tauri/src/tasks/message.rs"
+ ],
  "«{0}» coincide con varios objetos: {1}. Indicá el esquema.": [
   "src-tauri/src/mcp/tools.rs"
  ],
@@ -35922,6 +36027,9 @@
  ],
  "«{0}» es esta computadora, la red local o un servicio interno de la nube: estas celdas leen de la red solo servidores públicos": [
   "src-tauri/src/notebook/remote.rs"
+ ],
+ "«{0}» es esta computadora, la red local o un servicio interno: los mensajes van solo a servidores públicos": [
+  "src-tauri/src/tasks/message.rs"
  ],
  "«{0}» es parte de la clave primaria o de una clave foránea: Firebird no renombra una columna que usa una restricción.": [
   "crates/drivers/firebird/src/rename.rs"

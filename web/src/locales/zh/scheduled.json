@@ -58,7 +58,7 @@
   },
   "steps": "步骤",
   "addStep": "添加步骤",
-  "varsHint": "在文件名和脚本中可以使用：",
+  "varsHint": "在文件名、脚本、邮件和消息中可以使用：",
   "kinds": {
     "run_script": "运行脚本",
     "export": "导出到文件",
@@ -66,7 +66,8 @@
     "backup": "备份",
     "document": "为数据库生成文档",
     "run_notebook": "运行笔记本",
-    "send_mail": "发送电子邮件"
+    "send_mail": "发送电子邮件",
+    "send_message": "发送消息"
   },
   "step": {
     "namePlaceholder": "名称（可选）",
@@ -196,5 +197,47 @@
     "chartsHint": "任务会导出表格：从应用导出时才包含图表。",
     "outputsHint": "在后续步骤中：{steps.N.file} 是导出文件（或副本），{steps.N.html} 是 HTML 导出（用作邮件正文），{steps.N.notebook} 是副本。",
     "planError": "无法读取笔记本：{{error}}"
+  },
+  "message": {
+    "channel": "频道",
+    "channels": {
+      "teams": "Microsoft Teams",
+      "slack": "Slack",
+      "telegram": "Telegram",
+      "ntfy": "ntfy"
+    },
+    "urlLabel": {
+      "teams": "频道的 Webhook URL",
+      "slack": "Incoming Webhook 的 URL",
+      "ntfy": "主题 URL"
+    },
+    "botToken": "机器人令牌",
+    "chatId": "聊天",
+    "ntfyToken": "访问令牌",
+    "optional": "可选",
+    "howTo": {
+      "teams": "在 Teams 频道中：“工作流”›“收到 webhook 请求时发布到频道”，然后复制它给出的 URL。",
+      "slack": "在 Slack 中，创建一个启用了“Incoming Webhooks”的应用，并为该频道添加一个 webhook：URL 以 https://hooks.slack.com/ 开头。",
+      "telegram": "用 @BotFather 创建一个机器人并复制它的令牌。聊天是群组或频道的编号（机器人需是成员），或公开频道的 @名称。",
+      "ntfy": "ntfy.sh 或你自己的服务器（公开且使用 https）上的主题 URL，例如 https://ntfy.sh/my-topic。仅当主题受保护时才需要令牌。"
+    },
+    "problems": {
+      "missingUrl": "缺少 URL。",
+      "badUrl": "不是有效的 URL（且不能包含用户名或密码）。",
+      "notHttps": "URL 必须以 https:// 开头。",
+      "teamsHost": "Teams webhook 的 URL 必须来自 Microsoft（logic.azure.com、api.powerplatform.com 或 webhook.office.com）。",
+      "slackHost": "Slack webhook 的 URL 必须来自 hooks.slack.com。",
+      "ntfyLocal": "ntfy 服务器必须是公开的：不能是本机或本地网络。",
+      "ntfyTopic": "URL 必须是主题的 URL，例如 https://ntfy.sh/my-topic。",
+      "missingToken": "缺少机器人令牌。",
+      "badToken": "令牌格式不符合预期。",
+      "missingChat": "缺少聊天。",
+      "badChat": "聊天必须是数字（-100…）或 @频道。"
+    },
+    "test": "测试",
+    "testText": "DBine 测试消息：如果你看到了它，说明此步骤配置正确。",
+    "text": "文本",
+    "textHint": "支持任务的变量。{results} 是之前每个步骤的执行情况（✓ 成功，✗ 失败，– 未执行），{alerts} 是它们的警报。超过 3,500 个字符的消息会被截断。",
+    "privacy": "Webhook URL 和令牌保存在这台电脑的钥匙串中，绝不会存入任务或历史记录。消息仅通过 HTTPS 发送到所选服务。"
   }
 }

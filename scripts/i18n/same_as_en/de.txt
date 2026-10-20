@@ -340,3 +340,10 @@ workbench.json:welcome.family.graph
 workbench.json:welcome.family.relational
 workbench.json:welcome.family.streaming
 connString.json:formatLabel
+scheduled.json:message.channels.teams
+scheduled.json:message.channels.slack
+scheduled.json:message.channels.telegram
+scheduled.json:message.channels.ntfy
+scheduled.json:message.chatId
+scheduled.json:message.optional
+scheduled.json:message.text

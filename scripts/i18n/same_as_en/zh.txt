@@ -74,3 +74,7 @@ backend:Costa
 backend:Master de HBase
 backend:RegionServers de HBase
 backend:numérico
+scheduled.json:message.channels.teams
+scheduled.json:message.channels.slack
+scheduled.json:message.channels.telegram
+scheduled.json:message.channels.ntfy
