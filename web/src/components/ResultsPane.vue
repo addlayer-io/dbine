@@ -17,6 +17,7 @@ import PlanView from './PlanView.vue';
 import ChartView from './ChartView.vue';
 import type { AggregateInfo, ChartPoints, ChartSettings, ChartState, MapSettings } from '../composables/chartSettings';
 import { detectSpatial } from '../composables/geo';
+import { wholeChartByDefault } from '../composables/chartWhole';
 // Leaflet and the base map load only when a map is shown.
 const MapView = defineAsyncComponent(() => import('./MapView.vue'));
 import ExportDialog from './ExportDialog.vue';
@@ -190,6 +191,8 @@ watch(() => props.outcome, () => {
   for (const k of Object.keys(localSort)) delete localSort[Number(k)];
 });
 const gridSort = computed(() => props.sort ?? (typeof active.value === 'number' ? localSort[active.value] ?? [] : []));
+/** Sorted here, on the loaded rows of a cut result: the banner says so. */
+const sortedLoaded = computed(() => !props.sort && !!current.value?.truncated && gridSort.value.length > 0);
 function onSort(keys: SortKey[]) {
   if (props.sort) { emit('sort', keys); return; }
   const r = current.value;
@@ -688,8 +691,13 @@ async function copyCode() {
 const exporting = ref<{ format: ExportFormat } | null>(null);
 /** The source an export runs again (a connection's query). */
 const runSource = computed(() => (props.source?.notebookTab ? null : props.source ?? null));
+/** What "Exportar todo" runs again: a connection's query, or a DataFrame SQL
+ *  cell's SQL on its tab's DuckDB session (over the DataFrames its run read). */
 const exportSource = computed(() =>
-  runSource.value && typeof active.value === 'number' ? { ...runSource.value, resultIndex: active.value } : null);
+  props.source && typeof active.value === 'number' ? { ...props.source, resultIndex: active.value } : null);
+/** A DataFrame SQL cell's result cut for display: its charts start over the
+ *  whole result (DuckDB aggregates it locally, no server is involved). */
+const chartWholeByDefault = computed(() => wholeChartByDefault(props.source, current.value));
 
 /** Quick export: the rows already loaded, straight to a file. */
 async function quickExport(format: ExportFormat) {
@@ -921,7 +929,7 @@ const statusText = computed(() => {
     <PlanView v-else-if="active === 'plan' && outcome?.plans.length" :plans="outcome.plans" />
     <template v-else-if="current">
       <div v-if="current.truncated" class="rp-trunc">
-        {{ $t('results:truncated', { shown: current.rows.length.toLocaleString(locale()), total: current.total_rows.toLocaleString(locale()) }) }}
+        {{ $t(sortedLoaded ? 'results:truncatedSorted' : 'results:truncated', { shown: current.rows.length.toLocaleString(locale()), total: current.total_rows.toLocaleString(locale()) }) }}
       </div>
       <ChartView
         v-if="view === 'chart'"
@@ -932,6 +940,7 @@ const statusText = computed(() => {
         :stored-points="chartPoints"
         :stored-aggregate="chartAggregate"
         :source="source"
+        :whole-by-default="chartWholeByDefault"
         @update:settings="(s: ChartState) => emit('update:chartSettings', s)"
       />
       <MapView
@@ -979,6 +988,7 @@ const statusText = computed(() => {
         :insertable="canInsert"
         sortable
         :sort="gridSort"
+        :loaded-of="current.truncated ? current.total_rows : null"
         :links="links"
         @follow="follow"
         @edit="onEdit"

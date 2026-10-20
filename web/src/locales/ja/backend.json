@@ -11127,5 +11127,8 @@
   "{0}: no se pudo buscar el backup (HTTP {1}): {2}": "{0}: バックアップを検索できませんでした(HTTP {1}): {2}",
   "{0}: no se pudo descargar el backup (HTTP {1}): {2}": "{0}: バックアップをダウンロードできませんでした(HTTP {1}): {2}",
   "{0}: no se pudo leer la cuenta (HTTP {1}): {2}": "{0}: アカウントを読み取れませんでした(HTTP {1}): {2}",
-  "{0}: no se pudo subir el backup (HTTP {1}): {2}": "{0}: バックアップをアップロードできませんでした(HTTP {1}): {2}"
+  "{0}: no se pudo subir el backup (HTTP {1}): {2}": "{0}: バックアップをアップロードできませんでした(HTTP {1}): {2}",
+  "Ejecutá la celda para exportar todo su resultado": "結果全体をエクスポートするにはセルを実行してください",
+  "los DataFrames que lee esta celda cambiaron desde que se ejecutó: ejecutala de nuevo para exportar todo su resultado": "このセルが読み込む DataFrame は実行後に変更されました。結果全体をエクスポートするにはもう一度実行してください",
+  "no hay consulta para exportar": "エクスポートするクエリがありません"
 }

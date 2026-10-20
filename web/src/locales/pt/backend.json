@@ -11127,5 +11127,8 @@
   "{0}: no se pudo buscar el backup (HTTP {1}): {2}": "{0}: não foi possível procurar o backup (HTTP {1}): {2}",
   "{0}: no se pudo descargar el backup (HTTP {1}): {2}": "{0}: não foi possível baixar o backup (HTTP {1}): {2}",
   "{0}: no se pudo leer la cuenta (HTTP {1}): {2}": "{0}: não foi possível ler a conta (HTTP {1}): {2}",
-  "{0}: no se pudo subir el backup (HTTP {1}): {2}": "{0}: não foi possível enviar o backup (HTTP {1}): {2}"
+  "{0}: no se pudo subir el backup (HTTP {1}): {2}": "{0}: não foi possível enviar o backup (HTTP {1}): {2}",
+  "Ejecutá la celda para exportar todo su resultado": "Execute a célula para exportar o resultado inteiro",
+  "los DataFrames que lee esta celda cambiaron desde que se ejecutó: ejecutala de nuevo para exportar todo su resultado": "os DataFrames que esta célula lê mudaram desde que ela foi executada: execute-a de novo para exportar o resultado inteiro",
+  "no hay consulta para exportar": "não há consulta para exportar"
 }

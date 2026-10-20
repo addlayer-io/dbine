@@ -236,7 +236,7 @@ export function describeResult(r: CellResult | null): string {
   r.results.forEach((s, i) => {
     if (s.columns.length) {
       out.push(`#${i + 1}: ${s.columns.map((c) => `${c.name} ${c.type_name}`.trim()).join(', ')}`);
-      out.push(`  rows_total=${s.rows_total}${s.truncated ? ' (truncated preview)' : ''}`);
+      out.push(`  rows_total=${s.rows_total}${s.truncated ? ` (truncated preview: ${s.rows_kept} rows shown)` : ''}`);
     } else if (s.rows_affected != null) out.push(`#${i + 1}: rows_affected=${s.rows_affected}`);
   });
   if (r.error) out.push(`error: ${r.error}`);

@@ -7030,6 +7030,9 @@
  "Ejecutá la celda para calcular el gráfico sobre todo su resultado": [
   "src-tauri/src/notebook/local.rs"
  ],
+ "Ejecutá la celda para exportar todo su resultado": [
+  "src-tauri/src/notebook/local.rs"
+ ],
  "El $lookup recorre la colección externa sin índice": [
   "crates/drivers/mongodb/src/plan.rs"
  ],
@@ -29912,6 +29915,9 @@
  "los DataFrames que lee esta celda cambiaron desde que se ejecutó: ejecutala de nuevo para calcular el gráfico sobre todo su resultado": [
   "src-tauri/src/notebook/local.rs"
  ],
+ "los DataFrames que lee esta celda cambiaron desde que se ejecutó: ejecutala de nuevo para exportar todo su resultado": [
+  "src-tauri/src/notebook/local.rs"
+ ],
  "los adjuntos suman {0} MB y el máximo es {1} MB: la mayoría de los servidores rechazan mails más grandes": [
   "src-tauri/src/tasks/mail.rs"
  ],
@@ -30536,6 +30542,9 @@
  ],
  "no hay consulta para el gráfico": [
   "src-tauri/src/commands/chart.rs",
+  "src-tauri/src/notebook/local.rs"
+ ],
+ "no hay consulta para exportar": [
   "src-tauri/src/notebook/local.rs"
  ],
  "no hay cómo vaciarla": [

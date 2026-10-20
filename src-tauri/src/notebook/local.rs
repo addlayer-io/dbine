@@ -1382,6 +1382,102 @@ pub async fn run_local(
 }
 
 // ---------------------------------------------------------------------------
+// The whole result again: the chart and the export
+
+/// What runs a cell's SQL again over the tables its last run read.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum Reuse {
+    Chart,
+    Export,
+}
+
+impl Reuse {
+    fn not_run(self) -> CommandError {
+        CommandError::BadRequest(match self {
+            Reuse::Chart => "Ejecutá la celda para calcular el gráfico sobre todo su resultado".into(),
+            Reuse::Export => "Ejecutá la celda para exportar todo su resultado".into(),
+        })
+    }
+    fn changed(self) -> CommandError {
+        CommandError::BadRequest(match self {
+            Reuse::Chart => "los DataFrames que lee esta celda cambiaron desde que se ejecutó: ejecutala de nuevo para calcular el gráfico sobre todo su resultado".into(),
+            Reuse::Export => "los DataFrames que lee esta celda cambiaron desde que se ejecutó: ejecutala de nuevo para exportar todo su resultado".into(),
+        })
+    }
+}
+
+/// The last successful run of `sql` (the cell's SQL as the UI sent it) in
+/// the tab's session `entry` (locked: `s`), with its SQL as it ran checked
+/// again with the cell's refusals, and only while every table it read is
+/// still there and loaded from the same source. Nothing is loaded here.
+async fn last_run(entry: &Arc<SessionEntry>, s: &mut dyn Session, tab: &str, sql: &str, why: Reuse) -> CommandResult<CellRun> {
+    let key = session_key(tab);
+    let (run, tables) = {
+        let all = CATALOGS.lock().map_err(|_| CommandError::Internal("tablas del notebook".into()))?;
+        let c = all.get(&key).filter(|c| c.entry.upgrade().is_some_and(|e| Arc::ptr_eq(&e, entry))).ok_or_else(|| why.not_run())?;
+        (c.runs.get(sql).cloned().ok_or_else(|| why.not_run())?, c.tables.clone())
+    };
+    if let Some(e) = files::refused(&run.sql) {
+        return Err(CommandError::BadRequest(e));
+    }
+    let present = existing_tables(s).await?;
+    if run.tables.iter().any(|(t, k)| !present.contains(t) || tables.get(t).map(|l| &l.key) != Some(k)) {
+        return Err(why.changed());
+    }
+    Ok(run)
+}
+
+/// "Exportar todo" for a DataFrame SQL cell: its SQL run again, every row,
+/// on the tab's own session (`nbx:<tab>`, still locked down) over the very
+/// tables its last run read, the rows streamed into `out`'s sink (the
+/// export file). The same checks as the whole-result chart
+/// ([`aggregate_local`]): the SQL is refused as a run refuses it, nothing
+/// is loaded, no file is read and no source runs again; when the session
+/// is gone, the cell hasn't run in it, or a table it read was loaded again
+/// since, it asks to run the cell first. While it runs, the tab's session
+/// is also registered as `export_key`, so `cancel_query` on it stops the
+/// export.
+pub async fn export_local(state: &AppState, tab: &str, sql: &str, export_key: &str, out: &mut QueryOutcome) -> CommandResult<()> {
+    let sql = sql.trim();
+    if sql.is_empty() {
+        return Err(CommandError::BadRequest("no hay consulta para exportar".into()));
+    }
+    if let Some(e) = files::refused(sql) {
+        return Err(CommandError::BadRequest(e));
+    }
+    let entry = state.sessions.get(&session_key(tab)).map(|e| e.clone()).ok_or_else(|| Reuse::Export.not_run())?;
+    // Cleared before it can be cancelled: a cancel while it waits for the
+    // session (a cell running) still lands.
+    entry.cancelled.store(false, Ordering::SeqCst);
+    state.sessions.insert(export_key.to_string(), entry.clone());
+    let r = async {
+        let mut s = entry.session.lock().await;
+        if entry.cancelled.load(Ordering::SeqCst) {
+            return Err(CommandError::Cancelled);
+        }
+        let run = last_run(&entry, &mut **s, tab, sql, Reuse::Export).await?;
+        let finished = tokio::select! {
+            r = s.execute(&run.sql, usize::MAX, out) => Some(r),
+            _ = entry.cancel.notified() => None,
+        };
+        if entry.cancelled.swap(false, Ordering::SeqCst) {
+            return Err(CommandError::Cancelled);
+        }
+        match finished {
+            None | Some(Err(dbine_driver::Error::Cancelled)) => Err(CommandError::Cancelled),
+            Some(Err(e)) => Err(CommandError::Sql(e.to_string())),
+            Some(Ok(())) => match out.error.take().or_else(|| out.errors.first().map(|e| e.message.clone())) {
+                Some(e) => Err(CommandError::Sql(e)),
+                None => Ok(()),
+            },
+        }
+    }
+    .await;
+    state.sessions.remove_if(export_key, |_, e| Arc::ptr_eq(e, &entry));
+    r
+}
+
+// ---------------------------------------------------------------------------
 // The chart over the whole result
 
 /// "Calcular sobre todo el resultado" for a DataFrame SQL cell: `chart`
@@ -1402,25 +1498,10 @@ pub async fn aggregate_local(state: &AppState, tab: &str, sql: &str, chart: &Cha
     if let Some(e) = files::refused(sql) {
         return Err(CommandError::BadRequest(e));
     }
-    let not_run = || CommandError::BadRequest("Ejecutá la celda para calcular el gráfico sobre todo su resultado".into());
-    let key = session_key(tab);
-    let entry = state.sessions.get(&key).map(|e| e.clone()).ok_or_else(not_run)?;
+    let entry = state.sessions.get(&session_key(tab)).map(|e| e.clone()).ok_or_else(|| Reuse::Chart.not_run())?;
     let mut s = entry.session.lock().await;
     entry.cancelled.store(false, Ordering::SeqCst);
-    let (run, tables) = {
-        let all = CATALOGS.lock().map_err(|_| CommandError::Internal("tablas del notebook".into()))?;
-        let c = all.get(&key).filter(|c| c.entry.upgrade().is_some_and(|e| Arc::ptr_eq(&e, &entry))).ok_or_else(not_run)?;
-        (c.runs.get(sql).cloned().ok_or_else(not_run)?, c.tables.clone())
-    };
-    if let Some(e) = files::refused(&run.sql) {
-        return Err(CommandError::BadRequest(e));
-    }
-    let present = existing_tables(&mut **s).await?;
-    if run.tables.iter().any(|(t, k)| !present.contains(t) || tables.get(t).map(|l| &l.key) != Some(k)) {
-        return Err(CommandError::BadRequest(
-            "los DataFrames que lee esta celda cambiaron desde que se ejecutó: ejecutala de nuevo para calcular el gráfico sobre todo su resultado".into(),
-        ));
-    }
+    let run = last_run(&entry, &mut **s, tab, sql, Reuse::Chart).await?;
     let driver = dbine_drivers::find("duckdb").ok_or_else(|| CommandError::Internal("esta versión no incluye el driver de DuckDB".into()))?;
     let stop = Stop { cancel: &entry.cancel, cancelled: &entry.cancelled, interrupter: entry.interrupter.as_ref() };
     let mut a = aggregate_on(driver.as_ref(), &mut **s, &run.sql, chart, CLIENT_ROW_CAP, &stop).await?;

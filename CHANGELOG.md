@@ -5,6 +5,9 @@
 ### New
 - **Copy connection string:** right-click a connection (or use the button in its form) and pick **Copy connection string…** to get it as a URI, ADO.NET, JDBC, SQLAlchemy, ODBC, libpq, Node.js or Go string, whichever apply to its engine, for any database, with its TLS and sign-in settings. The password is left out (a `${DB_PASSWORD}` placeholder) unless you turn on **Include password**; then it's fetched when you copy, and cleared from the clipboard a minute later if it's still there.
 
+### Fixes
+- **Notebooks, big DataFrame SQL results:** **Advanced export… › All** writes the whole result, not just the rows shown. The cell's SQL runs again in DuckDB over the DataFrames its last run read, without reading files or querying the sources again. Its charts start computed over the whole result, and you can switch that off. When a result is cut, the grid also says that sorting and **Copy all** only cover the loaded rows.
+
 ## [1.0.0] - 2026-10-19
 
 ### New

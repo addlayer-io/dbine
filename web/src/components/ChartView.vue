@@ -37,6 +37,9 @@ const props = defineProps<{
    *  (stored whole-result points still show). `notebookTab`: a DataFrame
    *  SQL cell's run, aggregated by that tab's DuckDB session. */
   source?: { connectionId: string; database: string; sql: string; notebookTab?: string } | null;
+  /** Start with "Calcular sobre todo el resultado" on, while no settings say
+   *  otherwise (a DataFrame SQL cell's result cut for display). */
+  wholeByDefault?: boolean;
 }>();
 /** The user changed the chart (or its data changed after they did). */
 const emit = defineEmits<{ 'update:settings': [state: ChartState] }>();
@@ -72,7 +75,7 @@ function pickDefaults() {
   const dates = dateCols.value;
   const text = textCols.value[0];
   bins.value = 0;
-  whole.value = false;
+  whole.value = !!props.wholeByDefault;
   if (props.rows.length === 1 && nums.length && !dates.length) {
     // One row: its first number, big.
     kind.value = 'kpi';
@@ -139,7 +142,9 @@ const settingsNow = computed<ChartSettings>(() => {
     split: SPLITS.includes(kind.value) || kind.value === 'heatmap' ? name(splitCol.value) : null,
   };
   if (kind.value === 'histogram' && bins.value > 0) s.bins = bins.value;
-  if (whole.value && wholeApplies.value) s.whole = true;
+  // Off is kept only where it would start on, so the choice outlives a new run.
+  if (wholeApplies.value && whole.value) s.whole = true;
+  else if (wholeApplies.value && props.wholeByDefault) s.whole = false;
   return s;
 });
 /** The defaults' settings, and whether the chart is emitted: once the user
@@ -162,7 +167,8 @@ function applyColumns() {
     sortBy.value = r.sort;
     splitCol.value = r.split;
     bins.value = r.bins;
-    whole.value = !!props.settings?.whole;
+    // Never chosen: the default (on for a DataFrame SQL cell's cut result).
+    whole.value = props.settings?.whole ?? !!props.wholeByDefault;
     chosen = true;
   }
   queueMicrotask(() => { applying = false; });

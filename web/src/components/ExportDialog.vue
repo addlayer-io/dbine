@@ -21,6 +21,9 @@ export interface ExportSource {
   database: string;
   sql: string;
   resultIndex: number;
+  /** A DataFrame SQL cell's result: run again on that notebook tab's DuckDB
+   *  session (no connection), over the DataFrames its run read. */
+  notebookTab?: string;
 }
 
 const props = defineProps<{
@@ -83,7 +86,7 @@ async function run() {
   const h = startTask<ExportResult>({
     kind: 'export',
     title: t('tasks:genImportExport.export', { file: path.split(/[\\/]/).pop() ?? path }),
-    connectionId: all?.connectionId, database: all?.database,
+    connectionId: all?.connectionId || undefined, database: all?.notebookTab ? undefined : all?.database,
     // Only the streamed export has a cancel path; the loaded rows are written in one go.
     // A cancel that doesn't land re-enables the dialog's button too.
     cancel: all ? () => { cancelling.value = true; return exportApi.cancel(exportId).catch((e) => { cancelling.value = false; throw e; }); } : undefined,
@@ -104,6 +107,8 @@ async function run() {
         // An estimate the export went past is no longer a total.
         h.progress({ done, total: total != null && done <= total ? total : undefined, unit: 'rows' });
       });
+      // A DataFrame SQL cell's run counted every row: that's the total.
+      if (all.notebookTab && props.totalRows > props.rows.length) estimate.value = props.totalRows;
       result = await exportApi.query({ exportId, ...all, path, options });
     } else {
       h.progress({ total: props.rows.length, unit: 'rows' });
@@ -158,7 +163,7 @@ function toBackground() {
           </el-radio>
         </el-radio-group>
         <div v-if="scope === 'all'" class="ed-help">
-          {{ $t('results:exportDialog.allHelp') }}
+          {{ source?.notebookTab ? $t('results:exportDialog.allHelpLocal') : $t('results:exportDialog.allHelp') }}
         </div>
         <div v-else-if="truncated" class="ed-help warn">
           {{ $t('results:exportDialog.truncated', { rows: rows.length.toLocaleString(locale()) }) }}

@@ -157,6 +157,8 @@ function readSettings(o: Record<string, unknown>): ChartSettings | null {
   };
   if (typeof o.bins === 'number' && Number.isInteger(o.bins) && o.bins > 0 && o.bins <= 500) s.bins = o.bins;
   if (o.whole === true) s.whole = true;
+  // Switched off where it starts on (a DataFrame SQL cell's cut result).
+  else if (o.whole === false) s.whole = false;
   return s;
 }
 
@@ -227,6 +229,7 @@ export function writeCellCharts(c: CellCharts): Record<string, unknown> {
         Object.assign(o, { type: s.kind, x: s.x, y: s.y, agg: s.agg, sort: s.sort, split: s.split });
         if (s.bins) o.bins = s.bins;
         if (s.whole) o.whole = true;
+        else if (s.whole === false) o.whole = false;
       }
       if (ch.points) o.points = ch.points;
       if (ch.aggregate && s?.whole) o.aggregate = ch.aggregate;

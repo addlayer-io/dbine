@@ -425,6 +425,97 @@ async fn notebook_local_whole_result_chart_refuses_and_asks_to_run() {
     assert!(e.to_string().contains("Ejecutá la celda"), "{e}");
 }
 
+// -- "Exportar todo" and later cells over the whole result -------------------------------------
+
+/// `sql` exported by [`export_local`] as CSV into a fresh file: its lines,
+/// or the refusal (and then no file is left).
+async fn export_csv(state: &AppState, tab: &str, sql: &str, name: &str) -> Result<Vec<String>, CommandError> {
+    let path = std::env::temp_dir().join(format!("dbine-nbx-export-{name}-{}.csv", std::process::id()));
+    let _ = std::fs::remove_file(&path);
+    let exporter = Arc::new(Mutex::new(dbine_core::export::Exporter::new(&path, 0, dbine_core::export::ExportOptions::default())));
+    let mut out = QueryOutcome { sink: Some(RowSinkRef(exporter.clone())), ..Default::default() };
+    let r = export_local(state, tab, sql, &format!("export:{name}"), &mut out).await;
+    out.sink = None;
+    // Only this export holds the session under its key, and only while it runs.
+    assert!(state.sessions.get(&format!("export:{name}")).is_none());
+    let written = exporter.lock().unwrap().finish();
+    match r {
+        Ok(()) => {
+            written.unwrap();
+            let text = std::fs::read_to_string(&path).unwrap();
+            let _ = std::fs::remove_file(&path);
+            Ok(text.lines().map(String::from).collect())
+        }
+        Err(e) => {
+            let _ = std::fs::remove_file(&path);
+            Err(e)
+        }
+    }
+}
+
+#[tokio::test]
+async fn notebook_local_export_writes_every_row_of_the_cell() {
+    let state = test_state();
+    let tab = "export-tab";
+    // The cell joins two DataFrames and shows 5 of its 60 rows.
+    let r = run_local(&state, tab, CHART_CELL, 5, 1_000, &chart_sources(1, 60), None, None, super::super::access::Policy::default(), Default::default()).await.unwrap();
+    let shown = r.outcome.results.iter().find(|x| !x.columns.is_empty()).unwrap();
+    assert_eq!((shown.rows.len(), shown.total_rows), (5, 60));
+    let lines = export_csv(&state, tab, CHART_CELL, "all").await.unwrap();
+    assert_eq!(lines.len(), 61, "header + every row");
+    assert_eq!(lines[0], "nombre,total");
+    let mut totals: Vec<u64> = lines[1..].iter().map(|l| l.split(',').nth(1).unwrap().parse().unwrap()).collect();
+    totals.sort_unstable();
+    assert_eq!(totals, (1..=60).collect::<Vec<_>>());
+}
+
+#[tokio::test]
+async fn notebook_local_export_refuses_and_asks_to_run() {
+    let state = test_state();
+    let tab = "export-tab-2";
+    // Nothing ran in this tab.
+    let e = export_csv(&state, tab, CHART_CELL, "none").await.unwrap_err();
+    assert!(e.to_string().contains("Ejecutá la celda para exportar"), "{e}");
+    run_local(&state, tab, CHART_CELL, 5, 1_000, &chart_sources(1, 60), None, None, super::super::access::Policy::default(), Default::default()).await.unwrap();
+    // A cell that didn't run in it.
+    let e = export_csv(&state, tab, "SELECT * FROM ventas", "other").await.unwrap_err();
+    assert!(e.to_string().contains("Ejecutá la celda"), "{e}");
+    // Writing a file from the SQL is refused, before anything runs.
+    let copy = std::env::temp_dir().join("dbine-nbx-export-copy.csv");
+    let _ = std::fs::remove_file(&copy);
+    let e = export_csv(&state, tab, &format!("COPY (SELECT * FROM ventas) TO '{}'", copy.display()), "copy").await.unwrap_err();
+    assert!(matches!(e, CommandError::BadRequest(_)), "{e}");
+    assert!(!copy.exists());
+    // Another cell loaded `ventas` again: the DataFrames this cell read are gone.
+    run_local(&state, tab, "SELECT count(*) FROM ventas", 5, 1_000, &chart_sources(2, 80), None, None, super::super::access::Policy::default(), Default::default()).await.unwrap();
+    let e = export_csv(&state, tab, CHART_CELL, "changed").await.unwrap_err();
+    assert!(e.to_string().contains("ejecutala de nuevo para exportar"), "{e}");
+    // Run again: every row of the new run.
+    run_local(&state, tab, CHART_CELL, 5, 1_000, &chart_sources(2, 80), None, None, super::super::access::Policy::default(), Default::default()).await.unwrap();
+    assert_eq!(export_csv(&state, tab, CHART_CELL, "again").await.unwrap().len(), 81);
+    // The tab closed (its session with it).
+    state.sessions.remove(&session_key(tab));
+    let e = export_csv(&state, tab, CHART_CELL, "closed").await.unwrap_err();
+    assert!(e.to_string().contains("Ejecutá la celda"), "{e}");
+}
+
+#[tokio::test]
+async fn notebook_local_a_later_cell_reads_the_whole_result_not_the_rows_shown() {
+    let state = test_state();
+    let tab = "chain-tab";
+    // c2: a DataFrame SQL cell joining two DataFrames; it showed 5 of its 60 rows.
+    let mut sources = chart_sources(1, 60);
+    run_local(&state, tab, CHART_CELL, 5, 1_000, &sources, None, None, super::super::access::Policy::default(), Default::default()).await.unwrap();
+    sources.push(LocalSource { local: true, connection_id: None, ..src("c2", CHART_CELL) });
+    // c3 over c2: DuckDB builds c2 from its SQL, every row (up to the cap per table).
+    let r = run_local(&state, tab, "SELECT count(*) AS n, sum(total) AS s FROM c2", 5, 1_000, &sources, None, None, super::super::access::Policy::default(), Default::default()).await.unwrap();
+    assert!(r.outcome.error.is_none(), "{:?}", r.outcome.error);
+    let row = &r.outcome.results.iter().find(|x| !x.columns.is_empty()).unwrap().rows[0];
+    assert_eq!((row[0].as_u64(), row[1].as_f64()), (Some(60), Some(1830.0)));
+    let c2 = r.loaded.iter().find(|t| t.name == "c2").unwrap();
+    assert_eq!((c2.rows, c2.capped, c2.origin), (60, false, "local"));
+}
+
 // -- live: several engines into one DuckDB join ------------------------------------------------
 
 fn url(env: &str, default: &str) -> String {

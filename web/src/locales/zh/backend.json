@@ -11127,5 +11127,8 @@
   "{0}: no se pudo buscar el backup (HTTP {1}): {2}": "{0}：无法查找备份（HTTP {1}）：{2}",
   "{0}: no se pudo descargar el backup (HTTP {1}): {2}": "{0}：无法下载备份（HTTP {1}）：{2}",
   "{0}: no se pudo leer la cuenta (HTTP {1}): {2}": "{0}：无法读取账户（HTTP {1}）：{2}",
-  "{0}: no se pudo subir el backup (HTTP {1}): {2}": "{0}：无法上传备份（HTTP {1}）：{2}"
+  "{0}: no se pudo subir el backup (HTTP {1}): {2}": "{0}：无法上传备份（HTTP {1}）：{2}",
+  "Ejecutá la celda para exportar todo su resultado": "请运行该单元格以导出其全部结果",
+  "los DataFrames que lee esta celda cambiaron desde que se ejecutó: ejecutala de nuevo para exportar todo su resultado": "此单元格读取的 DataFrame 在其运行后已更改：请重新运行以导出其全部结果",
+  "no hay consulta para exportar": "没有可导出的查询"
 }

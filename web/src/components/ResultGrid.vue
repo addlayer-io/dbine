@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue';
 import { ElMessage, ElMessageBox } from 'element-plus';
-import { t } from '../i18n';
+import { locale, t } from '../i18n';
 import { CaretBottom, CaretTop, Filter, MoreFilled } from '@element-plus/icons-vue';
 import { coerce, coerceNew, sameValue, type Edits } from '../composables/gridEdit';
 import { isMac, isSaveShortcut } from '../composables/shortcuts';
@@ -23,6 +23,9 @@ import { COPY_FORMATS, defaultCopyFormat, formatRows, setDefaultCopyFormat, type
 const props = defineProps<{
   columns: ResultColumn[];
   rows: Cell[][];
+  /** The rows are the first ones of a result this big (cut for display):
+   *  copying "everything" says it copies the loaded rows. */
+  loadedOf?: number | null;
   /** Table, dialect and key columns for the SQL / Mongo copy formats. */
   copyContext?: CopyContext;
   /** Cells can be edited (the changes become UPDATE code, never run). */
@@ -771,12 +774,14 @@ function onContext(e: MouseEvent, r: number, c: number | null) {
     if (!canEditRow(r) && props.noEditReason) items.push({ label: t('results:grid.notEditable', { reason: props.noEditReason }), disabled: true });
     else if (canEditRow(r) && props.readOnlyColumns?.[c]) items.push({ label: t('results:grid.notEditable', { reason: props.readOnlyColumns[c] }), disabled: true });
   }
-  const scope = t(rowSel.value || block.value || cellExtra.value.length ? 'results:grid.scopeSelected' : selection.value ? 'results:grid.scopeRow' : 'results:grid.scopeAll');
+  const loaded = props.loadedOf != null ? { rows: props.rows.length.toLocaleString(locale()) } : null;
+  const scope = rowSel.value || block.value || cellExtra.value.length ? t('results:grid.scopeSelected') : selection.value ? t('results:grid.scopeRow')
+    : loaded ? t('results:grid.scopeLoaded', loaded) : t('results:grid.scopeAll');
   items.push({ label: t('results:grid.copyHeader', { scope }), header: true, divided: true });
   for (const f of COPY_FORMATS) {
     items.push({ label: t(`results:grid.copyFormat.${f.id}.label`, f.label), shortcut: f.id === copyFormat.value ? '⌘C' : undefined, action: () => copyAs(f.id) });
   }
-  items.push({ label: t('results:grid.copyAllWithHeaders'), action: () => { rowSel.value = null; selection.value = null; clearExtras(); copy(formatRows('tsv_headers', props.columns, props.rows)); } });
+  items.push({ label: loaded ? t('results:grid.copyLoadedWithHeaders', loaded) : t('results:grid.copyAllWithHeaders'), action: () => { rowSel.value = null; selection.value = null; clearExtras(); copy(formatRows('tsv_headers', props.columns, props.rows)); } });
   items.push({ label: t('results:grid.copyFormatHeader'), header: true, divided: true });
   for (const f of COPY_FORMATS) {
     items.push({

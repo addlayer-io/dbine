@@ -6,7 +6,7 @@ import assert from 'node:assert/strict';
 import {
   EditVersion, RunLock, applyProjectDefault, assignCellNames, cellNameProblem, completeRows, defaultCellName, emptyNotebook, emptyTarget,
   matchConnection, newCell, outline, projectFileOf, promptVariant, sameTarget, validCellName,
-  dataFramesAbove, emptyWrite, needsKey, newWriteCell, writeProblem, writeSummaryOf,
+  dataFramesAbove, describeResult, emptyWrite, needsKey, newWriteCell, writeProblem, writeSummaryOf,
 } from './notebookModel.ts';
 
 const conns = [
@@ -163,4 +163,10 @@ test('write cells: what they can write, and what is still missing', () => {
 test('a write summary keeps counts, when and where', () => {
   const s = writeSummaryOf({ inserted: 2, updated: 1, deleted: 0, elapsed_ms: 1234.4, target_label: 'Ventas › dbo.t', warnings: ['x'] }, new Date('2026-10-18T14:32:05.123Z'));
   assert.deepEqual(s, { inserted: 2, updated: 1, deleted: 0, ran_at: '2026-10-18T14:32:05Z', duration_ms: 1234, target_label: 'Ventas › dbo.t', error: null, warnings: ['x'] });
+});
+
+test('the assistant is told a cut result is a preview of N shown out of M rows', () => {
+  const set = (o) => ({ columns: [{ name: 'a', type_name: 'int' }], rows_kept: 5, rows_total: 1000000, truncated: true, ...o });
+  assert.equal(describeResult({ results: [set()] }), '#1: a int\n  rows_total=1000000 (truncated preview: 5 rows shown)');
+  assert.equal(describeResult({ results: [set({ rows_kept: 3, rows_total: 3, truncated: false })] }), '#1: a int\n  rows_total=3');
 });

@@ -73,11 +73,14 @@ export const exportApi = {
   query: (a: {
     exportId: string; connectionId: string; database: string; sql: string; resultIndex: number;
     path: string; options: ExportOptions;
+    /** A DataFrame SQL cell's result: its SQL runs again on this notebook
+     *  tab's DuckDB session, over the DataFrames its run read. */
+    notebookTab?: string | null;
   }) =>
     invoke<ExportResult>('export_query_to_file', {
       args: {
         export_id: a.exportId, connection_id: a.connectionId, database: a.database, sql: a.sql,
-        result_index: a.resultIndex, path: a.path, options: a.options,
+        result_index: a.resultIndex, path: a.path, options: a.options, notebook_tab: a.notebookTab ?? null,
       },
     }),
   cancel: (exportId: string) => invoke<void>('cancel_query', { args: { session_id: `export:${exportId}` } }),

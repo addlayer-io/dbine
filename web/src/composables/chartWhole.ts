@@ -118,3 +118,16 @@ export function shapeFromAggregate(s: ChartSettings, a: ChartAggregate, L: Shape
   ({ series, names } = foldSeries(series, names, s.agg, MAX_SERIES, L.others));
   return sortShape({ cats, series, names }, s.sort, true);
 }
+
+/** Whether a chart starts with "Calcular sobre todo el resultado" on: only
+ *  for a DataFrame SQL cell's result (`notebookTab`: DuckDB aggregates it on
+ *  the notebook's own session, no server is involved) that shows fewer rows
+ *  than it returned. A connection's chart keeps it off (it would run the
+ *  query again on the server); the user can switch either one. */
+export function wholeChartByDefault(
+  source: { notebookTab?: string } | null | undefined,
+  result: { rows: unknown[]; total_rows: number; truncated: boolean } | null | undefined,
+): boolean {
+  if (!source?.notebookTab || !result) return false;
+  return result.truncated || result.total_rows > result.rows.length;
+}

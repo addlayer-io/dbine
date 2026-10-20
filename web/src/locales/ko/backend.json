@@ -11127,5 +11127,8 @@
   "{0}: no se pudo buscar el backup (HTTP {1}): {2}": "{0}: 백업을 찾지 못했습니다(HTTP {1}): {2}",
   "{0}: no se pudo descargar el backup (HTTP {1}): {2}": "{0}: 백업을 다운로드하지 못했습니다(HTTP {1}): {2}",
   "{0}: no se pudo leer la cuenta (HTTP {1}): {2}": "{0}: 계정을 읽지 못했습니다(HTTP {1}): {2}",
-  "{0}: no se pudo subir el backup (HTTP {1}): {2}": "{0}: 백업을 업로드하지 못했습니다(HTTP {1}): {2}"
+  "{0}: no se pudo subir el backup (HTTP {1}): {2}": "{0}: 백업을 업로드하지 못했습니다(HTTP {1}): {2}",
+  "Ejecutá la celda para exportar todo su resultado": "전체 결과를 내보내려면 셀을 실행하세요",
+  "los DataFrames que lee esta celda cambiaron desde que se ejecutó: ejecutala de nuevo para exportar todo su resultado": "이 셀이 읽는 DataFrame이 실행 이후 변경되었습니다. 전체 결과를 내보내려면 다시 실행하세요",
+  "no hay consulta para exportar": "내보낼 쿼리가 없습니다"
 }

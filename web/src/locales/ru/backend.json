@@ -11127,5 +11127,8 @@
   "{0}: no se pudo buscar el backup (HTTP {1}): {2}": "{0}: не удалось найти резервную копию (HTTP {1}): {2}",
   "{0}: no se pudo descargar el backup (HTTP {1}): {2}": "{0}: не удалось скачать резервную копию (HTTP {1}): {2}",
   "{0}: no se pudo leer la cuenta (HTTP {1}): {2}": "{0}: не удалось прочитать учётную запись (HTTP {1}): {2}",
-  "{0}: no se pudo subir el backup (HTTP {1}): {2}": "{0}: не удалось загрузить резервную копию (HTTP {1}): {2}"
+  "{0}: no se pudo subir el backup (HTTP {1}): {2}": "{0}: не удалось загрузить резервную копию (HTTP {1}): {2}",
+  "Ejecutá la celda para exportar todo su resultado": "Выполните ячейку, чтобы экспортировать весь её результат",
+  "los DataFrames que lee esta celda cambiaron desde que se ejecutó: ejecutala de nuevo para exportar todo su resultado": "DataFrame, которые читает эта ячейка, изменились после её запуска: выполните её снова, чтобы экспортировать весь результат",
+  "no hay consulta para exportar": "нет запроса для экспорта"
 }

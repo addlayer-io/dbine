@@ -56,8 +56,15 @@ pub struct ExportQueryArgs {
     /// Chosen by the UI; progress events carry it and `cancel_query` takes
     /// `export:<id>` to stop it.
     pub export_id: String,
+    #[serde(default)]
     pub connection_id: String,
+    #[serde(default)]
     pub database: String,
+    /// A DataFrame SQL cell's result: the notebook tab whose DuckDB session
+    /// (`nbx:<tab>`) runs `sql` again over the DataFrames its last run read
+    /// ([`crate::notebook::local::export_local`]), instead of a connection.
+    #[serde(default)]
+    pub notebook_tab: Option<String>,
     pub sql: String,
     /// Which result set of the script to write.
     pub result_index: usize,
@@ -158,7 +165,8 @@ async fn explain_rows(s: &mut dyn dbine_driver::Session, sql: &str) -> Option<u6
 /// rows, without holding them in memory. The session is read-only whatever
 /// the connection says: an export never writes to the database (SQL
 /// engines refuse writing statements; the others enforce read-only in
-/// their drivers).
+/// their drivers). A DataFrame SQL cell's (`notebook_tab`) runs on its
+/// tab's locked-down DuckDB session instead, over the DataFrames it read.
 #[tauri::command(rename_all = "camelCase")]
 pub async fn export_query_to_file(
     app: AppHandle,
@@ -167,7 +175,11 @@ pub async fn export_query_to_file(
 ) -> CommandResult<ExportResult> {
     let started = std::time::Instant::now();
     let key = format!("export:{}", args.export_id);
-    let entry = state.dedicated_session(&key, &args.connection_id, &args.database, true).await?;
+    let tab = args.notebook_tab.clone().filter(|t| !t.is_empty());
+    let entry = match &tab {
+        Some(_) => None,
+        None => Some(state.dedicated_session(&key, &args.connection_id, &args.database, true).await?),
+    };
 
     let path = PathBuf::from(&args.path);
     let written = Arc::new(AtomicU64::new(0));
@@ -177,10 +189,11 @@ pub async fn export_query_to_file(
     // The estimate comes in while the export runs; its event carries the
     // rows written so far so the count never goes back.
     let estimate_key = format!("export-estimate:{}", args.export_id);
-    let allowed = match (state.store.get_connection(&args.connection_id), driver_of(&state, &args.connection_id)) {
-        (Ok(Some(saved)), Ok(driver)) => estimate_allowed(&saved.config, driver.as_ref(), &args.sql),
-        _ => false,
-    };
+    let allowed = tab.is_none()
+        && match (state.store.get_connection(&args.connection_id), driver_of(&state, &args.connection_id)) {
+            (Ok(Some(saved)), Ok(driver)) => estimate_allowed(&saved.config, driver.as_ref(), &args.sql),
+            _ => false,
+        };
     let estimator = allowed.then(|| {
         let (app, key, id) = (app.clone(), estimate_key.clone(), args.export_id.clone());
         let (conn, db, sql) = (args.connection_id.clone(), args.database.clone(), args.sql.clone());
@@ -202,7 +215,10 @@ pub async fn export_query_to_file(
     let mut last_emit: Option<Instant> = None;
     // String literals of an SQL export follow the source engine.
     let mut options = args.options;
-    options.source = driver_of(&state, &args.connection_id).map_or(SourceStrings::Unknown, |d| SourceStrings::of(d.as_ref()));
+    options.source = match &tab {
+        Some(_) => dbine_drivers::find("duckdb").map_or(SourceStrings::Unknown, |d| SourceStrings::of(d.as_ref())),
+        None => driver_of(&state, &args.connection_id).map_or(SourceStrings::Unknown, |d| SourceStrings::of(d.as_ref())),
+    };
     let exporter = Arc::new(Mutex::new(
         Exporter::new(&path, args.result_index, options).on_progress(move |rows| {
             written_cb.store(rows, Ordering::Relaxed);
@@ -215,14 +231,34 @@ pub async fn export_query_to_file(
     ));
     let mut out = QueryOutcome { sink: Some(RowSinkRef(exporter.clone())), ..Default::default() };
 
-    let finished = {
-        let mut s = entry.session.lock().await;
-        tokio::select! {
-            r = s.execute(&args.sql, usize::MAX, &mut out) => Some(r),
-            _ = entry.cancel.notified() => None,
+    let finished = match (&tab, &entry) {
+        (Some(tab), _) => match crate::notebook::local::export_local(&state, tab, &args.sql, &key, &mut out).await {
+            Ok(()) => Some(Ok(())),
+            Err(CommandError::Cancelled) => None,
+            Err(e) => {
+                out.sink = None;
+                drop(exporter);
+                // Refused before anything ran: the file was never opened
+                // (one already there stays as it was). Otherwise don't leave
+                // half a file behind.
+                if !matches!(e, CommandError::BadRequest(_)) {
+                    let _ = std::fs::remove_file(&path);
+                }
+                return Err(e);
+            }
+        },
+        (_, Some(entry)) => {
+            let mut s = entry.session.lock().await;
+            tokio::select! {
+                r = s.execute(&args.sql, usize::MAX, &mut out) => Some(r),
+                _ = entry.cancel.notified() => None,
+            }
         }
+        (None, None) => return Err(CommandError::Internal("exportador".into())),
     };
-    state.sessions.remove(&key);
+    if tab.is_none() {
+        state.sessions.remove(&key);
+    }
     if let Some(task) = estimator {
         // Wait for it to stop so its session can't register after the removal.
         task.abort();

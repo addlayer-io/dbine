@@ -349,6 +349,10 @@ async fn notebook_write_every_mode_into_sqlite() {
     big.mapping = Some(vec![pair("id", "id")]);
     let e = prepare(&state, &big, policy(), net()).await.unwrap_err();
     assert!(e.to_string().contains("cortada"), "{e}");
+    // Under the cap: the whole DataFrame is planned, never the rows a cell shows.
+    big.row_cap = None;
+    let plan = prepare(&state, &big, policy(), net()).await.unwrap().plan.unwrap();
+    assert_eq!(plan.rows, 1500);
 
     // A table that doesn't exist (without "crear tabla nueva").
     let mut none = a.clone();

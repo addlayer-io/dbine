@@ -13,7 +13,7 @@ export async function resolve(spec, ctx, next) {
   if (spec.startsWith('.') && !/\\.[cm]?[jt]s$/.test(spec)) return next(spec + '.ts', ctx);
   return next(spec, ctx);
 }`));
-const { aggregateRequest, shapeFromAggregate, WHOLE_MAX_GROUPS } = await import('./chartWhole.ts');
+const { aggregateRequest, shapeFromAggregate, wholeChartByDefault, WHOLE_MAX_GROUPS } = await import('./chartWhole.ts');
 
 const L = {
   nul: '(nulo)',
@@ -108,4 +108,22 @@ test('histogram, box and KPI answers', () => {
   const none = shapeFromAggregate({ ...base, kind: 'kpi', agg: 'sum' }, total(null, 0), L);
   assert.ok(Number.isNaN(none.series[0][0]));
   assert.equal(none.count, 0);
+});
+
+test('a DataFrame SQL cell cut for display charts its whole result by default; a connection does not', () => {
+  const df = { connectionId: '', database: '', sql: 'SELECT 1', notebookTab: 'tab-1' };
+  const conn = { connectionId: 'c', database: 'db', sql: 'SELECT 1' };
+  const rows = Array.from({ length: 5 }, (_, i) => [i]);
+  const cut = { rows, total_rows: 1_000_000, truncated: true };
+  // Shown 5 of a million: on.
+  assert.equal(wholeChartByDefault(df, cut), true);
+  // Fewer shown than returned, even without the flag: on.
+  assert.equal(wholeChartByDefault(df, { rows, total_rows: 6, truncated: false }), true);
+  // Every row shown: off (the loaded rows are the whole result).
+  assert.equal(wholeChartByDefault(df, { rows, total_rows: 5, truncated: false }), false);
+  // A connection's query, cut or not: off (it would run again on the server).
+  assert.equal(wholeChartByDefault(conn, cut), false);
+  // No run to aggregate (a stored preview), or no result.
+  assert.equal(wholeChartByDefault(null, cut), false);
+  assert.equal(wholeChartByDefault(df, null), false);
 });

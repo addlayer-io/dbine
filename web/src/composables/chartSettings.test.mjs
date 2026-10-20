@@ -69,6 +69,13 @@ test('cell charts round-trip in the new format', () => {
   const duck = { method: 'server', rows_scanned: 60, rows_capped: false, groups_truncated: false, engine: 'duckdb' };
   assert.deepEqual(readCellCharts({ charts: [{ ...writeCellCharts(cc).charts[0], whole: true, aggregate: duck }] }).charts[0].aggregate, duck);
   assert.equal(readCellCharts({ charts: [{ ...writeCellCharts(cc).charts[0], whole: true, aggregate: { ...duck, engine: 'x' } }] }).charts[0].aggregate.engine, undefined);
+  // Switched off where it starts on (a DataFrame SQL cell's cut result): kept as off, without points.
+  const off = readCellCharts({ charts: [{ ...writeCellCharts(cc).charts[0], whole: false, aggregate: duck }] }).charts[0];
+  assert.equal(off.settings.whole, false);
+  assert.equal(off.aggregate, null);
+  assert.equal(writeCellCharts({ ...cc, charts: [{ ...cc.charts[0], settings: { ...cc.charts[0].settings, whole: false } }] }).charts[0].whole, false);
+  // Never chosen: no `whole` at all (the chart's default applies).
+  assert.equal('whole' in readCellCharts(writeCellCharts(cc)).charts[0].settings, false);
 });
 
 test('the old one-chart format reads as a list of one', () => {
