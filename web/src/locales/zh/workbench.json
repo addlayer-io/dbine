@@ -59,7 +59,9 @@
     "openConnections_other": "{{count}} 个打开的连接",
     "hideOutput": "隐藏输出（⌘J）",
     "showOutput": "显示输出（⌘J）",
-    "readOnly": "只读"
+    "readOnly": "只读",
+    "syncedShort": "已同步",
+    "syncPending": "待上传"
   },
   "tabs": {
     "designer": "设计",

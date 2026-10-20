@@ -61,7 +61,9 @@
     "openConnections_other": "{{count}} offene Verbindungen",
     "hideOutput": "Ausgabe ausblenden (⌘J)",
     "showOutput": "Ausgabe anzeigen (⌘J)",
-    "readOnly": "schreibgeschützt"
+    "readOnly": "schreibgeschützt",
+    "syncedShort": "Synchronisiert",
+    "syncPending": "Ausstehend"
   },
   "tabs": {
     "designer": "Entwerfen",

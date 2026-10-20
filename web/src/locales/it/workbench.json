@@ -63,7 +63,9 @@
     "hideOutput": "Nascondi output (⌘J)",
     "showOutput": "Mostra output (⌘J)",
     "readOnly": "sola lettura",
-    "openConnections_many": "{{count}} connessioni aperte"
+    "openConnections_many": "{{count}} connessioni aperte",
+    "syncedShort": "Sincronizzato",
+    "syncPending": "In attesa"
   },
   "tabs": {
     "designer": "Design",

@@ -55,9 +55,9 @@ const syncBadge = computed(() => {
   const r = i.status;
   if (r.running) return { icon: 'busy', text: t('workbench:status.syncing'), title: t('workbench:status.syncingTitle') };
   if (r.last_error) return { icon: 'error', text: t('workbench:status.sync'), title: t('workbench:status.syncError', { error: tb(r.last_error) }) };
-  if (i.dirty) return { icon: 'dirty', text: '', title: t('workbench:status.syncDirty') };
+  if (i.dirty) return { icon: 'dirty', text: t('workbench:status.syncPending'), title: t('workbench:status.syncDirty') };
   const at = i.last_sync_at ? new Date(i.last_sync_at).toLocaleString(locale(), { dateStyle: 'short', timeStyle: 'short' }) : t('workbench:status.never');
-  return { icon: 'ok', text: '', title: t('workbench:status.synced', { at }) };
+  return { icon: 'ok', text: t('workbench:status.syncedShort'), title: t('workbench:status.synced', { at }) };
 });
 
 const liveCount = computed(() => Object.values(conns.live).filter((l) => l.status === 'connected').length);
@@ -107,6 +107,8 @@ onMounted(async () => {
     </div>
     <div class="sb-right">
       <button v-if="syncBadge" class="sb-item sb-btn" :class="{ 'sb-sync-error': syncBadge.icon === 'error' }" :title="syncBadge.title" @click="ui.openSettings('sync')">
+        <!-- At a glance: green synced, amber waiting to upload, red error. -->
+        <span v-if="syncBadge.icon !== 'busy'" class="sb-dot" :class="`sb-dot-${syncBadge.icon}`" aria-hidden="true" />
         <el-icon v-if="syncBadge.icon === 'busy'" class="is-loading"><ei-refresh /></el-icon>
         <el-icon v-else-if="syncBadge.icon === 'error'"><ei-warning-filled /></el-icon>
         <el-icon v-else-if="syncBadge.icon === 'dirty'"><ei-upload /></el-icon>
@@ -153,4 +155,8 @@ onMounted(async () => {
 .sb-btn { font: inherit; color: inherit; background: transparent; border: none; cursor: pointer; }
 .sb-btn:hover { background: rgba(255, 255, 255, 0.12); }
 .sb-sync-error { background: rgba(255, 90, 90, 0.35); }
+.sb-dot { width: 7px; height: 7px; border-radius: 50%; flex-shrink: 0; box-shadow: 0 0 0 1px rgba(0, 0, 0, 0.25); }
+.sb-dot-ok { background: #4ade80; }
+.sb-dot-dirty { background: #fbbf24; }
+.sb-dot-error { background: #f87171; }
 </style>

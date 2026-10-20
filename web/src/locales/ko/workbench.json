@@ -59,7 +59,9 @@
     "openConnections_other": "열려 있는 연결 {{count}}개",
     "hideOutput": "출력 숨기기(⌘J)",
     "showOutput": "출력 표시(⌘J)",
-    "readOnly": "읽기 전용"
+    "readOnly": "읽기 전용",
+    "syncedShort": "동기화됨",
+    "syncPending": "업로드 대기"
   },
   "tabs": {
     "designer": "디자인",

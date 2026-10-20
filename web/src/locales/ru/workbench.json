@@ -65,7 +65,9 @@
     "hideOutput": "Скрыть вывод (⌘J)",
     "showOutput": "Показать вывод (⌘J)",
     "readOnly": "только чтение",
-    "openConnections_many": "{{count}} открытых подключений"
+    "openConnections_many": "{{count}} открытых подключений",
+    "syncedShort": "Синхронизировано",
+    "syncPending": "Ожидает"
   },
   "tabs": {
     "designer": "Конструктор",

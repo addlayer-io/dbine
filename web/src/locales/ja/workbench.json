@@ -59,7 +59,9 @@
     "openConnections_other": "{{count}} 件の接続が開いています",
     "hideOutput": "出力を非表示(⌘J)",
     "showOutput": "出力を表示(⌘J)",
-    "readOnly": "読み取り専用"
+    "readOnly": "読み取り専用",
+    "syncedShort": "同期済み",
+    "syncPending": "アップロード待ち"
   },
   "tabs": {
     "designer": "デザイン",

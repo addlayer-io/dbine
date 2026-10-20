@@ -63,7 +63,9 @@
     "hideOutput": "Hide output (⌘J)",
     "showOutput": "Show output (⌘J)",
     "readOnly": "read-only",
-    "openConnections_many": "{{count}} open connections"
+    "openConnections_many": "{{count}} open connections",
+    "syncedShort": "Synced",
+    "syncPending": "Pending"
   },
   "tabs": {
     "designer": "Design",
