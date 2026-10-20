@@ -1,8 +1,27 @@
 # DBine
 
+[![Latest release](https://img.shields.io/github/v/release/addlayer-io/dbine?label=release)](https://github.com/addlayer-io/dbine/releases/latest)
+[![License: MIT](https://img.shields.io/github/license/addlayer-io/dbine)](LICENSE)
+![Platforms: macOS · Windows · Linux](https://img.shields.io/badge/platforms-macOS%20%C2%B7%20Windows%20%C2%B7%20Linux-informational)
+[![Downloads](https://img.shields.io/github/downloads/addlayer-io/dbine/total)](https://github.com/addlayer-io/dbine/releases)
+[![Homebrew: brew install --cask addlayer-io/tap/dbine](https://img.shields.io/badge/homebrew-brew%20install%20--cask%20addlayer--io%2Ftap%2Fdbine-FBB040?logo=homebrew&logoColor=white)](https://github.com/addlayer-io/homebrew-tap)
+
 **DBine** is a desktop multi-engine database manager from AddLayer. One app
-works with relational, analytical, document, key-value, graph, time-series and
-search databases. It runs on Windows, macOS and Linux.
+works with **130+ databases and cloud services**: relational, analytical,
+document, key-value, graph, time-series and search databases. It runs on
+Windows, macOS and Linux.
+
+![DBine notebooks: each cell queries its own connection, and a DataFrame SQL cell joins them with a CSV](docs/media/dbine-notebooks.gif)
+
+## Install
+
+- **macOS (Homebrew):** `brew install --cask addlayer-io/tap/dbine`
+- **Windows (winget):** coming soon.
+- **Linux:** `.flatpak`, `.AppImage`, `.deb` and `.rpm` packages in
+  [Releases](https://github.com/addlayer-io/dbine/releases/latest).
+- **All platforms:** installers on [dbine.com](https://dbine.com/#download).
+
+More options in [Download](#download).
 
 ![DBine: the explorer with PostgreSQL, SQL Server, Redis and Elasticsearch connections, the SQL editor and results](flatpak/screenshots/workbench.png)
 
@@ -422,20 +441,16 @@ a license: the app works the same.
 ## Download
 
 The installers are in
-[Releases](../../releases):
+[Releases](https://github.com/addlayer-io/dbine/releases/latest):
 
 - **Windows:** `.msi` or `-setup.exe`.
-- **macOS:** `.dmg`, in Apple Silicon or Intel version.
+- **macOS:** `.dmg`, in Apple Silicon or Intel version, or with Homebrew:
+  `brew install --cask addlayer-io/tap/dbine`.
 - **Linux:** `.AppImage`, `.deb`, `.rpm` or `.flatpak`
   ([how to install the `.flatpak`](docs/flathub.md#downloadable-flatpak)).
 
-The binaries are not yet signed by Apple or Microsoft:
-
-- **macOS:** the first time it warns that it can't verify the developer. Open
-  System Settings › Privacy & Security and click "Open Anyway". It can also be
-  done from the terminal:
-  `xattr -dr com.apple.quarantine /Applications/DBine.app`.
-- **Windows:** SmartScreen may ask for "More info" › "Run anyway".
+The macOS app is signed with an Apple Developer ID and notarized by Apple, and
+the Windows installer and app are signed with a code-signing certificate.
 
 ## Build
 
