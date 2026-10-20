@@ -27,6 +27,7 @@ pub(super) async fn run(ctx: &Ctx<'_>, step: &Step, vars: &Vars, notebook: Optio
         kinds::BACKUP => backup(ctx, step, vars).await,
         kinds::DOCUMENT => document(ctx, step, vars).await,
         kinds::SEND_MAIL => super::mail::step(ctx.state, step, vars).await,
+        kinds::SEND_MESSAGE => super::message::step(ctx.task, step, vars).await,
         kinds::RUN_NOTEBOOK => run_notebook(ctx, step, vars, notebook).await,
         other => Err(CommandError::BadRequest(format!("esta versión de DBine no sabe ejecutar pasos «{other}»"))),
     }

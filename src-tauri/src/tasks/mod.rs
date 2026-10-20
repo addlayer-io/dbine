@@ -8,6 +8,7 @@
 
 pub mod headless;
 pub mod mail;
+pub mod message;
 pub mod notify;
 pub mod os;
 mod steps;
@@ -162,12 +163,31 @@ fn script_scope(state: &AppState, step: &Step, out: &mut Vec<WriteScope>) {
 }
 
 /// The fingerprint of what writes: connection, database and script of each
-/// writing step. `None` when nothing writes.
+/// writing step, and where its messages go. `None` when nothing writes.
 pub fn write_fingerprint(state: &AppState, task: &ScheduledTask) -> Option<String> {
-    fingerprint_of(&write_scope(state, task))
+    task_fingerprint(&write_scope(state, task), task)
 }
 
+/// The fingerprint of `scope` alone (a task without message steps).
+#[cfg(test)]
 pub fn fingerprint_of(scope: &[WriteScope]) -> Option<String> {
+    fingerprint_with(scope, &[])
+}
+
+/// [`fingerprint_of`] `scope` plus where `task`'s "Enviar un mensaje" steps
+/// send (channel and host, never the secret part: [`message::destinations`]),
+/// so a task that writes asks for the approval again when a message's
+/// destination changes. Read only when something writes.
+pub fn task_fingerprint(scope: &[WriteScope], task: &ScheduledTask) -> Option<String> {
+    if scope.is_empty() {
+        return None;
+    }
+    fingerprint_with(scope, &message::destinations(task, &|name| dbine_core::secrets::get_raw(name).ok().flatten()))
+}
+
+/// Without destinations it is what it was before messages existed, so the
+/// approvals already given stand.
+pub(crate) fn fingerprint_with(scope: &[WriteScope], sends_to: &[String]) -> Option<String> {
     if scope.is_empty() {
         return None;
     }
@@ -177,6 +197,11 @@ pub fn fingerprint_of(scope: &[WriteScope]) -> Option<String> {
             h.update(part.as_bytes());
             h.update([0u8]);
         }
+    }
+    for d in sends_to {
+        h.update(b"\x01send\x00");
+        h.update(d.as_bytes());
+        h.update([0u8]);
     }
     Some(h.finalize().iter().map(|b| format!("{b:02x}")).collect())
 }
@@ -322,7 +347,7 @@ pub async fn run_task(state: &AppState, app: Option<&AppHandle>, task: &Schedule
     // here: the steps run these same copies, so a file changed (or
     // unreadable) at this point can't put back other cells after the check.
     let mut notebooks = load_notebooks(task);
-    let fingerprint = fingerprint_of(&write_scope_in(state, task, &notebooks));
+    let fingerprint = task_fingerprint(&write_scope_in(state, task, &notebooks), task);
     if fingerprint.is_some() && fingerprint != task.approved_writes {
         run.error = Some("La tarea cambia datos o estructura y esos pasos cambiaron desde que se aprobaron: abrila en DBine y volvé a guardarla para aprobarlos.".into());
         return finish(state, run, task);
@@ -357,6 +382,9 @@ pub async fn run_task(state: &AppState, app: Option<&AppHandle>, task: &Schedule
         }
         let step_started = tasks::now_text();
         let label = if step.name.is_empty() { step.kind.clone() } else { step.name.clone() };
+        // What the earlier steps did and raised (a message's or a mail's text).
+        vars.insert("results".into(), results_text(task, &run.steps));
+        vars.insert("alerts".into(), run.steps.iter().filter_map(|s| s.alert.as_deref()).collect::<Vec<_>>().join("\n"));
         let result = match skipped(step, &run.steps) {
             Some(why) => Ok(StepDone { summary: why.into(), ..Default::default() }),
             None => steps::run(&ctx, step, &vars, notebooks.get_mut(n).and_then(Option::take)).await,
@@ -402,15 +430,36 @@ pub async fn run_task(state: &AppState, app: Option<&AppHandle>, task: &Schedule
     finish(state, run, task)
 }
 
+const SKIPPED_NO_ALERT: &str = "No se ejecutó: ningún paso anterior tuvo alertas.";
+const SKIPPED_NO_ERROR: &str = "No se ejecutó: ningún paso anterior falló.";
+
 /// Why a step doesn't run, from its "Solo si…" (`config.when`, any kind):
 /// `always` (or none), `alert` (an earlier step had an alert) or `errors`
 /// (an earlier step failed and the task went on).
 fn skipped(step: &Step, before: &[StepRun]) -> Option<&'static str> {
     match text(&step.config, "when") {
-        "alert" if !before.iter().any(|s| s.alert.is_some()) => Some("No se ejecutó: ningún paso anterior tuvo alertas."),
-        "errors" if !before.iter().any(|s| s.status == RunStatus::Failed) => Some("No se ejecutó: ningún paso anterior falló."),
+        "alert" if !before.iter().any(|s| s.alert.is_some()) => Some(SKIPPED_NO_ALERT),
+        "errors" if !before.iter().any(|s| s.status == RunStatus::Failed) => Some(SKIPPED_NO_ERROR),
         _ => None,
     }
+}
+
+/// `{results}`: one line per step that ran before, with how it went (✓
+/// fine, ✗ failed, – skipped by its "Solo si…"), its number, name and summary.
+fn results_text(task: &ScheduledTask, done: &[StepRun]) -> String {
+    done.iter()
+        .enumerate()
+        .map(|(n, r)| {
+            let name = task.steps.iter().find(|s| s.id == r.step_id).map(|s| if s.name.trim().is_empty() { s.kind.clone() } else { s.name.trim().to_string() }).unwrap_or_default();
+            let mark = match r.status {
+                RunStatus::Failed => "✗",
+                _ if [SKIPPED_NO_ALERT, SKIPPED_NO_ERROR].contains(&r.summary.as_str()) => "–",
+                _ => "✓",
+            };
+            format!("{mark} {}. {name}: {}", n + 1, r.summary)
+        })
+        .collect::<Vec<_>>()
+        .join("\n")
 }
 
 fn save(state: &AppState, run: &TaskRun) {
@@ -654,6 +703,58 @@ mod tests {
 
         let run = run_task(&w.state, None, &task(vec![bad(OnError::Continue), good]), "manual").await;
         assert_eq!((run.status, run.steps.len()), (RunStatus::Partial, 2));
+    }
+
+    /// A message step's "Solo si…" works as the mail's, and `{results}`
+    /// says what each earlier step did. (No step id: the run reads no vault,
+    /// and no URL: nothing leaves the machine.)
+    #[tokio::test]
+    async fn message_step_only_if_and_results() {
+        let w = world("message-when");
+        let ok = step("ok", kinds::RUN_SCRIPT, json!({"connection_id": "b", "database": "main", "sql": "SELECT 1"}));
+        let bad = Step { on_error: OnError::Continue, name: "falla".into(), ..step("bad", kinds::RUN_SCRIPT, json!({"connection_id": "b", "database": "main", "sql": "SELECT * FROM nowhere"})) };
+        let message = |when: &str| step("", kinds::SEND_MESSAGE, json!({"channel": "slack", "url": "", "text": "{results}", "when": when}));
+
+        for when in ["alert", "errors"] {
+            let run = run_task(&w.state, None, &task(vec![ok.clone(), message(when)]), "manual").await;
+            assert_eq!(run.status, RunStatus::Ok, "{when}");
+            assert!(run.steps[1].summary.starts_with("No se ejecutó"), "{when}: {}", run.steps[1].summary);
+        }
+        // It runs: always, or after a failure (and fails here, with no webhook).
+        for (before, when) in [(ok.clone(), "always"), (bad.clone(), "errors")] {
+            let run = run_task(&w.state, None, &task(vec![before, message(when)]), "manual").await;
+            assert_eq!(run.steps[1].status, RunStatus::Failed, "{when}");
+            assert!(run.steps[1].summary.contains("falta la URL del webhook de Slack"), "{}", run.steps[1].summary);
+        }
+
+        let t = task(vec![ok, bad, message("alert")]);
+        let run = run_task(&w.state, None, &t, "manual").await;
+        let results = results_text(&t, &run.steps[..2]);
+        let lines: Vec<&str> = results.lines().collect();
+        assert!(lines[0].starts_with("✓ 1. run_script: "), "{results}");
+        assert!(lines[1].starts_with("✗ 2. falla: ") && lines[1].contains("nowhere"), "{results}");
+        assert!(results_text(&t, &run.steps).lines().nth(2).unwrap().starts_with("– 3. send_message: No se ejecutó"));
+    }
+
+    /// A task that writes asks for its approval again when a message's
+    /// destination host changes; the secret part of the URL never counts.
+    /// One that doesn't write has no approval at all.
+    #[test]
+    fn message_destination_is_part_of_the_approval() {
+        let w = world("message-fp");
+        let write = step("s", kinds::RUN_SCRIPT, json!({"connection_id": "a", "database": "main", "sql": "DELETE FROM people"}));
+        let message = |url: &str| step("m", kinds::SEND_MESSAGE, json!({"channel": "slack", "url": url}));
+        let none = |_: &str| None;
+        let fp = |t: &ScheduledTask| fingerprint_with(&write_scope(&w.state, t), &message::destinations(t, &none));
+        let a = fp(&task(vec![write.clone(), message("https://hooks.slack.com/services/T/B/one")]));
+        let same_host = fp(&task(vec![write.clone(), message("https://hooks.slack.com/services/T/B/two")]));
+        let teams = fp(&task(vec![write.clone(), step("m", kinds::SEND_MESSAGE, json!({"channel": "teams", "url": "https://x.webhook.office.com/a"}))]));
+        assert!(a.is_some());
+        assert_eq!(a, same_host);
+        assert_ne!(a, teams);
+        // Without messages, the fingerprint is the one approvals already have.
+        assert_eq!(fp(&task(vec![write.clone()])), fingerprint_of(&write_scope(&w.state, &task(vec![write]))));
+        assert_eq!(fp(&task(vec![message("https://hooks.slack.com/services/T/B/one")])), None);
     }
 
     #[tokio::test]

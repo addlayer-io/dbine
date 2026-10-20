@@ -12,7 +12,7 @@ export type Schedule =
 
 export type Notify = 'never' | 'failure' | 'always';
 export type OnError = 'stop' | 'continue';
-export type StepKind = 'run_script' | 'export' | 'compare_schemas' | 'backup' | 'send_mail' | 'document' | 'run_notebook';
+export type StepKind = 'run_script' | 'export' | 'compare_schemas' | 'backup' | 'send_mail' | 'document' | 'run_notebook' | 'send_message';
 /** A step's "Solo si…" (`config.when`): the runner skips it otherwise. */
 export type StepWhen = 'always' | 'alert' | 'errors';
 export type RunStatus = 'running' | 'ok' | 'partial' | 'failed';
@@ -146,6 +146,9 @@ export const scheduledApi = {
   enable: (id: string, enabled: boolean) => invoke<Saved>('scheduled_task_enable', { args: { id, enabled } }),
   runNow: (id: string) => invoke<void>('scheduled_task_run_now', { args: { id } }),
   notebookPlan: (o: NotebookStepOptions) => invoke<NotebookPlan>('scheduled_notebook_plan', { args: o }),
+  /** "Probar" in an "Enviar un mensaje" step: sends `text` now (the step as in the editor). */
+  testMessage: (taskId: string, taskName: string, step: Step, text: string) =>
+    invoke<string>('scheduled_message_test', { args: { task_id: taskId, task_name: taskName, step, text } }),
   runs: (taskId: string | null, limit = 50) => invoke<TaskRun[]>('scheduled_task_runs', { args: { task_id: taskId, limit } }),
 };
 
@@ -167,6 +170,7 @@ export function newStep(kind: StepKind): Step {
     backup: { connection_id: '', database: '', mode: 'native', options: {}, folder: '', file_name: '{task}-{datetime}', data: true },
     document: { connection_id: '', database: '', folder: '', file_name: '{task}-{date}', options: defaultDocOptions() },
     send_mail: { to: '', cc: '', subject: '{task}: {date}', body: '', html_body: '', attachments: [], when: 'always' },
+    send_message: { channel: 'teams', url: '', token: '', chat_id: '', text: '{results}', when: 'always' },
     run_notebook: {
       path: '', params: {}, targets: {}, unconfirmed: [], write_cells: [],
       save: { mode: 'folder', folder: '', file_name: '{notebook}-{datetime}' },

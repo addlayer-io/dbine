@@ -63,7 +63,7 @@ pub struct Check {
 pub async fn scheduled_task_check(state: State<'_, AppState>, args: CheckArgs) -> CommandResult<Check> {
     // The scope and its fingerprint from the same read of the notebooks.
     let scope = tasks::write_scope(&state, &args.task);
-    let fingerprint = tasks::fingerprint_of(&scope);
+    let fingerprint = tasks::task_fingerprint(&scope, &args.task);
     let needs_approval = fingerprint.is_some() && fingerprint != args.task.approved_writes;
     Ok(Check { scope, needs_approval, fingerprint })
 }
@@ -105,13 +105,10 @@ pub async fn scheduled_task_save(state: State<'_, AppState>, args: SaveArgs) -> 
     approve_writes(&state, &mut task, &ids_seen, approved)?;
     keep_secrets_apart(&state, &mut task)?;
     // A step that was removed takes its kept secrets with it.
-    let removed: Vec<String> = match tasks::load(&state, &task.id) {
-        Ok(before) => before.steps.into_iter().map(|s| s.id).filter(|id| !task.steps.iter().any(|s| &s.id == id)).collect(),
-        Err(_) => Vec::new(),
-    };
+    let removed = forgotten_secrets(tasks::load(&state, &task.id).ok().as_ref(), Some(&task));
     let saved = state.store.save_task(&task)?;
-    for id in removed {
-        let _ = dbine_core::secrets::delete_raw(&tasks::step_secret_name(&task.id, &id));
+    for name in removed {
+        let _ = dbine_core::secrets::delete_raw(&name);
     }
     let schedule_error = tasks::os::sync(&saved).err();
     if let Some(e) = &schedule_error {
@@ -124,10 +121,10 @@ pub async fn scheduled_task_save(state: State<'_, AppState>, args: SaveArgs) -> 
 /// `ids_seen`: the steps' ids when the user saw the check.
 fn approve_writes(state: &AppState, task: &mut ScheduledTask, ids_seen: &[String], approved: Option<&str>) -> CommandResult<()> {
     let scope = tasks::write_scope(state, task);
-    let fingerprint = tasks::fingerprint_of(&scope);
+    let fingerprint = tasks::task_fingerprint(&scope, task);
     // The same read, as `scheduled_task_check` fingerprinted it: before the
     // new steps got their ids.
-    let seen = tasks::fingerprint_of(
+    let seen = tasks::task_fingerprint(
         &scope
             .into_iter()
             .map(|mut w| {
@@ -137,6 +134,7 @@ fn approve_writes(state: &AppState, task: &mut ScheduledTask, ids_seen: &[String
                 w
             })
             .collect::<Vec<_>>(),
+        task,
     );
     task.approved_writes = approval(fingerprint, seen.as_deref(), approved, task.approved_writes.as_deref())?;
     Ok(())
@@ -161,12 +159,25 @@ fn approval(now: Option<String>, seen: Option<&str>, approved: Option<&str>, sta
     }
 }
 
-/// A backup step's secret options, and a notebook step's credential
-/// parameters, go to the vault; the task keeps them empty (a notebook
-/// step's, not at all). An empty value with a secret already kept means
-/// "unchanged".
+/// The vault entries of the steps in `before` that are not in `after` (all
+/// of them when the task is deleted: `after` is `None`).
+fn forgotten_secrets(before: Option<&ScheduledTask>, after: Option<&ScheduledTask>) -> Vec<String> {
+    let Some(before) = before else { return Vec::new() };
+    before
+        .steps
+        .iter()
+        .filter(|b| !after.is_some_and(|a| a.steps.iter().any(|s| s.id == b.id)))
+        .map(|b| tasks::step_secret_name(&before.id, &b.id))
+        .collect()
+}
+
+/// A backup step's secret options, a notebook step's credential parameters
+/// and a message step's webhook and tokens go to the vault; the task keeps
+/// them empty (a notebook step's, not at all). An empty value with a secret
+/// already kept means "unchanged".
 fn keep_secrets_apart(state: &AppState, task: &mut ScheduledTask) -> CommandResult<()> {
-    for (name, kept) in tasks::notebook_secrets_apart(task, &|n| dbine_core::secrets::get_raw(n).ok().flatten()) {
+    let messages = tasks::message::secrets_apart(task, &|n| dbine_core::secrets::get_raw(n).ok().flatten()).map_err(CommandError::BadRequest)?;
+    for (name, kept) in messages.into_iter().chain(tasks::notebook_secrets_apart(task, &|n| dbine_core::secrets::get_raw(n).ok().flatten())) {
         match kept {
             Some(json) => dbine_core::secrets::set_raw(&name, &json)?,
             None => {
@@ -208,8 +219,8 @@ pub struct IdArgs {
 #[tauri::command(rename_all = "camelCase")]
 pub async fn scheduled_task_delete(state: State<'_, AppState>, args: IdArgs) -> CommandResult<()> {
     if let Ok(task) = tasks::load(&state, &args.id) {
-        for step in &task.steps {
-            let _ = dbine_core::secrets::delete_raw(&tasks::step_secret_name(&task.id, &step.id));
+        for name in forgotten_secrets(Some(&task), None) {
+            let _ = dbine_core::secrets::delete_raw(&name);
         }
     }
     tasks::os::unregister(&args.id).map_err(CommandError::Internal)?;
@@ -285,9 +296,46 @@ pub async fn scheduled_notebook_plan(app: AppHandle, state: State<'_, AppState>,
         .map_err(|e| CommandError::Internal(e.to_string()))?
 }
 
+#[derive(Deserialize)]
+pub struct MessageTestArgs {
+    /// The task's id ("" before its first save) and name.
+    #[serde(default)]
+    pub task_id: String,
+    #[serde(default)]
+    pub task_name: String,
+    /// The step as it is in the editor (typed secrets, or empty for the
+    /// saved ones of the same channel).
+    pub step: dbine_core::tasks::Step,
+    /// The test message, in the user's language.
+    pub text: String,
+}
+
+/// "Probar" in an "Enviar un mensaje" step: sends a test message now. The
+/// error never carries the webhook or the tokens.
+#[tauri::command(rename_all = "camelCase")]
+pub async fn scheduled_message_test(args: MessageTestArgs) -> CommandResult<String> {
+    if args.step.kind != kinds::SEND_MESSAGE {
+        return Err(CommandError::BadRequest("el paso no envía mensajes".into()));
+    }
+    tasks::message::test(&args.task_id, &args.task_name, &args.step, &args.text).await
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// A removed step's secrets (a message step's webhook…) leave the vault
+    /// with it; deleting the task takes all of them.
+    #[test]
+    fn removed_steps_and_tasks_forget_their_secrets() {
+        use dbine_core::tasks::Step;
+        let step = |id: &str| Step { id: id.into(), kind: kinds::SEND_MESSAGE.into(), ..Default::default() };
+        let before = ScheduledTask { id: "t".into(), steps: vec![step("a"), step("b")], ..Default::default() };
+        let after = ScheduledTask { id: "t".into(), steps: vec![step("b")], ..Default::default() };
+        assert_eq!(forgotten_secrets(Some(&before), Some(&after)), vec!["task-secret:t:a"]);
+        assert_eq!(forgotten_secrets(Some(&before), None), vec!["task-secret:t:a", "task-secret:t:b"]);
+        assert!(forgotten_secrets(None, Some(&after)).is_empty());
+    }
 
     #[test]
     fn a_save_approves_only_what_the_user_saw() {

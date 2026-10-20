@@ -3318,7 +3318,7 @@ responses.
 
 ## Scheduled tasks
 
-Scheduled tasks ([`scheduled-tasks.md`](scheduled-tasks.md)) work in **all engines**, with the seven step types: run a script, export to file, compare schemas, backup, document the database, run a notebook and send an email. They add nothing to the driver: each step uses what the engine already offers for that function.
+Scheduled tasks ([`scheduled-tasks.md`](scheduled-tasks.md)) work in **all engines**, with the eight step types: run a script, export to file, compare schemas, backup, document the database, run a notebook, send an email and send a message. They add nothing to the driver: each step uses what the engine already offers for that function.
 
 - **Run a script and Export:** as far as each engine's script execution and export go. Export always runs read-only.
 - **Compare schemas:** as far as each engine's comparison goes, which does not change by being a task (see [Compare schemas](#compare-schemas)). The sync script is saved to a file and never run.
@@ -3326,6 +3326,7 @@ Scheduled tasks ([`scheduled-tasks.md`](scheduled-tasks.md)) work in **all engin
 - **Document the database:** as far as the feature goes (see [Document the database](#document-the-database)); it runs in a read-only session.
 - **Run a notebook:** as far as each engine's notebook cells go (see [`notebooks.md`](notebooks.md)): connection cells run with the engine's script execution and DataFrame SQL cells load any engine's rows. Tested with SQLite and DuckDB in the automated tests and live with PostgreSQL and SQL Server (`dbine-test-*`).
 - **Send an email:** it does not use the driver, so it does not depend on the engine: it sends over SMTP with the server from **Settings › Mail**.
+- **Send a message:** it does not use the driver, so it does not depend on the engine: it posts to Microsoft Teams, Slack, Telegram or ntfy over HTTPS. Tested with a local mock server in the automated tests (the request each channel builds, no redirects, secrets redacted); not against the real services.
 
 Tested: the task steps have automated tests with SQLite databases (change approval, export, comparison, DBine copy, stop or continue on error). For the other engines there are no tests of the tasks themselves: each step uses the same code as the app's equivalent feature, with the support and the tests against servers listed in their sections.
 
@@ -3336,7 +3337,7 @@ Registration in the system scheduler (LaunchAgent, Task Scheduler, systemd or cr
 | Those in the "What is missing and why" list of [Backups](#backups) | Engine backup | Without their own backups through SQL or the protocol, the step offers only the **DBine copy**. The reasons for each engine are in that section. |
 | Those in the [Compare schemas](#compare-schemas) section with limits | What the comparison does not cover | The task compares the same as the feature; the limits and their reasons are in that section. |
 | Connections that do not save their password | Unattended runs | The task reads the password from the system keychain; without a saved password there is no one to type it. |
-| Any | **Only if…** in steps other than **Send an email** | The task engine evaluates the condition in any step, but the interface only offers it in **Send an email**. Explicit pending item: offering it in the other step types. |
+| Any | **Only if…** in steps other than **Send an email** and **Send a message** | The task engine evaluates the condition in any step, but the interface only offers it in those two. Explicit pending item: offering it in the other step types. |
 | Linux without systemd | Keychain access from cron | A task registered with `crontab` may not see the user's keychain; a user systemd timer does. |
 
 ## Code quality

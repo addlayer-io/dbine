@@ -70,7 +70,8 @@ history as **OK**, with the summary "Not run: no previous step had alerts"
 be set to **If it fails, continue with the next one**: if it stops the task,
 the following ones are never evaluated.
 
-Today the interface offers **Only if…** in the **Send an email** step.
+Today the interface offers **Only if…** in the **Send an email** and **Send a
+message** steps.
 
 ## Step types
 
@@ -281,9 +282,64 @@ recipients, including CC).
 An email does not change the database, so the step does not ask for approval.
 Be careful with what you attach: the file leaves this machine.
 
+### Send a message
+
+Posts a short text to a chat the user already has:
+
+| Channel | What it needs | Where it comes from |
+|---|---|---|
+| **Microsoft Teams** | The channel's webhook URL | In the channel: **Workflows › Post to a channel when a webhook request is received**. It must be on Microsoft's domains (`logic.azure.com`, `api.powerplatform.com` or `webhook.office.com`). |
+| **Slack** | The Incoming Webhook URL | A Slack app with **Incoming Webhooks** on, with a webhook for the channel (`https://hooks.slack.com/…`). |
+| **Telegram** | The bot token and the chat | A bot made with @BotFather; the chat is the group's or channel's number (with the bot as a member) or a public channel's `@name`. |
+| **ntfy** | The topic URL and, if the topic is protected, an access token | A topic on `ntfy.sh` or on a server of the user's own, public and over HTTPS. |
+
+- **Text**: accepts the [variables](#variables). The default,
+  `{results}`, says what each earlier step did; `{alerts}` adds their
+  alerts. The title is **DBine · task name**. Texts longer than **3,500
+  characters** are cut.
+- **Only if…**: the same options as **Send an email** (see
+  [above](#only-if)).
+- **Test**: sends a test message now, with the step as it is in the editor,
+  and shows **OK** or the service's error.
+
+**Secrets.** The webhook URL, the bot token and the ntfy token are secrets.
+When the task is saved they go to the vault under
+`task-secret:<task>:<step>`, together with the channel they were typed for;
+the task keeps the fields empty (an empty field means "unchanged"). A saved
+secret is used **only for that channel**: switching a step from Slack to ntfy
+never sends the Slack webhook to ntfy. Removing the step or the task deletes
+them. They are never in the task's definition, the history, the logs, cloud
+sync, exports, telemetry or the MCP server, and errors never show them: every
+URL in an error is cut to its host and the tokens are replaced with `•••`.
+
+**Network.** The message goes only over **HTTPS**, to the channel's own hosts
+(Microsoft's for Teams, `hooks.slack.com`, `api.telegram.org`, the ntfy
+server of the URL). DBine resolves the name itself and refuses a server that
+is this computer, the local network, link-local (the clouds' metadata service
+`169.254.169.254`), CGNAT or reserved, before and after resolving it; the
+connection is pinned to the addresses checked, goes without a proxy, follows
+**no redirects** and waits at most **20 seconds**. That is why a self-hosted
+ntfy on the local network, or over plain `http://`, is not accepted: the
+server has to be public.
+
+**The text is data.** Each variable's value is escaped for the channel, so
+what a step produced can't add links or mentions: in Slack `<`, `>` and `&`
+are escaped (`<!channel>`, `<@U…>` and `<url|text>` stay text) and in Slack and
+Teams an `@` can't start a mention; in Teams a Markdown link `[text](url)` is
+broken. Telegram gets plain text (no parse mode) and ntfy plain text (no
+Markdown). What the user typed in the text itself is sent as written.
+
+**The history does not store the text of the message**, only where it went
+("Message sent to Slack"). The step produces nothing for later steps.
+
+A message does not change the database, so on its own the step does not ask
+for approval. In a task that **does** ask for it (see
+[Changes are approved](#changes-are-approved)), where its messages go is part
+of what is approved.
+
 ## Variables
 
-In file names, folders and scripts you can use:
+In file names, folders, scripts, emails and messages you can use:
 
 | Variable | Value |
 |---|---|
@@ -293,6 +349,8 @@ In file names, folders and scripts you can use:
 | `{datetime}` | `YYYY-MM-DD_HHMMSS` |
 | `{year}`, `{month}`, `{day}` | the parts of the date |
 | `{steps.N.key}` | what step number `N` produced |
+| `{results}` | one line per step that ran before this one: ✓ fine, ✗ failed or – not run (its **Only if…**), its number, name and summary |
+| `{alerts}` | the alerts the earlier steps raised, one per line |
 
 The default name of a file is `{task}-{datetime}`. The characters that some
 system does not accept in a name (`/ \ : * ? " < > |`) are replaced with `_`.
@@ -345,10 +403,15 @@ approved.
   again. The list shows **There are unapproved changes** and the run fails
   saying that the task must be opened and saved again. Changing the time, the
   name or the other steps does not require approving again.
+- In such a task, where each **Send a message** step sends is also approved:
+  the channel and the host (for Telegram, the bot's number and the chat),
+  never the secret part of the URL or the token. Pointing a message at
+  another host asks for the approval again; a new webhook on the same host
+  does not.
 - A **read-only** connection stays read-only in the task and needs no
   approval.
 - Exporting, comparing, making backups, documenting the database and sending
-  emails do not ask for approval: they do not change the database (the
+  emails or messages do not ask for approval: they do not change the database (the
   comparison writes a script to a file, it does not run it).
 
 ## How it runs with DBine closed
@@ -464,6 +527,9 @@ Tasks add no methods to the drivers: each step type uses what already exists.
 - **Send an email:** it does not use the driver; it sends over SMTP with the
   server from **Settings › Mail**. Commands: `mail_settings_get`,
   `mail_settings_save` and `mail_test`.
+- **Send a message:** it does not use the driver; it posts to the chat
+  service over HTTPS (`src-tauri/src/tasks/message.rs`). Command:
+  `scheduled_message_test` (the **Test** button).
 
 The model (`ScheduledTask`, `Step`, `TaskRun`) is in
 `crates/dbine-core/src/tasks.rs`. Each step type is a function in

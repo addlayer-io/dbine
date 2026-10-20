@@ -58,7 +58,7 @@
   },
   "steps": "ステップ",
   "addStep": "ステップを追加",
-  "varsHint": "ファイル名、スクリプト、メールでは次を使用できます:",
+  "varsHint": "ファイル名、スクリプト、メール、メッセージでは次を使えます：",
   "kinds": {
     "run_script": "スクリプトを実行",
     "export": "ファイルにエクスポート",
@@ -66,7 +66,8 @@
     "backup": "バックアップ",
     "document": "データベースをドキュメント化",
     "run_notebook": "ノートブックを実行",
-    "send_mail": "メールを送信"
+    "send_mail": "メールを送信",
+    "send_message": "メッセージを送信"
   },
   "step": {
     "namePlaceholder": "名前(任意)",
@@ -196,5 +197,47 @@
     "chartsHint": "タスクでは表がエクスポートされます。グラフは、アプリからのエクスポート時に含まれます。",
     "outputsHint": "以降のステップで: {steps.N.file} はエクスポート(またはコピー)、{steps.N.html} は HTML エクスポート(メール本文用)、{steps.N.notebook} はコピーです。",
     "planError": "ノートブックを読み取れませんでした: {{error}}"
+  },
+  "message": {
+    "channel": "チャンネル",
+    "channels": {
+      "teams": "Microsoft Teams",
+      "slack": "Slack",
+      "telegram": "Telegram",
+      "ntfy": "ntfy"
+    },
+    "urlLabel": {
+      "teams": "チャンネルのWebhook URL",
+      "slack": "Incoming WebhookのURL",
+      "ntfy": "トピックのURL"
+    },
+    "botToken": "ボットのトークン",
+    "chatId": "チャット",
+    "ntfyToken": "アクセストークン",
+    "optional": "任意",
+    "howTo": {
+      "teams": "Teamsのチャネルで「ワークフロー」›「Webhook要求の受信時にチャネルに投稿する」を選び、表示されたURLをコピーしてください。",
+      "slack": "Slackで「Incoming Webhooks」を有効にしたアプリを作成し、チャンネル用のWebhookを追加してください。URLは https://hooks.slack.com/ で始まります。",
+      "telegram": "@BotFatherでボットを作成し、そのトークンをコピーしてください。チャットは、グループまたはチャンネルの番号（ボットがメンバーであること）か、公開チャンネルの@名前です。",
+      "ntfy": "ntfy.shまたはご自身のサーバー（公開、https）にあるトピックのURLです。例：https://ntfy.sh/my-topic。トークンはトピックが保護されている場合のみ必要です。"
+    },
+    "problems": {
+      "missingUrl": "URLがありません。",
+      "badUrl": "有効なURLではありません（ユーザー名やパスワードを含めることもできません）。",
+      "notHttps": "URLは https:// で始まる必要があります。",
+      "teamsHost": "TeamsのWebhook URLはMicrosoftのもの（logic.azure.com、api.powerplatform.com、webhook.office.com）である必要があります。",
+      "slackHost": "SlackのWebhook URLは hooks.slack.com のものである必要があります。",
+      "ntfyLocal": "ntfyサーバーは公開されている必要があります。このコンピューターやローカルネットワークは使えません。",
+      "ntfyTopic": "URLはトピックのURLである必要があります。例：https://ntfy.sh/my-topic。",
+      "missingToken": "ボットのトークンがありません。",
+      "badToken": "トークンの形式が想定と異なります。",
+      "missingChat": "チャットがありません。",
+      "badChat": "チャットは番号（-100…）または@チャンネルである必要があります。"
+    },
+    "test": "テスト",
+    "testText": "DBineのテストメッセージです。これが表示されていれば、ステップは正しく設定されています。",
+    "text": "テキスト",
+    "textHint": "タスクの変数を使えます。{results} は前の各ステップの結果（✓ 成功、✗ 失敗、– 未実行）、{alerts} はそのアラートです。3,500文字を超えるメッセージは切り詰められます。",
+    "privacy": "WebhookのURLとトークンはこのコンピューターのキーチェーンに保存され、タスクや履歴には保存されません。メッセージは選択したサービスにHTTPSでのみ送信されます。"
   }
 }

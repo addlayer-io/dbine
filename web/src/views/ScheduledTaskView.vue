@@ -19,7 +19,7 @@ const { t } = useTranslation();
 const store = useScheduledStore();
 const tabs = useTabsStore();
 
-const KINDS: StepKind[] = ['run_script', 'export', 'compare_schemas', 'backup', 'document', 'run_notebook', 'send_mail'];
+const KINDS: StepKind[] = ['run_script', 'export', 'compare_schemas', 'backup', 'document', 'run_notebook', 'send_mail', 'send_message'];
 const DAYS = [1, 2, 3, 4, 5, 6, 7];
 
 const task = ref<ScheduledTask>(newTask());
@@ -147,7 +147,7 @@ async function remove() {
   }
 }
 
-const VARS = ['{task}', '{date}', '{time}', '{datetime}', '{year}', '{month}', '{day}', '{steps.1.file}'];
+const VARS = ['{task}', '{date}', '{time}', '{datetime}', '{year}', '{month}', '{day}', '{steps.1.file}', '{results}', '{alerts}'];
 const stepLabel = (id: string) => {
   const i = task.value.steps.findIndex((s) => s.id === id);
   const s = task.value.steps[i];
@@ -216,6 +216,8 @@ const stepLabel = (id: string) => {
           :step="s"
           :index="i"
           :count="task.steps.length"
+          :task-id="task.id"
+          :task-name="task.name"
           @remove="task.steps.splice(i, 1)"
           @move="(d) => moveStep(i, d)"
         />

@@ -12,11 +12,12 @@ import ProjectTargetPicker from './ProjectTargetPicker.vue';
 import ScheduledMailStep from './ScheduledMailStep.vue';
 import ScheduledDocStep from './ScheduledDocStep.vue';
 import ScheduledNotebookStep from './ScheduledNotebookStep.vue';
+import ScheduledMessageStep from './ScheduledMessageStep.vue';
 
 // One step of a scheduled task (docs/scheduled-tasks.md): its database,
 // its script or query, and where its file goes. Edits `step.config` in place.
 
-const props = defineProps<{ step: Step; index: number; count: number }>();
+const props = defineProps<{ step: Step; index: number; count: number; taskId?: string; taskName?: string }>();
 const emit = defineEmits<{ remove: []; move: [delta: number]; change: [] }>();
 const { t } = useTranslation();
 const conns = useConnectionsStore();
@@ -73,7 +74,7 @@ const label = computed(() => t(`scheduled:kinds.${props.step.kind}`));
 
     <el-form label-position="top" size="small" class="se-body">
       <!-- Ejecutar un script / Exportar a archivo / Backup: one database. -->
-      <template v-if="step.kind !== 'compare_schemas' && step.kind !== 'send_mail' && step.kind !== 'run_notebook'">
+      <template v-if="step.kind !== 'compare_schemas' && step.kind !== 'send_mail' && step.kind !== 'run_notebook' && step.kind !== 'send_message'">
         <el-form-item :label="$t('scheduled:step.database')">
           <ProjectTargetPicker :model-value="targetOf(c as any)" class="se-target" @update:model-value="(v) => setTarget(c, v)" />
         </el-form-item>
@@ -140,6 +141,7 @@ const label = computed(() => t(`scheduled:kinds.${props.step.kind}`));
       <ScheduledMailStep v-if="step.kind === 'send_mail'" :config="c" @change="emit('change')" />
       <ScheduledDocStep v-if="step.kind === 'document'" :config="c" @change="emit('change')" />
       <ScheduledNotebookStep v-if="step.kind === 'run_notebook'" :config="c" @change="emit('change')" />
+      <ScheduledMessageStep v-if="step.kind === 'send_message'" :step="step" :task-id="taskId ?? ''" :task-name="taskName ?? ''" @change="emit('change')" />
 
       <!-- Where the file goes. -->
       <div v-if="step.kind === 'export' || step.kind === 'compare_schemas' || step.kind === 'document' || (step.kind === 'backup' && c.mode === 'copy')" class="se-row">
