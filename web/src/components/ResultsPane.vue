@@ -709,8 +709,13 @@ async function quickExport(format: ExportFormat) {
     path = await save({ defaultPath: fileName(props.title ?? t('results:defaultFileName'), format), filters: [{ name: fmt.filter, extensions: [fmt.ext] }] });
   } catch { /* outside Tauri */ }
   if (!path) return;
+  const options = defaultOptions(format, props.title ?? t('results:defaultTableName'), props.dialect ?? '');
+  // A result cut for display exports every row: its query runs again and
+  // streams to the file (as the advanced export's "all" does).
+  const all = r.truncated ? exportSource.value : null;
+  if (all) return quickExportAll(path, options, all, r.total_rows);
   try {
-    const res = await exportApi.rows(path, defaultOptions(format, props.title ?? t('results:defaultTableName'), props.dialect ?? ''), r.columns, r.rows, runSource.value?.connectionId ?? props.editSource?.connectionId);
+    const res = await exportApi.rows(path, options, r.columns, r.rows, runSource.value?.connectionId ?? props.editSource?.connectionId);
     ElMessage.success({
       message: r.truncated
         ? t('results:export.doneLoaded', { count: res.rows, rows: res.rows.toLocaleString(locale()) })
@@ -719,6 +724,33 @@ async function quickExport(format: ExportFormat) {
     });
   } catch (e) {
     ElMessage.error(errorMessage(e));
+  }
+}
+
+/** Quick export of a cut result: the whole result, streamed, as a task. */
+async function quickExportAll(path: string, options: ReturnType<typeof defaultOptions>, all: NonNullable<typeof exportSource.value>, totalRows?: number | null) {
+  const exportId = crypto.randomUUID();
+  const h = startTask({
+    kind: 'export',
+    title: t('tasks:genImportExport.export', { file: path.split(/[\\/]/).pop() ?? path }),
+    connectionId: all.connectionId || undefined,
+    database: all.notebookTab ? undefined : all.database,
+    cancel: () => exportApi.cancel(exportId),
+  });
+  try {
+    let done = 0;
+    const known = all.notebookTab && totalRows ? totalRows : undefined;
+    await h.listen<{ id: string; rows: number; total?: number }>('export-progress', (e) => {
+      if (e.payload.id !== exportId) return;
+      done = Math.max(done, e.payload.rows);
+      const total = e.payload.total ?? known;
+      h.progress({ done, total: total != null && done <= total ? total : undefined, unit: 'rows' });
+    });
+    const res = await exportApi.query({ exportId, ...all, path, options });
+    h.finish(res, t('tasks:dialogs.rows', { count: res.rows, n: res.rows.toLocaleString(locale()) }));
+    ElMessage.success({ message: t('results:export.done', { count: res.rows, rows: res.rows.toLocaleString(locale()) }), duration: 2500 });
+  } catch (e) {
+    if (h.isCancelling) h.cancelled(); else { h.fail(e); ElMessage.error(errorMessage(e)); }
   }
 }
 
