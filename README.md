@@ -16,7 +16,8 @@ Windows, macOS and Linux.
 ## Install
 
 - **macOS (Homebrew):** `brew install --cask addlayer-io/tap/dbine`
-- **Windows (winget):** coming soon.
+- **Windows (winget):** `winget install AddLayer.DBine` (it installs the
+  version published in winget; DBine then updates itself to the latest).
 - **Linux:** `.flatpak`, `.AppImage`, `.deb` and `.rpm` packages in
   [Releases](https://github.com/addlayer-io/dbine/releases/latest).
 - **All platforms:** installers on [dbine.com](https://dbine.com/?utm_source=github&utm_medium=readme#download).
