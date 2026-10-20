@@ -11,7 +11,7 @@ works with **130+ databases and cloud services**: relational, analytical,
 document, key-value, graph, time-series and search databases. It runs on
 Windows, macOS and Linux.
 
-![DBine notebooks: each cell queries its own connection, and a DataFrame SQL cell joins them with a CSV](docs/media/dbine-notebooks.gif)
+![DBine overview: an explorer with connections to many engines, a password taken from Azure Key Vault, the query editor with autocompletion and results, a notebook joining two databases into a chart, and a schema compare](docs/media/dbine-overview.gif)
 
 ## Install
 
