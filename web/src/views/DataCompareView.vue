@@ -38,6 +38,12 @@ const limit = ref(200000);
 function dbsOf(p: Pick): string[] {
   return conns.live[p.connectionId]?.databases ?? [];
 }
+/** The engine has databases: the picker stays, even before the list arrives
+ *  or when the server doesn't list them (a typed name then). */
+function hasDatabases(p: Pick): boolean {
+  return !!conns.driverOf(p.connectionId)?.databases_label || dbsOf(p).length > 0;
+}
+const connecting = (p: Pick) => conns.live[p.connectionId]?.status === 'connecting';
 function tablesOf(p: Pick) {
   const d = conns.driverOf(p.connectionId);
   const browsable = new Set(d?.object_kinds.filter((k) => k.browsable ?? true).map((k) => k.id) ?? []);
@@ -46,7 +52,9 @@ function tablesOf(p: Pick) {
 async function prepare(p: Pick) {
   if (!p.connectionId) return;
   if (!(await ensureConnectedOrTell(p.connectionId))) return;
+  if (!dbsOf(p).length) await conns.refreshDatabases(p.connectionId).catch(() => {});
   const live = conns.live[p.connectionId];
+  if (live && !p.database && !live.databases.length) p.database = live.defaultDatabase;
   // Another connection keeps the database if it has one by that name.
   if (live && live.databases.length && !live.databases.includes(p.database)) p.database = live.defaultDatabase || live.databases[0];
   await conns.loadObjects(p.connectionId, p.database);
@@ -568,7 +576,10 @@ watch(() => result.value?.id, () => {
         <el-select v-model="p.connectionId" filterable size="small" class="dc-conn">
           <el-option v-for="c in conns.list" :key="c.id" :label="c.name" :value="c.id" />
         </el-select>
-        <el-select v-if="dbsOf(p).length" v-model="p.database" filterable size="small" class="dc-db">
+        <el-select
+          v-if="hasDatabases(p)" v-model="p.database" filterable allow-create default-first-option size="small" class="dc-db"
+          :loading="connecting(p)" :disabled="connecting(p)"
+        >
           <el-option v-for="d in dbsOf(p)" :key="d" :label="d" :value="d" />
         </el-select>
         <el-select v-model="p.table" filterable size="small" class="dc-table" :placeholder="$t('dataCompare:table')">

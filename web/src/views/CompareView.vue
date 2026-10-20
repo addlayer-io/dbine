@@ -72,12 +72,19 @@ const clone = <T>(x: T): T => JSON.parse(JSON.stringify(x));
 
 const connName = (id: string) => conns.byId(id)?.name ?? '';
 const dbsOf = (id: string) => conns.live[id]?.databases ?? [];
+/** The engine has databases (its connection form names them), so the side
+ *  keeps its database picker even before the list arrives or when the server
+ *  doesn't list them (a typed name then). */
+const hasDatabases = (id: string) => !!conns.driverOf(id)?.databases_label || dbsOf(id).length > 0;
+const connecting = (id: string) => conns.live[id]?.status === 'connecting';
 const driverOf = (id: string) => conns.driverOf(id);
 
 async function pickDefaults(s: SideId) {
   const side = sides[s];
   if (!side.connectionId || !(await ensureConnectedOrTell(side.connectionId))) return;
   if (side.database) return;
+  // Connected but no list yet (an earlier connect, a server that answered late): ask again.
+  if (!dbsOf(side.connectionId).length) await conns.refreshDatabases(side.connectionId).catch(() => {});
   const dbs = dbsOf(side.connectionId);
   // The right side starts on another database of the same connection.
   side.database = s === 'right' ? dbs.find((d) => d !== sides.left.database) ?? dbs[0] ?? '' : conns.live[side.connectionId]?.defaultDatabase ?? dbs[0] ?? '';
@@ -1736,7 +1743,10 @@ async function runSync() {
           <el-select v-model="sides[s].connectionId" class="cv-conn" size="small" filterable :placeholder="$t('compare:connection')">
             <el-option v-for="c in conns.list" :key="c.id" :label="c.name" :value="c.id" />
           </el-select>
-          <el-select v-if="dbsOf(sides[s].connectionId).length" v-model="sides[s].database" class="cv-db" size="small" filterable :placeholder="$t('compare:database')">
+          <el-select
+            v-if="hasDatabases(sides[s].connectionId)" v-model="sides[s].database" class="cv-db" size="small" filterable allow-create default-first-option
+            :loading="connecting(sides[s].connectionId)" :disabled="connecting(sides[s].connectionId)" :placeholder="$t('compare:database')"
+          >
             <el-option v-for="d in dbsOf(sides[s].connectionId)" :key="d" :label="d" :value="d" />
           </el-select>
           <el-select v-if="schemasOf(s).length" v-model="sides[s].schema" class="cv-schema" size="small" :placeholder="$t('compare:schema')" clearable>
