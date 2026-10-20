@@ -19,7 +19,7 @@ Windows, macOS and Linux.
 - **Windows (winget):** coming soon.
 - **Linux:** `.flatpak`, `.AppImage`, `.deb` and `.rpm` packages in
   [Releases](https://github.com/addlayer-io/dbine/releases/latest).
-- **All platforms:** installers on [dbine.com](https://dbine.com/#download).
+- **All platforms:** installers on [dbine.com](https://dbine.com/?utm_source=github&utm_medium=readme#download).
 
 More options in [Download](#download).
 
