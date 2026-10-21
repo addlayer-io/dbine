@@ -447,6 +447,18 @@ fn skipped(step: &Step, before: &[StepRun]) -> Option<&'static str> {
     }
 }
 
+/// The variables that carry text from the databases (`{results}` has an
+/// earlier step's error as the server wrote it; `{alerts}` too). Only a
+/// message's or a mail's text may use them: in SQL, a path, an address or an
+/// option, crafted data echoed in an error could inject SQL or pick a file.
+const DB_TEXT_VARS: [&str; 2] = ["results", "alerts"];
+
+/// The task's variables without [`DB_TEXT_VARS`], for everything that isn't
+/// a message's or a mail's text: `{results}` and `{alerts}` stay as written.
+pub(crate) fn without_db_text(vars: &BTreeMap<String, String>) -> BTreeMap<String, String> {
+    vars.iter().filter(|(k, _)| !DB_TEXT_VARS.contains(&k.as_str())).map(|(k, v)| (k.clone(), v.clone())).collect()
+}
+
 /// `{results}`: one line per step that ran before, with how it went (✓
 /// fine, ✗ failed, – skipped by its "Solo si…"), its number, name and
 /// summary, the summary in `lang` (the UI language).
@@ -738,6 +750,13 @@ mod tests {
         assert!(lines[0].starts_with("✓ 1. run_script: "), "{results}");
         assert!(lines[1].starts_with("✗ 2. falla: ") && lines[1].contains("nowhere"), "{results}");
         assert!(results_text(&t, &run.steps, "es").lines().nth(2).unwrap().starts_with("– 3. send_message: No se ejecutó"));
+        // Text from the databases never reaches SQL, a path or an address.
+        let mut vars = BTreeMap::new();
+        vars.insert("results".to_string(), "x'); DROP TABLE t; --".to_string());
+        vars.insert("alerts".to_string(), "../../etc".to_string());
+        vars.insert("task".to_string(), "nightly".to_string());
+        let plain = without_db_text(&vars);
+        assert_eq!(tasks::expand("INSERT INTO log VALUES ('{results}', '{alerts}', '{task}')", &plain), "INSERT INTO log VALUES ('{results}', '{alerts}', 'nightly')");
         // In another UI language the summaries are translated, the marks stay.
         assert!(results_text(&t, &run.steps, "en").lines().nth(2).unwrap().starts_with("– 3. send_message: Not run: "));
     }

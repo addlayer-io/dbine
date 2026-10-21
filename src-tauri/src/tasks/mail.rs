@@ -324,7 +324,7 @@ const MAX_HTML_BODY: u64 = 10 * 1024 * 1024;
 
 /// The HTML body the step names (a path, with variables), read.
 fn html_body(c: &MailConfig, vars: &Vars) -> Result<Option<String>, String> {
-    let path = expand(c.html_body.trim(), vars);
+    let path = expand(c.html_body.trim(), &super::without_db_text(vars));
     if path.is_empty() {
         return Ok(None);
     }
@@ -340,13 +340,15 @@ fn html_body(c: &MailConfig, vars: &Vars) -> Result<Option<String>, String> {
 }
 
 fn outgoing(c: &MailConfig, vars: &Vars) -> Outgoing {
+    // Addresses and attachment paths never take text from the databases.
+    let plain = super::without_db_text(vars);
     Outgoing {
-        to: c.to.expanded(vars),
-        cc: c.cc.expanded(vars),
+        to: c.to.expanded(&plain),
+        cc: c.cc.expanded(&plain),
         subject: expand(&c.subject, vars),
         body: expand(&c.body, vars),
         html: None,
-        attachments: c.attachments.iter().map(|a| expand(a.trim(), vars)).filter(|a| !a.is_empty()).map(PathBuf::from).collect(),
+        attachments: c.attachments.iter().map(|a| expand(a.trim(), &plain)).filter(|a| !a.is_empty()).map(PathBuf::from).collect(),
     }
 }
 

@@ -12,6 +12,7 @@
 - **SSH tunnels, security:** the SSH library is updated to fix two advisories (CVE-2026-111061, a denial of service through the SSH agent, and CVE-2026-111062).
 - **TLS, security:** the TLS library and its certificate checks are updated in DBine and in 33 drivers (RUSTSEC-2026-0346 to 0349 and 0381 to 0383), so certificates from distrusted authorities are refused. The updated drivers download by themselves.
 - **Built-in AI engine:** unpacking the engine keeps only the files' read, write and run permissions.
+- **Scheduled tasks, security:** `{results}` and `{alerts}` only fill in the text of mails and messages. A script's SQL, a file or folder name, an address or an attachment path no longer takes them, so a database error echoing crafted data can't turn into SQL or a path.
 - **Scheduled task messages:** `{results}` and `{alerts}` in a message or a mail come in DBine's interface language instead of always in Spanish, also when the task runs with DBine closed.
 - **Notebooks, big DataFrame SQL results:** **Advanced export… › All** writes the whole result, not just the rows shown. The cell's SQL runs again in DuckDB over the DataFrames its last run read, without reading files or querying the sources again. Its charts start computed over the whole result, and you can switch that off. When a result is cut, the grid also says that sorting and **Copy all** only cover the loaded rows.
 

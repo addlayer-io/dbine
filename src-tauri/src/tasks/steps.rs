@@ -47,6 +47,7 @@ fn need_connection(t: &Target) -> CommandResult<()> {
 /// `folder/name` with the variables expanded, the folder created and the
 /// name made safe for every OS.
 fn out_path(folder: &str, name: &str, ext: &str, vars: &Vars) -> CommandResult<PathBuf> {
+    let vars = &super::without_db_text(vars);
     let folder = expand(folder.trim(), vars);
     if folder.is_empty() {
         return Err(CommandError::BadRequest("el paso no tiene carpeta de destino".into()));
@@ -87,7 +88,7 @@ struct ScriptConfig {
 async fn run_script(ctx: &Ctx<'_>, step: &Step, vars: &Vars) -> CommandResult<StepDone> {
     let c: ScriptConfig = config(step)?;
     need_connection(&c.target)?;
-    let sql = expand(&c.sql, vars);
+    let sql = expand(&c.sql, &super::without_db_text(vars));
     if sql.trim().is_empty() {
         return Err(CommandError::BadRequest("el script está vacío".into()));
     }
@@ -147,7 +148,7 @@ fn extension(f: Format) -> &'static str {
 async fn export(ctx: &Ctx<'_>, step: &Step, vars: &Vars) -> CommandResult<StepDone> {
     let c: ExportConfig = config(step)?;
     need_connection(&c.target)?;
-    let sql = expand(&c.sql, vars);
+    let sql = expand(&c.sql, &super::without_db_text(vars));
     if sql.trim().is_empty() {
         return Err(CommandError::BadRequest("la consulta está vacía".into()));
     }
@@ -365,8 +366,9 @@ async fn backup(ctx: &Ctx<'_>, step: &Step, vars: &Vars) -> CommandResult<StepDo
                 c.options.extend(secret);
             }
         }
+        let vars = super::without_db_text(vars);
         for v in c.options.values_mut() {
-            *v = expand(v, vars);
+            *v = expand(v, &vars);
         }
         let database = (!spec.server_wide).then(|| c.target.database.clone()).filter(|d| !d.is_empty());
         let script = driver.backup_script(&BackupAction::Backup { database, options: c.options })?;

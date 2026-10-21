@@ -62,6 +62,7 @@
   "steps": "Étapes",
   "addStep": "Ajouter une étape",
   "varsHint": "Dans les noms de fichier, les scripts, les e-mails et les messages, vous pouvez utiliser :",
+  "varsHintText": "Uniquement dans le texte des e-mails et des messages :",
   "kinds": {
     "run_script": "Exécuter un script",
     "export": "Exporter vers un fichier",

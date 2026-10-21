@@ -59,6 +59,7 @@
   "steps": "步骤",
   "addStep": "添加步骤",
   "varsHint": "在文件名、脚本、邮件和消息中可以使用：",
+  "varsHintText": "仅限邮件和消息的正文：",
   "kinds": {
     "run_script": "运行脚本",
     "export": "导出到文件",

@@ -61,6 +61,7 @@
   "steps": "Schritte",
   "addStep": "Schritt hinzufügen",
   "varsHint": "In Dateinamen, Skripten, E-Mails und Nachrichten können Sie verwenden:",
+  "varsHintText": "Nur im Text von E-Mails und Nachrichten:",
   "kinds": {
     "run_script": "Ein Skript ausführen",
     "export": "In Datei exportieren",

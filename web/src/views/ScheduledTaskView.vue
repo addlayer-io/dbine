@@ -147,7 +147,10 @@ async function remove() {
   }
 }
 
-const VARS = ['{task}', '{date}', '{time}', '{datetime}', '{year}', '{month}', '{day}', '{steps.1.file}', '{results}', '{alerts}'];
+const VARS = ['{task}', '{date}', '{time}', '{datetime}', '{year}', '{month}', '{day}', '{steps.1.file}'];
+// They carry text from the databases (an earlier step's error): only a mail's
+// or a message's text takes them, never SQL, a path or an address.
+const TEXT_VARS = ['{results}', '{alerts}'];
 const stepLabel = (id: string) => {
   const i = task.value.steps.findIndex((s) => s.id === id);
   const s = task.value.steps[i];
@@ -230,6 +233,7 @@ const stepLabel = (id: string) => {
           </template>
         </el-dropdown>
         <p class="st-hint">{{ $t('scheduled:varsHint') }} <code v-for="v in VARS" :key="v" class="st-var">{{ v }}</code></p>
+        <p class="st-hint">{{ $t('scheduled:varsHintText') }} <code v-for="v in TEXT_VARS" :key="v" class="st-var">{{ v }}</code></p>
       </section>
 
       <section v-if="tab.taskId" class="st-sec">

@@ -352,7 +352,10 @@ In file names, folders, scripts, emails and messages you can use:
 | `{results}` | one line per step that ran before this one: ✓ fine, ✗ failed or – not run (its **Only if…**), its number, name and summary |
 | `{alerts}` | the alerts the earlier steps raised, one per line |
 
-`{results}` and `{alerts}` are written in DBine's interface language (the one
+`{results}` and `{alerts}` work only in the text of a mail or a message
+(subject and body): they carry text that comes from the databases, such as an
+earlier step's error, so a script's SQL, a file name or folder, an address or
+an attachment path leaves them as written. They're written in DBine's interface language (the one
 picked in **Settings › General › Language**, or the system's), also when the
 task runs with DBine closed. Errors that come from a database server stay in
 the server's own words.
