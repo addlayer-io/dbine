@@ -56,7 +56,7 @@
       "revision": "f18cb1c813a0",
       "kind": "full",
       "scope": "whole repository",
-      "found": 6
+      "found": 5
     }
   ],
   "findings": [
@@ -91,18 +91,6 @@
       "kind": "Vulnerable dependency",
       "title": "rand 0.7.3: Rand is unsound with a custom logger using rand::rng()",
       "component": "Cargo.lock",
-      "advisory": "GHSA-cq8v-f236-94qc",
-      "fixed_version": "0.9.3, 0.10.1, 0.8.6",
-      "found": "2026-10-21",
-      "status": "open"
-    },
-    {
-      "id": "TV-GHSA-cq8v-f236-94qc-rand-4ae010",
-      "source": "trivy",
-      "severity": "LOW",
-      "kind": "Vulnerable dependency",
-      "title": "rand 0.7.3: Rand is unsound with a custom logger using rand::rng()",
-      "component": "vendor/tiberius/Cargo.lock",
       "advisory": "GHSA-cq8v-f236-94qc",
       "fixed_version": "0.9.3, 0.10.1, 0.8.6",
       "found": "2026-10-21",
