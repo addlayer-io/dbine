@@ -9,6 +9,11 @@ updates:
   - package-ecosystem: github-actions
     directories: ["/", "/.github/actions/driver-hosts"]
     schedule: { interval: weekly, day: monday }
+    ignore:
+      # tauri-action 1.x renames the macOS updater bundle and changes how
+      # releases are edited: a planned migration of release.yml, not a bump.
+      - dependency-name: tauri-apps/tauri-action
+        update-types: ["version-update:semver-major"]
     groups:
       actions: { patterns: ["*"] }
 
