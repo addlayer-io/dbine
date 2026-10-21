@@ -7,6 +7,7 @@
 //! kind is one more arm there.
 
 pub mod headless;
+mod i18n;
 pub mod mail;
 pub mod message;
 pub mod notify;
@@ -376,6 +377,8 @@ pub async fn run_task(state: &AppState, app: Option<&AppHandle>, task: &Schedule
         })
     };
     let mut any_failed = false;
+    // `{results}` and `{alerts}` leave DBine (a message, a mail): in the UI language.
+    let lang = i18n::ui_language(state);
     for (n, step) in task.steps.iter().enumerate() {
         if cancelled.load(std::sync::atomic::Ordering::SeqCst) {
             break;
@@ -383,8 +386,8 @@ pub async fn run_task(state: &AppState, app: Option<&AppHandle>, task: &Schedule
         let step_started = tasks::now_text();
         let label = if step.name.is_empty() { step.kind.clone() } else { step.name.clone() };
         // What the earlier steps did and raised (a message's or a mail's text).
-        vars.insert("results".into(), results_text(task, &run.steps));
-        vars.insert("alerts".into(), run.steps.iter().filter_map(|s| s.alert.as_deref()).collect::<Vec<_>>().join("\n"));
+        vars.insert("results".into(), results_text(task, &run.steps, &lang));
+        vars.insert("alerts".into(), run.steps.iter().filter_map(|s| s.alert.as_deref()).map(|a| i18n::translate(&lang, a)).collect::<Vec<_>>().join("\n"));
         let result = match skipped(step, &run.steps) {
             Some(why) => Ok(StepDone { summary: why.into(), ..Default::default() }),
             None => steps::run(&ctx, step, &vars, notebooks.get_mut(n).and_then(Option::take)).await,
@@ -445,8 +448,9 @@ fn skipped(step: &Step, before: &[StepRun]) -> Option<&'static str> {
 }
 
 /// `{results}`: one line per step that ran before, with how it went (✓
-/// fine, ✗ failed, – skipped by its "Solo si…"), its number, name and summary.
-fn results_text(task: &ScheduledTask, done: &[StepRun]) -> String {
+/// fine, ✗ failed, – skipped by its "Solo si…"), its number, name and
+/// summary, the summary in `lang` (the UI language).
+fn results_text(task: &ScheduledTask, done: &[StepRun], lang: &str) -> String {
     done.iter()
         .enumerate()
         .map(|(n, r)| {
@@ -456,7 +460,7 @@ fn results_text(task: &ScheduledTask, done: &[StepRun]) -> String {
                 _ if [SKIPPED_NO_ALERT, SKIPPED_NO_ERROR].contains(&r.summary.as_str()) => "–",
                 _ => "✓",
             };
-            format!("{mark} {}. {name}: {}", n + 1, r.summary)
+            format!("{mark} {}. {name}: {}", n + 1, i18n::translate(lang, &r.summary))
         })
         .collect::<Vec<_>>()
         .join("\n")
@@ -729,11 +733,13 @@ mod tests {
 
         let t = task(vec![ok, bad, message("alert")]);
         let run = run_task(&w.state, None, &t, "manual").await;
-        let results = results_text(&t, &run.steps[..2]);
+        let results = results_text(&t, &run.steps[..2], "es");
         let lines: Vec<&str> = results.lines().collect();
         assert!(lines[0].starts_with("✓ 1. run_script: "), "{results}");
         assert!(lines[1].starts_with("✗ 2. falla: ") && lines[1].contains("nowhere"), "{results}");
-        assert!(results_text(&t, &run.steps).lines().nth(2).unwrap().starts_with("– 3. send_message: No se ejecutó"));
+        assert!(results_text(&t, &run.steps, "es").lines().nth(2).unwrap().starts_with("– 3. send_message: No se ejecutó"));
+        // In another UI language the summaries are translated, the marks stay.
+        assert!(results_text(&t, &run.steps, "en").lines().nth(2).unwrap().starts_with("– 3. send_message: Not run: "));
     }
 
     /// A task that writes asks for its approval again when a message's

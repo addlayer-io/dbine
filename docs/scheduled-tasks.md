@@ -352,6 +352,11 @@ In file names, folders, scripts, emails and messages you can use:
 | `{results}` | one line per step that ran before this one: ✓ fine, ✗ failed or – not run (its **Only if…**), its number, name and summary |
 | `{alerts}` | the alerts the earlier steps raised, one per line |
 
+`{results}` and `{alerts}` are written in DBine's interface language (the one
+picked in **Settings › General › Language**, or the system's), also when the
+task runs with DBine closed. Errors that come from a database server stay in
+the server's own words.
+
 The default name of a file is `{task}-{datetime}`. The characters that some
 system does not accept in a name (`/ \ : * ? " < > |`) are replaced with `_`.
 
