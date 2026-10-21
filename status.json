@@ -1,6 +1,6 @@
 {
   "schemaVersion": 1,
   "label": "security",
-  "message": "0 open",
-  "color": "brightgreen"
+  "message": "8 high open",
+  "color": "red"
 }

@@ -53,7 +53,7 @@
     {
       "source": "trivy",
       "date": "2026-10-21",
-      "revision": "427645aa9e0e",
+      "revision": "9ca288e99e30",
       "kind": "full",
       "scope": "whole repository",
       "found": 3
@@ -64,18 +64,90 @@
       "revision": "",
       "kind": "full",
       "scope": "Rust, TypeScript/Vue and workflows",
-      "found": 0
+      "found": 8
     },
     {
       "source": "scorecard",
       "date": "2026-10-21",
-      "revision": "f18cb1c813a0",
+      "revision": "9ca288e99e30",
       "kind": "full",
       "scope": "repository settings and workflows",
-      "score": 2.9
+      "score": 5.5
     }
   ],
   "findings": [
+    {
+      "id": "CQ-66",
+      "source": "codeql",
+      "severity": "HIGH",
+      "kind": "Static analysis finding",
+      "component": "src-tauri",
+      "found": "2026-10-21",
+      "status": "open"
+    },
+    {
+      "id": "CQ-67",
+      "source": "codeql",
+      "severity": "HIGH",
+      "kind": "Static analysis finding",
+      "component": "web",
+      "found": "2026-10-21",
+      "status": "open"
+    },
+    {
+      "id": "CQ-68",
+      "source": "codeql",
+      "severity": "HIGH",
+      "kind": "Static analysis finding",
+      "component": "web",
+      "found": "2026-10-21",
+      "status": "open"
+    },
+    {
+      "id": "CQ-69",
+      "source": "codeql",
+      "severity": "HIGH",
+      "kind": "Static analysis finding",
+      "component": "web",
+      "found": "2026-10-21",
+      "status": "open"
+    },
+    {
+      "id": "CQ-70",
+      "source": "codeql",
+      "severity": "HIGH",
+      "kind": "Static analysis finding",
+      "component": "web",
+      "found": "2026-10-21",
+      "status": "open"
+    },
+    {
+      "id": "CQ-71",
+      "source": "codeql",
+      "severity": "HIGH",
+      "kind": "Static analysis finding",
+      "component": "web",
+      "found": "2026-10-21",
+      "status": "open"
+    },
+    {
+      "id": "CQ-72",
+      "source": "codeql",
+      "severity": "HIGH",
+      "kind": "Static analysis finding",
+      "component": "web",
+      "found": "2026-10-21",
+      "status": "open"
+    },
+    {
+      "id": "CQ-73",
+      "source": "codeql",
+      "severity": "HIGH",
+      "kind": "Static analysis finding",
+      "component": "web",
+      "found": "2026-10-21",
+      "status": "open"
+    },
     {
       "id": "SC-Binary-Artifacts",
       "source": "scorecard",
@@ -92,7 +164,7 @@
       "source": "scorecard",
       "severity": "HIGH",
       "kind": "Repository practice",
-      "title": "Branch-Protection: 0/10 — branch protection not enabled on development/release branches",
+      "title": "Branch-Protection: 3/10 — branch protection is not maximal on development and all release branches",
       "component": "repository",
       "advisory": "https://github.com/ossf/scorecard/blob/61e84743356275f6ffca23b1b2f2cb945e19eb96/docs/checks.md#branch-protection",
       "found": "2026-10-21",
@@ -132,17 +204,6 @@
       "status": "open"
     },
     {
-      "id": "SC-Dependency-Update-Tool",
-      "source": "scorecard",
-      "severity": "HIGH",
-      "kind": "Repository practice",
-      "title": "Dependency-Update-Tool: 0/10 — no update tool detected",
-      "component": "repository",
-      "advisory": "https://github.com/ossf/scorecard/blob/61e84743356275f6ffca23b1b2f2cb945e19eb96/docs/checks.md#dependency-update-tool",
-      "found": "2026-10-21",
-      "status": "open"
-    },
-    {
       "id": "SC-Fuzzing",
       "source": "scorecard",
       "severity": "MEDIUM",
@@ -169,20 +230,9 @@
       "source": "scorecard",
       "severity": "MEDIUM",
       "kind": "Repository practice",
-      "title": "Pinned-Dependencies: 4/10 — dependency not pinned by hash detected -- score normalized to 4",
+      "title": "Pinned-Dependencies: 9/10 — dependency not pinned by hash detected -- score normalized to 9",
       "component": "repository",
       "advisory": "https://github.com/ossf/scorecard/blob/61e84743356275f6ffca23b1b2f2cb945e19eb96/docs/checks.md#pinned-dependencies",
-      "found": "2026-10-21",
-      "status": "open"
-    },
-    {
-      "id": "SC-SAST",
-      "source": "scorecard",
-      "severity": "MEDIUM",
-      "kind": "Repository practice",
-      "title": "SAST: 0/10 — no SAST tool detected",
-      "component": "repository",
-      "advisory": "https://github.com/ossf/scorecard/blob/61e84743356275f6ffca23b1b2f2cb945e19eb96/docs/checks.md#sast",
       "found": "2026-10-21",
       "status": "open"
     },
@@ -209,22 +259,11 @@
       "status": "open"
     },
     {
-      "id": "SC-Token-Permissions",
-      "source": "scorecard",
-      "severity": "HIGH",
-      "kind": "Repository practice",
-      "title": "Token-Permissions: 0/10 — detected GitHub workflow tokens with excessive permissions",
-      "component": "repository",
-      "advisory": "https://github.com/ossf/scorecard/blob/61e84743356275f6ffca23b1b2f2cb945e19eb96/docs/checks.md#token-permissions",
-      "found": "2026-10-21",
-      "status": "open"
-    },
-    {
       "id": "SC-Vulnerabilities",
       "source": "scorecard",
       "severity": "HIGH",
       "kind": "Repository practice",
-      "title": "Vulnerabilities: 0/10 — 30 existing vulnerabilities detected",
+      "title": "Vulnerabilities: 0/10 — 28 existing vulnerabilities detected",
       "component": "repository",
       "advisory": "https://github.com/ossf/scorecard/blob/61e84743356275f6ffca23b1b2f2cb945e19eb96/docs/checks.md#vulnerabilities",
       "found": "2026-10-21",
