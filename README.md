@@ -442,6 +442,15 @@ with whatever you like, once or every month, from
 [Buy Me a Coffee](https://buymeacoffee.com/addlayer). It is support, not
 a license: the app works the same.
 
+## Feedback and contributing
+
+- **Bugs and ideas:** open an [issue](https://github.com/addlayer-io/dbine/issues/new/choose)
+  (bug, enhancement, driver request or question).
+- **Contributing:** pull requests are welcome; how, and what a change needs, is
+  in [CONTRIBUTING.md](CONTRIBUTING.md).
+- **Security:** report vulnerabilities privately, as [SECURITY.md](SECURITY.md)
+  explains; the current security status is public.
+
 ## Download
 
 The installers are in
