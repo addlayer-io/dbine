@@ -23,7 +23,7 @@ Findings from the source-code review and CodeQL show only their kind and compone
 
 | Tool | Date | Covered | Result | Not covered yet |
 |---|---|---|---|---|
-| claude-security, release v1.1.0 | 2026-10-21 | 954fc5e3..9aec57c1 (everything 1.1.0 adds, and the 1.0.0 commits not scanned before) | 0 open | 3938642d and c4ee3112 (the fixes for this scan's three findings) and 56619d9d (the release commit) |
+| claude-security, release v1.1.0 | 2026-10-21 | 954fc5e3..9aec57c1 (everything 1.1.0 adds, and the 1.0.0 commits not scanned before) | 0 open | the commits after 9aec57c1 up to the release, adb92492: the fixes for this scan's three findings and the move of RSA private-key operations to AWS-LC |
 | codeql | 2026-10-21 | Rust, TypeScript/Vue and workflows | 0 open | — |
 | osv | 2026-10-21 | every lockfile (Cargo, npm) at [`b4018684f`](https://github.com/addlayer-io/dbine/commit/b4018684f0c2) | 1 open | — |
 | scorecard | 2026-10-21 | repository settings and workflows at [`d1431ef1e`](https://github.com/addlayer-io/dbine/commit/d1431ef1e61c) | score 5.7/10 | — |
@@ -249,6 +249,7 @@ Findings reviewed and found not to affect DBine. Each one says why and who decid
 | Advisory RUSTSEC-2024-0370 | `dependencies` | Notice, not a vulnerability: proc-macro-error is unmaintained (no known flaw; a build-time macro used by dependencies). | osv-scanner.toml |
 | Advisory RUSTSEC-2025-0075, RUSTSEC-2025-0080, RUSTSEC-2025-0081, RUSTSEC-2025-0098, RUSTSEC-2025-0100 | `dependencies` | Notice, not a vulnerability: the unic-* crates are unmaintained (no known flaw; Unicode tables used by a dependency). | osv-scanner.toml |
 | Advisory RUSTSEC-2026-0370, RUSTSEC-2026-0371, RUSTSEC-2026-0372 | `dependencies` | Notice, not a vulnerability: zvariant, zvariant_derive and zbus_names are unmaintained (no known flaw; D-Bus support in Tauri's Linux stack). | osv-scanner.toml |
+| Advisory RUSTSEC-2023-0071 | `dependencies` | Doesn't affect DBine. The timing leak (Marvin) is in the rsa crate's private-key operations, and DBine runs none with it: SSH sign-in with an RSA key signs in AWS-LC (crates/dbine-tunnel/src/rsa_sign.rs), and Zoho Vault's and Bitwarden's organization keys decrypt in AWS-LC (src-tauri/src/secret_sources/rsa_lc.rs). rsa only reads and encodes keys and checks server host-key signatures, which are public-key operations. | osv-scanner.toml |
 
 ## Maintenance notices
 

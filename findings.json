@@ -2846,6 +2846,6 @@
   "claude_coverage": {
     "release": "v1.1.0",
     "scanned": "954fc5e3..9aec57c1 (everything 1.1.0 adds, and the 1.0.0 commits not scanned before)",
-    "not_covered": "3938642d and c4ee3112 (the fixes for this scan's three findings) and 56619d9d (the release commit)"
+    "not_covered": "the commits after 9aec57c1 up to the release, adb92492: the fixes for this scan's three findings and the move of RSA private-key operations to AWS-LC"
   }
 }
