@@ -2596,7 +2596,7 @@ dependencies = [
  "sha2 0.10.9",
  "stable_deref_trait",
  "syn 1.0.109",
- "syn 2.0.119",
+ "syn 3.0.6",
  "tauri",
  "tauri-build",
  "tauri-plugin-dialog",

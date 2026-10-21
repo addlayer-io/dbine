@@ -21,7 +21,7 @@ bitflags = { version = "2", optional = true, features = ["std"] }
 derive_more-impl = { version = "2", optional = true, features = ["display", "from"] }
 flate2 = { version = "1", optional = true, features = ["zlib-rs"] }
 percent-encoding = { version = "2", optional = true }
-syn = { version = "2", optional = true, features = ["fold"] }
+syn = { version = "3", optional = true, features = ["fold"] }
 syn-1 = { package = "syn", version = "1", optional = true }
 toml_datetime = { version = "1", optional = true }
 toml_parser = { version = "1", optional = true }
