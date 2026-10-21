@@ -59,7 +59,7 @@ SCORECARD_RISK = {
 SOURCES = {
     "claude-security": "claude-security (source-code review)",
     "osv": "OSV-Scanner (dependency advisories)",
-    "trivy": "Trivy (dependencies, secrets, configuration)",
+    "trivy": "Trivy (secrets, configuration)",
     "codeql": "CodeQL (static analysis)",
 }
 
