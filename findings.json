@@ -57,9 +57,171 @@
       "kind": "full",
       "scope": "whole repository",
       "found": 5
+    },
+    {
+      "source": "scorecard",
+      "date": "2026-10-21",
+      "revision": "f18cb1c813a0",
+      "kind": "full",
+      "scope": "repository settings and workflows",
+      "score": 2.9
     }
   ],
   "findings": [
+    {
+      "id": "SC-Binary-Artifacts",
+      "source": "scorecard",
+      "severity": "HIGH",
+      "kind": "Repository practice",
+      "title": "Binary-Artifacts: 8/10 — binaries present in source code",
+      "component": "repository",
+      "advisory": "https://github.com/ossf/scorecard/blob/61e84743356275f6ffca23b1b2f2cb945e19eb96/docs/checks.md#binary-artifacts",
+      "found": "2026-10-21",
+      "status": "open"
+    },
+    {
+      "id": "SC-Branch-Protection",
+      "source": "scorecard",
+      "severity": "HIGH",
+      "kind": "Repository practice",
+      "title": "Branch-Protection: 0/10 — branch protection not enabled on development/release branches",
+      "component": "repository",
+      "advisory": "https://github.com/ossf/scorecard/blob/61e84743356275f6ffca23b1b2f2cb945e19eb96/docs/checks.md#branch-protection",
+      "found": "2026-10-21",
+      "status": "open"
+    },
+    {
+      "id": "SC-CII-Best-Practices",
+      "source": "scorecard",
+      "severity": "LOW",
+      "kind": "Repository practice",
+      "title": "CII-Best-Practices: 0/10 — no effort to earn an OpenSSF best practices badge detected",
+      "component": "repository",
+      "advisory": "https://github.com/ossf/scorecard/blob/61e84743356275f6ffca23b1b2f2cb945e19eb96/docs/checks.md#cii-best-practices",
+      "found": "2026-10-21",
+      "status": "open"
+    },
+    {
+      "id": "SC-Code-Review",
+      "source": "scorecard",
+      "severity": "HIGH",
+      "kind": "Repository practice",
+      "title": "Code-Review: 0/10 — Found 0/30 approved changesets -- score normalized to 0",
+      "component": "repository",
+      "advisory": "https://github.com/ossf/scorecard/blob/61e84743356275f6ffca23b1b2f2cb945e19eb96/docs/checks.md#code-review",
+      "found": "2026-10-21",
+      "status": "open"
+    },
+    {
+      "id": "SC-Contributors",
+      "source": "scorecard",
+      "severity": "LOW",
+      "kind": "Repository practice",
+      "title": "Contributors: 0/10 — project has 0 contributing companies or organizations -- score normalized to 0",
+      "component": "repository",
+      "advisory": "https://github.com/ossf/scorecard/blob/61e84743356275f6ffca23b1b2f2cb945e19eb96/docs/checks.md#contributors",
+      "found": "2026-10-21",
+      "status": "open"
+    },
+    {
+      "id": "SC-Dependency-Update-Tool",
+      "source": "scorecard",
+      "severity": "HIGH",
+      "kind": "Repository practice",
+      "title": "Dependency-Update-Tool: 0/10 — no update tool detected",
+      "component": "repository",
+      "advisory": "https://github.com/ossf/scorecard/blob/61e84743356275f6ffca23b1b2f2cb945e19eb96/docs/checks.md#dependency-update-tool",
+      "found": "2026-10-21",
+      "status": "open"
+    },
+    {
+      "id": "SC-Fuzzing",
+      "source": "scorecard",
+      "severity": "MEDIUM",
+      "kind": "Repository practice",
+      "title": "Fuzzing: 0/10 — project is not fuzzed",
+      "component": "repository",
+      "advisory": "https://github.com/ossf/scorecard/blob/61e84743356275f6ffca23b1b2f2cb945e19eb96/docs/checks.md#fuzzing",
+      "found": "2026-10-21",
+      "status": "open"
+    },
+    {
+      "id": "SC-Maintained",
+      "source": "scorecard",
+      "severity": "HIGH",
+      "kind": "Repository practice",
+      "title": "Maintained: 0/10 — project was created within the last 90 days. Please review its contents carefully",
+      "component": "repository",
+      "advisory": "https://github.com/ossf/scorecard/blob/61e84743356275f6ffca23b1b2f2cb945e19eb96/docs/checks.md#maintained",
+      "found": "2026-10-21",
+      "status": "open"
+    },
+    {
+      "id": "SC-Pinned-Dependencies",
+      "source": "scorecard",
+      "severity": "MEDIUM",
+      "kind": "Repository practice",
+      "title": "Pinned-Dependencies: 4/10 — dependency not pinned by hash detected -- score normalized to 4",
+      "component": "repository",
+      "advisory": "https://github.com/ossf/scorecard/blob/61e84743356275f6ffca23b1b2f2cb945e19eb96/docs/checks.md#pinned-dependencies",
+      "found": "2026-10-21",
+      "status": "open"
+    },
+    {
+      "id": "SC-SAST",
+      "source": "scorecard",
+      "severity": "MEDIUM",
+      "kind": "Repository practice",
+      "title": "SAST: 0/10 — no SAST tool detected",
+      "component": "repository",
+      "advisory": "https://github.com/ossf/scorecard/blob/61e84743356275f6ffca23b1b2f2cb945e19eb96/docs/checks.md#sast",
+      "found": "2026-10-21",
+      "status": "open"
+    },
+    {
+      "id": "SC-Security-Policy",
+      "source": "scorecard",
+      "severity": "MEDIUM",
+      "kind": "Repository practice",
+      "title": "Security-Policy: 4/10 — security policy file detected",
+      "component": "repository",
+      "advisory": "https://github.com/ossf/scorecard/blob/61e84743356275f6ffca23b1b2f2cb945e19eb96/docs/checks.md#security-policy",
+      "found": "2026-10-21",
+      "status": "open"
+    },
+    {
+      "id": "SC-Signed-Releases",
+      "source": "scorecard",
+      "severity": "HIGH",
+      "kind": "Repository practice",
+      "title": "Signed-Releases: 8/10 — 5 out of the last 5 releases have a total of 5 signed artifacts.",
+      "component": "repository",
+      "advisory": "https://github.com/ossf/scorecard/blob/61e84743356275f6ffca23b1b2f2cb945e19eb96/docs/checks.md#signed-releases",
+      "found": "2026-10-21",
+      "status": "open"
+    },
+    {
+      "id": "SC-Token-Permissions",
+      "source": "scorecard",
+      "severity": "HIGH",
+      "kind": "Repository practice",
+      "title": "Token-Permissions: 0/10 — detected GitHub workflow tokens with excessive permissions",
+      "component": "repository",
+      "advisory": "https://github.com/ossf/scorecard/blob/61e84743356275f6ffca23b1b2f2cb945e19eb96/docs/checks.md#token-permissions",
+      "found": "2026-10-21",
+      "status": "open"
+    },
+    {
+      "id": "SC-Vulnerabilities",
+      "source": "scorecard",
+      "severity": "HIGH",
+      "kind": "Repository practice",
+      "title": "Vulnerabilities: 0/10 — 30 existing vulnerabilities detected",
+      "component": "repository",
+      "advisory": "https://github.com/ossf/scorecard/blob/61e84743356275f6ffca23b1b2f2cb945e19eb96/docs/checks.md#vulnerabilities",
+      "found": "2026-10-21",
+      "status": "open"
+    },
     {
       "id": "TV-CVE-2026-111061-russh",
       "source": "trivy",
