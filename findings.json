@@ -1,9 +1,19 @@
 {
   "scans": [
     {
+      "source": "claude-security",
+      "release": "v1.1.0",
+      "scan_id": "564af13d-bf7d-4198-9e5b-c7019b6a0198",
+      "date": "2026-10-21",
+      "revision": "9aec57c144f8",
+      "kind": "changes",
+      "scope": "954fc5e3..9aec57c1",
+      "found": 3
+    },
+    {
       "source": "osv",
       "date": "2026-10-21",
-      "revision": "d1431ef1e61c",
+      "revision": "b4018684f0c2",
       "kind": "full",
       "scope": "every lockfile (Cargo, npm)",
       "found": 1
@@ -11,7 +21,7 @@
     {
       "source": "trivy",
       "date": "2026-10-21",
-      "revision": "d1431ef1e61c",
+      "revision": "b4018684f0c2",
       "kind": "full",
       "scope": "whole repository",
       "found": 0
@@ -27,20 +37,10 @@
     {
       "source": "scorecard",
       "date": "2026-10-21",
-      "revision": "0faeba1c3f6c",
+      "revision": "d1431ef1e61c",
       "kind": "full",
       "scope": "repository settings and workflows",
       "score": 5.7
-    },
-    {
-      "source": "claude-security",
-      "release": "v1.1.0",
-      "scan_id": "564af13d-bf7d-4198-9e5b-c7019b6a0198",
-      "date": "2026-10-21",
-      "revision": "9aec57c144f8",
-      "kind": "changes",
-      "scope": "954fc5e3..9aec57c1",
-      "found": 3
     }
   ],
   "findings": [
