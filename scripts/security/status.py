@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """DBine's security status: the security findings open right now, whatever
-found them (Trivy, CodeQL, OpenSSF Scorecard, claude-security), and what the last
+found them (OSV-Scanner, Trivy, CodeQL, OpenSSF Scorecard, claude-security), and what the last
 scan of each tool covered. A fixed finding leaves the page; there is no
 history.
 
@@ -15,6 +15,7 @@ is never recorded.
 
 Usage (DIR is a checkout of the security-status branch):
   status.py DIR import-claude REPORT_DIR --release vX.Y.Z [--commit SHA]
+  status.py DIR import-osv OSV_JSON --commit SHA   # osv-scanner scan source -r --format json
   status.py DIR import-trivy TRIVY_JSON --commit SHA
   status.py DIR import-codeql ALERTS_JSON     # gh api .../code-scanning/alerts?tool_name=CodeQL
   status.py DIR import-scorecard [SCORECARD_JSON]
@@ -39,7 +40,9 @@ SEVERITIES = ["CRITICAL", "HIGH", "MEDIUM", "LOW"]
 SCORECARD_REPO = "github.com/addlayer-io/dbine"
 REPO_URL = "https://github.com/addlayer-io/dbine"
 HERE = os.path.dirname(os.path.abspath(__file__))
-TRIVY_EXCEPTIONS = os.path.join(HERE, "..", "..", "trivy-secret.yaml")
+ROOT = os.path.normpath(os.path.join(HERE, "..", ".."))
+TRIVY_EXCEPTIONS = os.path.join(ROOT, "trivy-secret.yaml")
+OSV_EXCEPTIONS = os.path.join(ROOT, "osv-scanner.toml")
 
 # Scorecard's own risk level per check (https://github.com/ossf/scorecard#checks).
 SCORECARD_RISK = {
@@ -55,6 +58,7 @@ SCORECARD_RISK = {
 
 SOURCES = {
     "claude-security": "claude-security (source-code review)",
+    "osv": "OSV-Scanner (dependency advisories)",
     "trivy": "Trivy (dependencies, secrets, configuration)",
     "codeql": "CodeQL (static analysis)",
 }
@@ -200,6 +204,76 @@ def import_trivy(st: Status, path: str, commit: str) -> None:
         "scope": "whole repository", "found": len(uniq),
     }])
     print(f"trivy: {len(uniq)} open")
+
+
+# ---- OSV-Scanner -----------------------------------------------------------------
+
+def cvss_severity(score: str | None) -> str:
+    try:
+        x = float(score)
+    except (TypeError, ValueError):
+        return "MEDIUM"  # no score published: not assumed harmless
+    return "CRITICAL" if x >= 9 else "HIGH" if x >= 7 else "MEDIUM" if x >= 4 else "LOW"
+
+
+def import_osv(st: Status, path: str, commit: str) -> None:
+    """Dependency advisories from OSV (the database Scorecard uses). One row
+    per advisory, package and lockfile; an 'unmaintained' notice isn't a
+    vulnerability and is listed apart. Advisories in osv-scanner.toml were
+    reviewed: osv-scanner leaves them out and the page lists them with the
+    reason."""
+    report = load(path, {})
+    date = today()
+    cur: list[dict] = []
+    for res in report.get("results") or []:
+        src = os.path.relpath(res["source"]["path"], ROOT) if os.path.isabs(res["source"]["path"]) else res["source"]["path"]
+        for p in res.get("packages") or []:
+            pkg, ver = p["package"]["name"], p["package"].get("version", "")
+            vulns = {v["id"]: v for v in p.get("vulnerabilities") or []}
+            for g in p.get("groups") or [{"ids": [i]} for i in vulns]:
+                vs = [vulns[i] for i in g["ids"] if i in vulns]
+                if not vs:
+                    continue
+                notice = any((a.get("database_specific") or {}).get("informational") for v in vs for a in v.get("affected") or [])
+                fixed = sorted({e["fixed"] for v in vs for a in v.get("affected") or []
+                                if (a.get("package") or {}).get("name") == pkg
+                                for r in a.get("ranges") or [] for e in r.get("events") or [] if e.get("fixed")})
+                summary = next((v.get("summary") for v in vs if v.get("summary")), "") or g["ids"][0]
+                cur.append({
+                    "id": f"OSV-{sorted(g['ids'])[-1]}-{pkg}-{hashlib.sha256(src.encode()).hexdigest()[:6]}",
+                    "source": "osv",
+                    "severity": "NOTICE" if notice else cvss_severity(g.get("max_severity")),
+                    "kind": "Unmaintained dependency" if notice else "Vulnerable dependency",
+                    "title": f"{pkg} {ver}: {summary}", "component": src,
+                    "advisory": ", ".join(sorted(g["ids"])),
+                    "fixed_version": ", ".join(fixed) or None,
+                    "found": date, "status": "notice" if notice else "open",
+                })
+    seen: set[str] = set()
+    cur = [f for f in cur if not (f["id"] in seen or seen.add(f["id"]))]
+    st.replace("osv", cur)
+    st.set_scans("osv", [{
+        "source": "osv", "date": date, "revision": commit[:12], "kind": "full",
+        "scope": "every lockfile (Cargo, npm)",
+        "found": sum(1 for f in cur if f["status"] == "open"),
+    }])
+    print(f"osv: {sum(1 for f in cur if f['status'] == 'open')} open, {sum(1 for f in cur if f['status'] == 'notice')} notices")
+
+
+def osv_exceptions() -> list[dict]:
+    """The [[IgnoredVulns]] in osv-scanner.toml (id, reason), read without a
+    TOML library so the script runs on any Python 3."""
+    try:
+        text = open(OSV_EXCEPTIONS, encoding="utf-8").read()
+    except FileNotFoundError:
+        return []
+    out = []
+    for block in text.split("[[IgnoredVulns]]")[1:]:
+        id_ = re.search(r'^id\s*=\s*"([^"]+)"', block, re.M)
+        reason = re.search(r'^reason\s*=\s*"((?:[^"\\]|\\.)*)"', block, re.M)
+        if id_:
+            out.append({"id": id_.group(1), "why": reason.group(1).replace('\\"', '"') if reason else ""})
+    return out
 
 
 # ---- CodeQL --------------------------------------------------------------------
@@ -372,8 +446,23 @@ def render(st: Status) -> None:
              "by": f.get("by", "")} for f in dismissed]
     rows += [{"what": f"Trivy secret rule exception `{e['id']}`", "where": e["path"], "why": e["why"],
               "by": "trivy-secret.yaml"} for e in exc]
+    # Several advisory IDs can share one reason (aliases): one row each reason.
+    by_reason: dict[str, list[str]] = {}
+    for e in osv_exceptions():
+        by_reason.setdefault(e["why"], []).append(e["id"])
+    rows += [{"what": "Advisory " + ", ".join(ids), "where": "dependencies", "why": why,
+              "by": "osv-scanner.toml"} for why, ids in by_reason.items()]
     out += table(rows, [("Finding", lambda r: r["what"]), ("Where", lambda r: f"`{r['where']}`"),
                         ("Why", lambda r: r["why"]), ("Decided in", lambda r: r["by"])])
+
+    notices = [f for f in fs if f["status"] == "notice"]
+    out += ["", "## Maintenance notices", "",
+            "Dependencies their authors no longer maintain. Not a vulnerability, so not counted in the badge; "
+            "worth replacing over time.", ""]
+    out += table(sorted(notices, key=lambda f: f["id"]), [
+        ("Dependency", lambda f: f.get("title", f["id"])), ("Where", lambda f: f"`{f['component']}`"),
+        ("Advisory", lambda f: f.get("advisory") or "—"),
+    ])
 
     practices = [f for f in fs if f["source"] == "scorecard"]
     sc = next((s for s in scans if s["source"] == "scorecard"), None)
@@ -395,6 +484,7 @@ def main() -> None:
     ap.add_argument("dir")
     sub = ap.add_subparsers(dest="cmd", required=True)
     p = sub.add_parser("import-claude"); p.add_argument("report"); p.add_argument("--release", required=True); p.add_argument("--commit")
+    p = sub.add_parser("import-osv"); p.add_argument("json"); p.add_argument("--commit", required=True)
     p = sub.add_parser("import-trivy"); p.add_argument("json"); p.add_argument("--commit", required=True)
     p = sub.add_parser("import-codeql"); p.add_argument("json")
     p = sub.add_parser("import-scorecard"); p.add_argument("json", nargs="?")
@@ -408,6 +498,8 @@ def main() -> None:
     st = Status(a.dir)
     if a.cmd == "import-claude":
         import_claude(st, a.report, a.release, a.commit)
+    elif a.cmd == "import-osv":
+        import_osv(st, a.json, a.commit)
     elif a.cmd == "import-trivy":
         import_trivy(st, a.json, a.commit)
     elif a.cmd == "import-codeql":

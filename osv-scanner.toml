@@ -1,0 +1,70 @@
+# Dependency advisories reviewed and found not to affect DBine. OSV-Scanner
+# (and OpenSSF Scorecard, which uses it) leaves them out; the security status
+# page lists each one with its reason (SECURITY.md). Add an entry only after
+# checking that DBine can't reach the flaw, and say how it was checked.
+
+# glib 0.18 (Linux, with Tauri's GTK 3 stack; can't be upgraded on DBine's side).
+[[IgnoredVulns]]
+id = "GHSA-wrw7-89jp-8q8g"
+reason = "Doesn't affect DBine. The flaw is in glib::VariantStrIter, which only runs through Variant::array_iter_str, and neither DBine nor any of its dependencies calls it (checked in gtk, gdk, gio, webkit2gtk, javascriptcore, soup3, wry and tao). glib 0.18 comes with Tauri's GTK 3 stack on Linux and can't be upgraded on DBine's side."
+
+# rand 0.7.3 (from winauth, Windows sign-in for SQL Server).
+[[IgnoredVulns]]
+id = "GHSA-cq8v-f236-94qc"
+reason = "Doesn't affect DBine. The flaw needs rand's log feature and a custom logger that calls ThreadRng; DBine's build doesn't enable that feature (rand 0.7.3 comes from winauth, the Windows sign-in for SQL Server, with default features only)."
+
+# zip 8 (DuckDB and llama.cpp downloads, spreadsheets) and zip 6 (libduckdb-sys build script).
+[[IgnoredVulns]]
+id = "RUSTSEC-2026-0367"
+reason = "Doesn't affect DBine. The three zip advisories are in ZipArchive::extract and ZipStreamReader::extract; DBine never calls them (it reads entries one by one, keeps only rwx permission bits and writes no symlinks), nor do calamine or rust_xlsxwriter. zip 6 only runs in libduckdb-sys's build script on its own bundled archive."
+
+[[IgnoredVulns]]
+id = "RUSTSEC-2026-0368"
+reason = "Doesn't affect DBine. The three zip advisories are in ZipArchive::extract and ZipStreamReader::extract; DBine never calls them (it reads entries one by one, keeps only rwx permission bits and writes no symlinks), nor do calamine or rust_xlsxwriter. zip 6 only runs in libduckdb-sys's build script on its own bundled archive."
+
+[[IgnoredVulns]]
+id = "RUSTSEC-2026-0369"
+reason = "Doesn't affect DBine. The three zip advisories are in ZipArchive::extract and ZipStreamReader::extract; DBine never calls them (it reads entries one by one, keeps only rwx permission bits and writes no symlinks), nor do calamine or rust_xlsxwriter. zip 6 only runs in libduckdb-sys's build script on its own bundled archive."
+
+# Unmaintained notices: no known vulnerability, the author stopped
+# maintaining the crate. They come through other crates (Tauri's Linux
+# stack, macros at build time); replace them when those move.
+[[IgnoredVulns]]
+id = "RUSTSEC-2024-0436"
+reason = "Notice, not a vulnerability: paste is no longer maintained (no known flaw; a build-time macro used by dependencies)."
+
+[[IgnoredVulns]]
+id = "RUSTSEC-2024-0370"
+reason = "Notice, not a vulnerability: proc-macro-error is unmaintained (no known flaw; a build-time macro used by dependencies)."
+
+[[IgnoredVulns]]
+id = "RUSTSEC-2025-0075"
+reason = "Notice, not a vulnerability: the unic-* crates are unmaintained (no known flaw; Unicode tables used by a dependency)."
+
+[[IgnoredVulns]]
+id = "RUSTSEC-2025-0080"
+reason = "Notice, not a vulnerability: the unic-* crates are unmaintained (no known flaw; Unicode tables used by a dependency)."
+
+[[IgnoredVulns]]
+id = "RUSTSEC-2025-0081"
+reason = "Notice, not a vulnerability: the unic-* crates are unmaintained (no known flaw; Unicode tables used by a dependency)."
+
+[[IgnoredVulns]]
+id = "RUSTSEC-2025-0098"
+reason = "Notice, not a vulnerability: the unic-* crates are unmaintained (no known flaw; Unicode tables used by a dependency)."
+
+[[IgnoredVulns]]
+id = "RUSTSEC-2025-0100"
+reason = "Notice, not a vulnerability: the unic-* crates are unmaintained (no known flaw; Unicode tables used by a dependency)."
+
+[[IgnoredVulns]]
+id = "RUSTSEC-2026-0370"
+reason = "Notice, not a vulnerability: zvariant, zvariant_derive and zbus_names are unmaintained (no known flaw; D-Bus support in Tauri's Linux stack)."
+
+[[IgnoredVulns]]
+id = "RUSTSEC-2026-0371"
+reason = "Notice, not a vulnerability: zvariant, zvariant_derive and zbus_names are unmaintained (no known flaw; D-Bus support in Tauri's Linux stack)."
+
+[[IgnoredVulns]]
+id = "RUSTSEC-2026-0372"
+reason = "Notice, not a vulnerability: zvariant, zvariant_derive and zbus_names are unmaintained (no known flaw; D-Bus support in Tauri's Linux stack)."

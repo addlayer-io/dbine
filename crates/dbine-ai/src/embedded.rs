@@ -212,7 +212,8 @@ fn unpack(archive: &Path, dest: &Path) -> std::io::Result<()> {
             #[cfg(unix)]
             if let Some(mode) = entry.unix_mode() {
                 use std::os::unix::fs::PermissionsExt;
-                std::fs::set_permissions(&out, std::fs::Permissions::from_mode(mode))?;
+                // Only the rwx bits: never setuid, setgid or sticky from an archive.
+                std::fs::set_permissions(&out, std::fs::Permissions::from_mode(mode & 0o777))?;
             }
         }
     } else {

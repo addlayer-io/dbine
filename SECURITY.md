@@ -22,14 +22,19 @@ fixed would put users at risk.
 |---|---|---|---|
 | [Trivy](https://github.com/aquasecurity/trivy) | Known vulnerabilities in the Rust and npm dependencies (`Cargo.lock`, lockfiles), committed secrets, insecure configuration | Every push to `main`, every pull request and weekly | A CRITICAL or HIGH finding with a fix available fails the check |
 | claude-security | A source-code security review: credentials, SQL that reaches a server, the driver protocol, files on disk, networking and the update path. Every finding is checked by an independent panel before it's reported | Before every release, on what the release adds since the previous one | A CRITICAL or HIGH finding blocks the release until it's fixed and scanned again |
+| [OSV-Scanner](https://google.github.io/osv-scanner/) | Advisories for every dependency in every lockfile, from the OSV database (RustSec, GitHub advisories); the same data Scorecard uses | Every push to `main` and weekly | Its open findings count on the status page |
 | [CodeQL](https://codeql.github.com) | Static analysis of the Rust, TypeScript/Vue and workflow code | Every push to `main`, every pull request and weekly | Informational; its open alerts count on the status page |
 | [OpenSSF Scorecard](https://scorecard.dev/viewer/?uri=github.com/addlayer-io/dbine) | The repository's security practices | Every push to `main` and weekly | Informational |
 
-Dependabot proposes dependency updates every week. Trivy, CodeQL and
-Scorecard update the status page by themselves. A claude-security
-release scan is added to it when it runs (`scripts/security/status.py`).
-Trivy's known false positives are in [`trivy-secret.yaml`](trivy-secret.yaml),
-each with the reason, and are listed on the status page too.
+Dependabot proposes dependency updates every week. OSV-Scanner, Trivy,
+CodeQL and Scorecard update the status page by themselves. A
+claude-security release scan is added to it when it runs
+(`scripts/security/status.py`).
+
+What was reviewed and found not to affect DBine is in the repository, each
+entry with how it was checked: dependency advisories in
+[`osv-scanner.toml`](osv-scanner.toml) and secret-scan false positives in
+[`trivy-secret.yaml`](trivy-secret.yaml). The status page lists them too.
 
 ## Supported versions
 

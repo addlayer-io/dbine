@@ -2,6 +2,8 @@
 # most one PR a week. Security fixes come as their own PRs when Dependabot
 # security updates are on (Settings › Code security). The actions are pinned
 # by commit SHA; Dependabot moves the SHA and the version comment together.
+# Major versions of Cargo and npm packages are left out: those upgrades are
+# planned by hand (security fixes still come, whatever the version).
 version: 2
 updates:
   - package-ecosystem: github-actions
@@ -14,6 +16,9 @@ updates:
     directories: ["/", "/mobile/src-tauri"]
     schedule: { interval: weekly, day: monday }
     open-pull-requests-limit: 3
+    ignore:
+      - dependency-name: "*"
+        update-types: ["version-update:semver-major"]
     groups:
       cargo-minor:
         update-types: [minor, patch]
@@ -22,6 +27,9 @@ updates:
     directories: ["/web", "/mobile"]
     schedule: { interval: weekly, day: monday }
     open-pull-requests-limit: 3
+    ignore:
+      - dependency-name: "*"
+        update-types: ["version-update:semver-major"]
     groups:
       npm-minor:
         update-types: [minor, patch]

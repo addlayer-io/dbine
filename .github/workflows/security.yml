@@ -82,12 +82,22 @@ jobs:
           ref: security-status
           path: _status
 
-      - name: Trivy (all severities, for the status page)
+      # Dependencies come from OSV-Scanner (the database Scorecard uses, with
+      # RustSec); Trivy covers secrets and configuration here.
+      - name: OSV-Scanner
+        run: |
+          curl -fsSL -o osv-scanner https://github.com/google/osv-scanner/releases/download/v2.7.0/osv-scanner_linux_amd64
+          echo "160c6253e2922e9e0a6a9771c5c4c40a4b3c6090b34a3cdd5e80c96cc2e4218b  osv-scanner" | sha256sum -c -
+          chmod +x osv-scanner
+          ./osv-scanner scan source -r --config osv-scanner.toml --format json --output osv.json . || true
+          test -s osv.json
+
+      - name: Trivy (secrets and configuration, for the status page)
         uses: aquasecurity/trivy-action@ed142fd0673e97e23eac54620cfb913e5ce36c25 # v0.36.0
         with:
           scan-type: fs
           scan-ref: .
-          scanners: vuln,secret,misconfig
+          scanners: secret,misconfig
           skip-dirs: _status
           format: json
           output: trivy.json
@@ -96,6 +106,7 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
+          python3 scripts/security/status.py _status import-osv osv.json --commit "$GITHUB_SHA"
           python3 scripts/security/status.py _status import-trivy trivy.json --commit "$GITHUB_SHA"
           gh api --paginate "repos/$GITHUB_REPOSITORY/code-scanning/alerts?tool_name=CodeQL&per_page=100" \
             | jq -s 'add // [] | map(select(.state == "open" or .state == "dismissed"))' > codeql.json \
