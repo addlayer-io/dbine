@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """DBine's security status: the security findings open right now, whatever
-found them (Trivy, OpenSSF Scorecard, claude-security), and what the last
+found them (Trivy, CodeQL, OpenSSF Scorecard, claude-security), and what the last
 scan of each tool covered. A fixed finding leaves the page; there is no
 history.
 
@@ -16,6 +16,7 @@ is never recorded.
 Usage (DIR is a checkout of the security-status branch):
   status.py DIR import-claude REPORT_DIR --release vX.Y.Z [--commit SHA]
   status.py DIR import-trivy TRIVY_JSON --commit SHA
+  status.py DIR import-codeql ALERTS_JSON     # gh api .../code-scanning/alerts?tool_name=CodeQL
   status.py DIR import-scorecard [SCORECARD_JSON]
   status.py DIR coverage --release vX.Y.Z --scanned RANGE --not-covered TEXT
   status.py DIR fix ID                       # fixed: it leaves the page
@@ -55,6 +56,7 @@ SCORECARD_RISK = {
 SOURCES = {
     "claude-security": "claude-security (source-code review)",
     "trivy": "Trivy (dependencies, secrets, configuration)",
+    "codeql": "CodeQL (static analysis)",
 }
 
 
@@ -168,7 +170,9 @@ def import_trivy(st: Status, path: str, commit: str) -> None:
             sev = v.get("Severity", "").upper()
             if sev in SEVERITIES:
                 cur.append({
-                    "id": f"TV-{v['VulnerabilityID']}-{v['PkgName']}", "source": "trivy", "severity": sev,
+                    # Stable per lockfile, so a dismissal sticks to the right one.
+                    "id": f"TV-{v['VulnerabilityID']}-{v['PkgName']}-{hashlib.sha256(target.encode()).hexdigest()[:6]}",
+                    "source": "trivy", "severity": sev,
                     "kind": "Vulnerable dependency",
                     "title": f"{v['PkgName']} {v.get('InstalledVersion', '')}: {v.get('Title') or v['VulnerabilityID']}",
                     "component": target, "advisory": v["VulnerabilityID"],
@@ -188,22 +192,52 @@ def import_trivy(st: Status, path: str, commit: str) -> None:
                     "severity": m.get("Severity", "LOW").upper(), "kind": "Insecure configuration",
                     "title": f"{m['ID']}: {m.get('Title')}", "component": target, "found": date, "status": "open",
                 })
-    # The same advisory can show up in several lockfiles: one row each.
     seen: set[str] = set()
-    uniq = []
-    for f in cur:
-        key = f["id"] + f["component"]
-        if key not in seen:
-            seen.add(key)
-            if any(g["id"] == f["id"] for g in uniq):
-                f["id"] += "-" + hashlib.sha256(f["component"].encode()).hexdigest()[:6]
-            uniq.append(f)
+    uniq = [f for f in cur if not (f["id"] in seen or seen.add(f["id"]))]
     st.replace("trivy", uniq)
     st.set_scans("trivy", [{
         "source": "trivy", "date": date, "revision": commit[:12], "kind": "full",
         "scope": "whole repository", "found": len(uniq),
     }])
     print(f"trivy: {len(uniq)} open")
+
+
+# ---- CodeQL --------------------------------------------------------------------
+
+CODEQL_SEVERITY = {"error": "HIGH", "warning": "MEDIUM", "note": "LOW"}
+
+
+def import_codeql(st: Status, path: str) -> None:
+    """CodeQL's alerts from the code-scanning API (open and dismissed). Like
+    the source-code review, an open alert shows only its severity and
+    component; a dismissed one shows the rule and the reason given."""
+    alerts = load(path, [])
+    cur = []
+    for a in alerts:
+        if a.get("state") not in ("open", "dismissed"):
+            continue
+        rule = a.get("rule") or {}
+        sev = (rule.get("security_severity_level") or "").upper() or CODEQL_SEVERITY.get(rule.get("severity"), "LOW")
+        loc = ((a.get("most_recent_instance") or {}).get("location") or {}).get("path", "")
+        f = {
+            "id": f"CQ-{a['number']}", "source": "codeql", "severity": sev,
+            "kind": "Static analysis finding", "component": component(loc) if loc else "repository",
+            "found": (a.get("created_at") or today())[:10], "status": "open",
+        }
+        if a["state"] == "dismissed":
+            f.update(status="dismissed", title=f"CodeQL {rule.get('id', '')}: {rule.get('description', '')}",
+                     dismissed=(a.get("dismissed_at") or "")[:10],
+                     reason=" — ".join(x for x in (a.get("dismissed_reason"), a.get("dismissed_comment")) if x),
+                     by=(a.get("dismissed_by") or {}).get("login", ""), component=loc or f["component"])
+        cur.append(f)
+    # CodeQL keeps its own dismissals; they replace ours wholesale.
+    st.data["findings"] = [f for f in st.data["findings"] if f["source"] != "codeql"] + cur
+    st.set_scans("codeql", [{
+        "source": "codeql", "date": today(), "revision": "", "kind": "full",
+        "scope": "Rust, TypeScript/Vue and workflows",
+        "found": sum(1 for f in cur if f["status"] == "open"),
+    }])
+    print(f"codeql: {sum(1 for f in cur if f['status'] == 'open')} open")
 
 
 # ---- OpenSSF Scorecard ------------------------------------------------------
@@ -297,7 +331,7 @@ def render(st: Status) -> None:
     for src, name in SOURCES.items():
         o = [f for f in open_v if f["source"] == src]
         out.append(f"| {name} | " + " | ".join(str(sum(1 for f in o if f['severity'] == s)) for s in SEVERITIES) + " |")
-    out += ["", "Findings from the source-code review show only their kind and component while they're open.", ""]
+    out += ["", "Findings from the source-code review and CodeQL show only their kind and component while they're open.", ""]
     out += table(sorted(open_v, key=key), [
         ("ID", lambda f: f["id"]), ("Severity", lambda f: f["severity"]), ("Source", lambda f: f["source"]),
         ("Finding", lambda f: f.get("title") or f.get("kind") or "Finding"),
@@ -322,7 +356,7 @@ def render(st: Status) -> None:
     for s in sorted((s for s in scans if s["source"] != "claude-security"), key=lambda s: s["source"]):
         rows.append({
             "tool": s["source"], "date": s["date"],
-            "scope": f"{s.get('scope', '')} at {commit(s.get('revision'))}",
+            "scope": s.get("scope", "") + (f" at {commit(s['revision'])}" if s.get("revision") else ""),
             "result": f"score {s['score']}/10" if "score" in s else f"{s.get('found', 0)} open",
             "gap": "",
         })
@@ -362,6 +396,7 @@ def main() -> None:
     sub = ap.add_subparsers(dest="cmd", required=True)
     p = sub.add_parser("import-claude"); p.add_argument("report"); p.add_argument("--release", required=True); p.add_argument("--commit")
     p = sub.add_parser("import-trivy"); p.add_argument("json"); p.add_argument("--commit", required=True)
+    p = sub.add_parser("import-codeql"); p.add_argument("json")
     p = sub.add_parser("import-scorecard"); p.add_argument("json", nargs="?")
     p = sub.add_parser("coverage"); p.add_argument("--release", required=True)
     p.add_argument("--scanned", required=True); p.add_argument("--not-covered", default="")
@@ -375,6 +410,8 @@ def main() -> None:
         import_claude(st, a.report, a.release, a.commit)
     elif a.cmd == "import-trivy":
         import_trivy(st, a.json, a.commit)
+    elif a.cmd == "import-codeql":
+        import_codeql(st, a.json)
     elif a.cmd == "import-scorecard":
         import_scorecard(st, a.json)
     elif a.cmd == "coverage":

@@ -54,6 +54,14 @@ jobs:
           exit-code: '1'
           skip-setup-trivy: true
 
+  # The phone app's Gradle wrapper is the one binary in the repository: check
+  # it's the genuine one Gradle publishes.
+  gradle-wrapper:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: gradle/actions/wrapper-validation@3f5f9adaf7d9fecd50b5935e54106014257a94e6 # v6.4.0
+
   # Puts this scan, and the latest Scorecard result, on the public security
   # status page (the security-status branch: STATUS.md and the README badge).
   # It runs whether the gate above passed or not: a failure must show there too.
@@ -62,6 +70,7 @@ jobs:
     runs-on: ubuntu-latest
     permissions:
       contents: write # push to the security-status branch only
+      security-events: read # CodeQL's alerts
     concurrency:
       group: security-status
       cancel-in-progress: false
@@ -84,8 +93,14 @@ jobs:
           output: trivy.json
 
       - name: Update the status
+        env:
+          GH_TOKEN: ${{ github.token }}
         run: |
           python3 scripts/security/status.py _status import-trivy trivy.json --commit "$GITHUB_SHA"
+          gh api --paginate "repos/$GITHUB_REPOSITORY/code-scanning/alerts?tool_name=CodeQL&per_page=100" \
+            | jq -s 'add // [] | map(select(.state == "open" or .state == "dismissed"))' > codeql.json \
+            || echo '[]' > codeql.json
+          python3 scripts/security/status.py _status import-codeql codeql.json
           python3 scripts/security/status.py _status import-scorecard
 
       - name: Publish

@@ -23,8 +23,9 @@ on:
         type: boolean
         default: true
 
+# Read-only by default; the jobs that publish to a release ask for write.
 permissions:
-  contents: write
+  contents: read
 
 concurrency:
   group: drivers-${{ github.ref }}-${{ inputs.package }}
@@ -39,7 +40,7 @@ jobs:
       version: ${{ steps.route.outputs.version }}
       publish: ${{ steps.route.outputs.publish }}
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
       - id: route
         shell: bash
         env:
@@ -107,7 +108,7 @@ jobs:
     steps:
       # The app tags and their history: min_app is the oldest recent app
       # with the same app <-> host code (scripts/driver_index.py).
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
         with:
           fetch-depth: 0
 
@@ -133,7 +134,7 @@ jobs:
             --only "$PACKAGE" --no-catalog
           cat driver-hosts/summary.md >> "$GITHUB_STEP_SUMMARY"
 
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         with:
           name: driver-${{ needs.route.outputs.package }}-${{ matrix.name }}
           path: driver-hosts/
@@ -143,6 +144,8 @@ jobs:
   # The host files first, then the index (merged into the one published
   # now, signed with the updater key, with its .sig).
   publish:
+    permissions:
+      contents: write
     needs: [route, build]
     if: needs.route.outputs.publish == 'true'
     name: publish ${{ matrix.target }}
@@ -166,9 +169,9 @@ jobs:
       group: drivers-index-${{ matrix.target }}
       cancel-in-progress: false
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
 
-      - uses: actions/download-artifact@v4
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
         with:
           name: driver-${{ needs.route.outputs.package }}-${{ matrix.name }}
           path: driver-hosts
@@ -195,6 +198,8 @@ jobs:
   # Keep the `drivers` release under GitHub's 1000 assets
   # (scripts/prune-driver-assets.py), as after an app release.
   prune:
+    permissions:
+      contents: write
     needs: [route, publish]
     if: needs.route.outputs.publish == 'true'
     runs-on: ubuntu-latest
@@ -202,7 +207,7 @@ jobs:
       group: drivers-prune
       cancel-in-progress: false
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
         with:
           fetch-depth: 0
       - name: Delete driver hosts no supported app uses

@@ -1,0 +1,27 @@
+# Dependency updates as pull requests, grouped so each ecosystem opens at
+# most one PR a week. Security fixes come as their own PRs when Dependabot
+# security updates are on (Settings › Code security). The actions are pinned
+# by commit SHA; Dependabot moves the SHA and the version comment together.
+version: 2
+updates:
+  - package-ecosystem: github-actions
+    directories: ["/", "/.github/actions/driver-hosts"]
+    schedule: { interval: weekly, day: monday }
+    groups:
+      actions: { patterns: ["*"] }
+
+  - package-ecosystem: cargo
+    directories: ["/", "/mobile/src-tauri"]
+    schedule: { interval: weekly, day: monday }
+    open-pull-requests-limit: 3
+    groups:
+      cargo-minor:
+        update-types: [minor, patch]
+
+  - package-ecosystem: npm
+    directories: ["/web", "/mobile"]
+    schedule: { interval: weekly, day: monday }
+    open-pull-requests-limit: 3
+    groups:
+      npm-minor:
+        update-types: [minor, patch]

@@ -95,7 +95,7 @@ jobs:
       # The workflow's own commit: its scripts (packaging/) and the shared
       # wording (flatpak/metainfo) may be newer than the tag being sent,
       # which only provides the release assets.
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
 
       - name: Render the PKGBUILD
         env:
@@ -118,7 +118,7 @@ jobs:
       - name: Build and check
         run: packaging/aur/check.sh "$OUT"
 
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         with:
           name: aur-${{ steps.tag.outputs.tag }}
           path: ${{ env.OUT }}

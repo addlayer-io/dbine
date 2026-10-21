@@ -13,11 +13,14 @@ on:
     - cron: "17 6 * * 1"
   workflow_dispatch:
 
+# Read-only by default; the jobs that publish to a release ask for write.
 permissions:
-  contents: write
+  contents: read
 
 jobs:
   refresh:
+    permissions:
+      contents: write
     name: refresh ${{ matrix.target }}
     runs-on: ubuntu-latest
     strategy:
@@ -33,7 +36,7 @@ jobs:
       group: drivers-index-${{ matrix.target }}
       cancel-in-progress: false
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
 
       - name: Re-sign the index
         shell: bash

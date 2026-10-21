@@ -6,7 +6,7 @@ license.workspace = true
 description = "SSH tunnels for DBine connections: a local port forwarded to the database server through one or more SSH hosts"
 
 [dependencies]
-russh = "0.63"
+russh = "0.64"
 tokio = { workspace = true }
 tracing.workspace = true
 thiserror = "2"
