@@ -60,6 +60,24 @@ Anything else is **FAIL**. Never downgrade or dismiss a finding yourself; if
 you believe one is wrong, say why, and it still blocks until the owner
 decides.
 
+## The public status page
+
+Every verified scan, PASS or FAIL, goes on the public security status page
+(`security-status` branch, see SECURITY.md). You stay read-only: end the
+report with the exact commands for the session that owns the release, using
+a worktree of that branch:
+
+```
+python3 scripts/security/status.py <worktree> import-claude <report dir> --release v<version>
+python3 scripts/security/status.py <worktree> coverage --release v<version> \
+  --scanned "<range>" --not-covered "<commits in the release after the scanned one; anything else>"
+python3 scripts/security/status.py <worktree> fix <ID>    # each finding fixed since, after a re-scan
+```
+
+Then a commit on that branch, pushed with the release (owner's OK). The page
+shows only what was verified: the scanned range, and what the range didn't
+cover.
+
 ## Report
 
 Start with one line: `PASS` or `FAIL`, the range or scope, the scanned

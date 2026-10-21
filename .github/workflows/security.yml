@@ -1,0 +1,98 @@
+# Trivy scan of the repository: known vulnerabilities in Cargo.lock and the
+# npm lockfiles, committed secrets and insecure configuration. Results go to
+# the Security tab (code scanning); the job fails on a CRITICAL or HIGH
+# finding, which turns the README's Trivy badge red.
+name: Security
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  schedule:
+    - cron: '17 6 * * 1' # Mondays: new advisories against unchanged code
+  workflow_dispatch: {}
+
+permissions:
+  contents: read
+
+env:
+  TRIVY_SECRET_CONFIG: trivy-secret.yaml # known false positives, with the reason
+
+jobs:
+  trivy:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      security-events: write
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - name: Trivy (report)
+        uses: aquasecurity/trivy-action@ed142fd0673e97e23eac54620cfb913e5ce36c25 # v0.36.0
+        with:
+          scan-type: fs
+          scan-ref: .
+          scanners: vuln,secret,misconfig
+          format: sarif
+          output: trivy.sarif
+
+      - name: Upload to code scanning
+        if: always() && github.event_name != 'pull_request'
+        uses: github/codeql-action/upload-sarif@6f2ac81f5cd81fe351a197ba0b00d91d03cd2aee # v4.39.0
+        with:
+          sarif_file: trivy.sarif
+          category: trivy
+
+      - name: Trivy (gate)
+        uses: aquasecurity/trivy-action@ed142fd0673e97e23eac54620cfb913e5ce36c25 # v0.36.0
+        with:
+          scan-type: fs
+          scan-ref: .
+          scanners: vuln,secret,misconfig
+          severity: CRITICAL,HIGH
+          ignore-unfixed: true
+          exit-code: '1'
+          skip-setup-trivy: true
+
+  # Puts this scan, and the latest Scorecard result, on the public security
+  # status page (the security-status branch: STATUS.md and the README badge).
+  # It runs whether the gate above passed or not: a failure must show there too.
+  status:
+    if: github.event_name != 'pull_request'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write # push to the security-status branch only
+    concurrency:
+      group: security-status
+      cancel-in-progress: false
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: security-status
+          path: _status
+
+      - name: Trivy (all severities, for the status page)
+        uses: aquasecurity/trivy-action@ed142fd0673e97e23eac54620cfb913e5ce36c25 # v0.36.0
+        with:
+          scan-type: fs
+          scan-ref: .
+          scanners: vuln,secret,misconfig
+          skip-dirs: _status
+          format: json
+          output: trivy.json
+
+      - name: Update the status
+        run: |
+          python3 scripts/security/status.py _status import-trivy trivy.json --commit "$GITHUB_SHA"
+          python3 scripts/security/status.py _status import-scorecard
+
+      - name: Publish
+        working-directory: _status
+        run: |
+          git add findings.json STATUS.md status.json
+          if git diff --cached --quiet; then echo "No change."; exit 0; fi
+          git -c user.name="github-actions[bot]" -c user.email="41898282+github-actions[bot]@users.noreply.github.com" \
+            commit -q -m "Security status: Trivy and Scorecard at ${GITHUB_SHA::12}"
+          git push origin HEAD:security-status

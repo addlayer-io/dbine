@@ -5,6 +5,8 @@
 ![Platforms: macOS · Windows · Linux](https://img.shields.io/badge/platforms-macOS%20%C2%B7%20Windows%20%C2%B7%20Linux-informational)
 [![Downloads](https://img.shields.io/github/downloads/addlayer-io/dbine/total)](https://github.com/addlayer-io/dbine/releases)
 [![Homebrew: brew install --cask addlayer-io/tap/dbine](https://img.shields.io/badge/homebrew-brew%20install%20--cask%20addlayer--io%2Ftap%2Fdbine-FBB040?logo=homebrew&logoColor=white)](https://github.com/addlayer-io/homebrew-tap)
+[![Security: open findings from Trivy and claude-security](https://img.shields.io/endpoint?url=https%3A%2F%2Fraw.githubusercontent.com%2Faddlayer-io%2Fdbine%2Fsecurity-status%2Fstatus.json)](https://github.com/addlayer-io/dbine/blob/security-status/STATUS.md)
+[![OpenSSF Scorecard](https://api.scorecard.dev/projects/github.com/addlayer-io/dbine/badge)](https://scorecard.dev/viewer/?uri=github.com/addlayer-io/dbine)
 
 **DBine** is a desktop multi-engine database manager from AddLayer. One app
 works with **130+ databases and cloud services**: relational, analytical,
