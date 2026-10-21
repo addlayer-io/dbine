@@ -367,7 +367,7 @@ def render(st: Status) -> None:
     dismissed = [f for f in vulns if f["status"] == "dismissed"]
     exc = trivy_exceptions()
     out += ["", "## Not counted, and why", "",
-            "Findings judged not to be a vulnerability. Each one says why and who decided.", ""]
+            "Findings reviewed and found not to affect DBine. Each one says why and who decided.", ""]
     rows = [{"what": f.get("title") or f.get("kind"), "where": f["component"], "why": f.get("reason", ""),
              "by": f.get("by", "")} for f in dismissed]
     rows += [{"what": f"Trivy secret rule exception `{e['id']}`", "where": e["path"], "why": e["why"],
