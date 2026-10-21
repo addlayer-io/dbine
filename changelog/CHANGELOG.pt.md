@@ -1,5 +1,21 @@
 # Alterações
 
+## [1.1.0] - 2026-10-21
+
+### Novidades
+- **Licença:** o DBine agora é distribuído sob a licença Apache 2.0 (até a 1.0.0 era MIT). Um arquivo NOTICE acompanha qualquer redistribuição, e a licença não concede o uso dos nomes nem dos logos do DBine e da AddLayer.
+- **Status da sincronização na nuvem num relance:** a barra de status mostra **Sincronizado** com um ponto verde, **Pendente** em âmbar enquanto uma alteração espera para ser enviada, e vermelho em caso de erro; passe o mouse para ver o horário da última sincronização e clique para abrir as configurações de sincronização.
+- **Copiar string de conexão:** clique com o botão direito em uma conexão (ou use o botão do formulário dela) e escolha **Copiar string de conexão…** para obtê-la como string URI, ADO.NET, JDBC, SQLAlchemy, ODBC, libpq, Node.js ou Go, as que se aplicarem ao seu mecanismo, para qualquer banco de dados, com as configurações de TLS e de login. A senha fica de fora (um marcador `${DB_PASSWORD}`), a menos que você ative **Incluir senha**; nesse caso ela é buscada na hora de copiar e apagada da área de transferência um minuto depois, se ainda estiver lá.
+- **Etapa Enviar uma mensagem** nas tarefas agendadas: publique como a execução terminou no Microsoft Teams, Slack, Telegram ou ntfy, com as variáveis da tarefa (`{results}` lista o que cada etapa fez), **Somente se…** como na etapa de e-mail e um botão **Testar**. A URL do webhook e os tokens ficam no chaveiro, nunca na tarefa, e as mensagens vão apenas por HTTPS para os servidores do próprio serviço.
+
+### Correções
+- **Túneis SSH, segurança:** a biblioteca SSH foi atualizada para corrigir dois avisos (CVE-2026-111061, uma negação de serviço pelo agente SSH, e CVE-2026-111062).
+- **TLS, segurança:** a biblioteca TLS e suas verificações de certificado foram atualizadas no DBine e em 33 drivers (RUSTSEC-2026-0346 a 0349 e 0381 a 0383), de modo que certificados de autoridades que perderam a confiança são recusados. Os drivers atualizados são baixados automaticamente.
+- **Motor de IA integrado:** ao descompactar o motor, são mantidas apenas as permissões de leitura, escrita e execução dos arquivos.
+- **Tarefas agendadas, segurança:** `{results}` e `{alerts}` só preenchem o texto de e-mails e mensagens. O SQL de um script, o nome de um arquivo ou pasta, um endereço ou o caminho de um anexo não os recebem mais, então um erro do banco de dados que repete dados manipulados não pode virar SQL nem um caminho.
+- **Mensagens das tarefas agendadas:** `{results}` e `{alerts}` em uma mensagem ou e-mail saem no idioma da interface do DBine em vez de sempre em espanhol, também quando a tarefa roda com o DBine fechado.
+- **Notebooks, resultados grandes de DataFrame SQL:** **Exportação avançada… › Todas** grava o resultado inteiro, não só as linhas exibidas. O SQL da célula é executado novamente no DuckDB sobre os DataFrames que sua última execução leu, sem ler arquivos nem consultar as fontes de novo. Os gráficos já começam calculados sobre todo o resultado, e isso pode ser desativado. Quando um resultado é cortado, a grade também avisa que a ordenação e **Copiar tudo** abrangem apenas as linhas carregadas.
+
 ## [1.0.0] - 2026-10-19
 
 ### Novidades

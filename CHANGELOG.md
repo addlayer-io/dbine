@@ -2,6 +2,8 @@
 
 ## [Unreleased]
 
+## [1.1.0] - 2026-10-21
+
 ### New
 - **License:** DBine is now licensed under the Apache License 2.0 (up to 1.0.0 it was MIT). A NOTICE file travels with any redistribution, and the license doesn't grant use of the DBine and AddLayer names or logos.
 - **Cloud sync status at a glance:** the status bar shows **Synced** with a green dot, **Pending** in amber while a change waits to upload, and red on an error; hover for the last sync time, click for the sync settings.

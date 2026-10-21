@@ -1,5 +1,21 @@
 # Änderungen
 
+## [1.1.0] - 2026-10-21
+
+### Neu
+- **Lizenz:** DBine steht jetzt unter der Apache License 2.0 (bis 1.0.0 war es MIT). Eine NOTICE-Datei begleitet jede Weitergabe, und die Lizenz gewährt keine Nutzung der Namen und Logos von DBine und AddLayer.
+- **Status der Cloud-Synchronisierung auf einen Blick:** Die Statusleiste zeigt **Synchronisiert** mit grünem Punkt, **Ausstehend** in Bernstein, solange eine Änderung auf das Hochladen wartet, und Rot bei einem Fehler; bewegen Sie die Maus darüber, um den Zeitpunkt der letzten Synchronisierung zu sehen, und klicken Sie, um die Synchronisierungseinstellungen zu öffnen.
+- **Verbindungszeichenfolge kopieren:** Klicken Sie mit der rechten Maustaste auf eine Verbindung (oder verwenden Sie die Schaltfläche in ihrem Formular) und wählen Sie **Verbindungszeichenfolge kopieren…**, um sie als URI-, ADO.NET-, JDBC-, SQLAlchemy-, ODBC-, libpq-, Node.js- oder Go-Zeichenfolge zu erhalten, je nachdem, was ihr Engine unterstützt, für jede Datenbank, mit den TLS- und Anmeldeeinstellungen. Das Passwort bleibt außen vor (ein Platzhalter `${DB_PASSWORD}`), es sei denn, Sie aktivieren **Passwort einschließen**; dann wird es beim Kopieren abgerufen und eine Minute später aus der Zwischenablage gelöscht, falls es noch dort ist.
+- **Schritt Nachricht senden** in geplanten Aufgaben: Veröffentlichen Sie den Verlauf der Ausführung in Microsoft Teams, Slack, Telegram oder ntfy, mit den Variablen der Aufgabe (`{results}` listet auf, was jeder Schritt getan hat), **Nur wenn…** wie beim E-Mail-Schritt und einer Schaltfläche **Testen**. Die Webhook-URL und die Tokens werden im Schlüsselbund gespeichert, nie in der Aufgabe, und Nachrichten gehen nur per HTTPS an die eigenen Server des Dienstes.
+
+### Korrekturen
+- **SSH-Tunnel, Sicherheit:** Die SSH-Bibliothek wurde aktualisiert, um zwei Sicherheitshinweise zu beheben (CVE-2026-111061, ein Denial-of-Service über den SSH-Agenten, und CVE-2026-111062).
+- **TLS, Sicherheit:** Die TLS-Bibliothek und ihre Zertifikatsprüfungen wurden in DBine und in 33 Treibern aktualisiert (RUSTSEC-2026-0346 bis 0349 und 0381 bis 0383), sodass Zertifikate von nicht mehr vertrauenswürdigen Zertifizierungsstellen abgelehnt werden. Die aktualisierten Treiber werden automatisch heruntergeladen.
+- **Integrierte KI-Engine:** Beim Entpacken der Engine bleiben nur die Lese-, Schreib- und Ausführungsrechte der Dateien erhalten.
+- **Geplante Aufgaben, Sicherheit:** `{results}` und `{alerts}` füllen nur noch den Text von E-Mails und Nachrichten. Das SQL eines Skripts, der Name einer Datei oder eines Ordners, eine Adresse oder der Pfad eines Anhangs übernehmen sie nicht mehr, sodass ein Datenbankfehler, der manipulierte Daten wiedergibt, nicht zu SQL oder zu einem Pfad werden kann.
+- **Nachrichten geplanter Aufgaben:** `{results}` und `{alerts}` in einer Nachricht oder E-Mail erscheinen in der Oberflächensprache von DBine statt immer auf Spanisch, auch wenn die Aufgabe bei geschlossenem DBine läuft.
+- **Notebooks, große DataFrame-SQL-Ergebnisse:** **Erweiterter Export… › Alle** schreibt das gesamte Ergebnis, nicht nur die angezeigten Zeilen. Das SQL der Zelle wird in DuckDB erneut über die DataFrames ausgeführt, die ihr letzter Lauf gelesen hat, ohne Dateien erneut zu lesen oder die Quellen erneut abzufragen. Die Diagramme starten über das gesamte Ergebnis berechnet, und das lässt sich abschalten. Wenn ein Ergebnis abgeschnitten ist, weist das Raster außerdem darauf hin, dass Sortierung und **Alles kopieren** nur die geladenen Zeilen betreffen.
+
 ## [1.0.0] - 2026-10-19
 
 ### Neu

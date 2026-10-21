@@ -1,5 +1,21 @@
 # Modifications
 
+## [1.1.0] - 2026-10-21
+
+### Nouveautés
+- **Licence :** DBine est désormais distribué sous la licence Apache 2.0 (jusqu'à la 1.0.0, c'était MIT). Un fichier NOTICE accompagne toute redistribution, et la licence n'accorde pas l'usage des noms ni des logos de DBine et d'AddLayer.
+- **État de la synchronisation cloud en un coup d'œil :** la barre d'état affiche **Synchronisé** avec un point vert, **En attente** en orange tant qu'une modification attend d'être envoyée, et du rouge en cas d'erreur ; survolez pour voir l'heure de la dernière synchronisation, cliquez pour ouvrir les paramètres de synchronisation.
+- **Copier la chaîne de connexion :** faites un clic droit sur une connexion (ou utilisez le bouton de son formulaire) et choisissez **Copier la chaîne de connexion…** pour l'obtenir sous forme de chaîne URI, ADO.NET, JDBC, SQLAlchemy, ODBC, libpq, Node.js ou Go, selon celles que gère son moteur, pour n'importe quelle base de données, avec ses paramètres TLS et de connexion. Le mot de passe est omis (un marqueur `${DB_PASSWORD}`) sauf si vous activez **Inclure le mot de passe** ; il est alors récupéré au moment de la copie et effacé du presse-papiers une minute plus tard s'il y est encore.
+- **Étape Envoyer un message** dans les tâches planifiées : publiez le déroulement de l'exécution sur Microsoft Teams, Slack, Telegram ou ntfy, avec les variables de la tâche (`{results}` liste ce qu'a fait chaque étape), **Seulement si…** comme l'étape e-mail et un bouton **Tester**. L'URL du webhook et les jetons sont conservés dans le trousseau, jamais dans la tâche, et les messages ne passent que par HTTPS vers les serveurs du service lui-même.
+
+### Corrections
+- **Tunnels SSH, sécurité :** la bibliothèque SSH est mise à jour pour corriger deux avis (CVE-2026-111061, un déni de service via l'agent SSH, et CVE-2026-111062).
+- **TLS, sécurité :** la bibliothèque TLS et ses vérifications de certificats sont mises à jour dans DBine et dans 33 pilotes (RUSTSEC-2026-0346 à 0349 et 0381 à 0383), de sorte que les certificats d'autorités qui ne sont plus approuvées sont refusés. Les pilotes mis à jour se téléchargent tout seuls.
+- **Moteur d'IA intégré :** lors de la décompression du moteur, seules les permissions de lecture, d'écriture et d'exécution des fichiers sont conservées.
+- **Tâches planifiées, sécurité :** `{results}` et `{alerts}` ne remplissent plus que le texte des e-mails et des messages. Le SQL d'un script, le nom d'un fichier ou d'un dossier, une adresse ou le chemin d'une pièce jointe ne les prennent plus, de sorte qu'une erreur de base de données qui reprend des données forgées ne peut pas se transformer en SQL ni en chemin.
+- **Messages des tâches planifiées :** `{results}` et `{alerts}` dans un message ou un e-mail apparaissent dans la langue de l'interface de DBine au lieu de toujours être en espagnol, y compris quand la tâche s'exécute DBine fermé.
+- **Notebooks, gros résultats DataFrame SQL :** **Export avancé… › Toutes** écrit le résultat complet, pas seulement les lignes affichées. Le SQL de la cellule est de nouveau exécuté dans DuckDB sur les DataFrames lus lors de sa dernière exécution, sans relire de fichiers ni réinterroger les sources. Ses graphiques sont calculés d'emblée sur tout le résultat, et cela peut être désactivé. Lorsqu'un résultat est tronqué, la grille indique aussi que le tri et **Tout copier** ne portent que sur les lignes chargées.
+
 ## [1.0.0] - 2026-10-19
 
 ### Nouveautés
