@@ -9,7 +9,7 @@ license = "Apache-2.0"
 
 [workspace.dependencies]
 tokio = { version = "1.40", features = ["full"] }
-rusqlite = { version = "0.31", features = ["bundled", "serde_json", "column_decltype"] }
+rusqlite = { version = "0.40", features = ["bundled", "serde_json", "column_decltype"] }
 serde = { version = "1", features = ["derive"] }
 # float_roundtrip: parse doubles exactly (the default parser can change
 # the last digit, and transfers must be lossless).
