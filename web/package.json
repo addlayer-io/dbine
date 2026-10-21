@@ -37,7 +37,7 @@
   },
   "devDependencies": {
     "@types/js-beautify": "^1.14.3",
-    "@vitejs/plugin-vue": "^5.1.0",
+    "@vitejs/plugin-vue": "^6.0.10",
     "html-to-image": "^1.11.13",
     "sass": "^1.99.0",
     "typescript": "^5.5.0",
