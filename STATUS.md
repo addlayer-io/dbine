@@ -9,15 +9,13 @@ _Updated 2026-10-21._
 | Source | Critical | High | Medium | Low |
 |---|---|---|---|---|
 | claude-security (source-code review) | 0 | 0 | 0 | 0 |
-| OSV-Scanner (dependency advisories) | 0 | 0 | 1 | 0 |
+| OSV-Scanner (dependency advisories) | 0 | 0 | 0 | 0 |
 | Trivy (secrets, configuration) | 0 | 0 | 0 | 0 |
 | CodeQL (static analysis) | 0 | 0 | 0 | 0 |
 
 Findings from the source-code review and CodeQL show only their kind and component while they're open.
 
-| ID | Severity | Source | Finding | Where | Fix |
-|---|---|---|---|---|---|
-| OSV-RUSTSEC-2023-0071-rsa-13ee4b | MEDIUM | osv | rsa 0.10.0-rc.18: Marvin Attack: potential key recovery through timing sidechannels | `Cargo.lock` | pending |
+_None._
 
 ## What the last scans covered
 
@@ -25,9 +23,9 @@ Findings from the source-code review and CodeQL show only their kind and compone
 |---|---|---|---|---|
 | claude-security, release v1.1.0 | 2026-10-21 | 954fc5e3..9aec57c1 (everything 1.1.0 adds, and the 1.0.0 commits not scanned before) | 0 open | the commits after 9aec57c1 up to the release, adb92492: the fixes for this scan's three findings and the move of RSA private-key operations to AWS-LC |
 | codeql | 2026-10-21 | Rust, TypeScript/Vue and workflows | 0 open | — |
-| osv | 2026-10-21 | every lockfile (Cargo, npm) at [`b4018684f`](https://github.com/addlayer-io/dbine/commit/b4018684f0c2) | 1 open | — |
-| scorecard | 2026-10-21 | repository settings and workflows at [`d1431ef1e`](https://github.com/addlayer-io/dbine/commit/d1431ef1e61c) | score 5.7/10 | — |
-| trivy | 2026-10-21 | whole repository at [`b4018684f`](https://github.com/addlayer-io/dbine/commit/b4018684f0c2) | 0 open | — |
+| osv | 2026-10-21 | every lockfile (Cargo, npm) at [`adb92492c`](https://github.com/addlayer-io/dbine/commit/adb92492c9d0) | 0 open | — |
+| scorecard | 2026-10-21 | repository settings and workflows at [`adb92492c`](https://github.com/addlayer-io/dbine/commit/adb92492c9d0) | score 5.8/10 | — |
+| trivy | 2026-10-21 | whole repository at [`adb92492c`](https://github.com/addlayer-io/dbine/commit/adb92492c9d0) | 0 open | — |
 
 ## Not counted, and why
 
@@ -259,7 +257,7 @@ _None._
 
 ## Repository practices
 
-OpenSSF Scorecard: **5.7/10** (2026-10-21). The checks below 10, with Scorecard's own risk level. They describe how the repository is run, not a vulnerability in DBine, and aren't counted in the badge.
+OpenSSF Scorecard: **5.8/10** (2026-10-21). The checks below 10, with Scorecard's own risk level. They describe how the repository is run, not a vulnerability in DBine, and aren't counted in the badge.
 
 | Check | Risk | Docs |
 |---|---|---|
@@ -268,7 +266,7 @@ OpenSSF Scorecard: **5.7/10** (2026-10-21). The checks below 10, with Scorecard'
 | Code-Review: 0/10 — Found 0/30 approved changesets -- score normalized to 0 | HIGH | [link](https://github.com/ossf/scorecard/blob/61e84743356275f6ffca23b1b2f2cb945e19eb96/docs/checks.md#code-review) |
 | Maintained: 0/10 — project was created within the last 90 days. Please review its contents carefully | HIGH | [link](https://github.com/ossf/scorecard/blob/61e84743356275f6ffca23b1b2f2cb945e19eb96/docs/checks.md#maintained) |
 | Signed-Releases: 8/10 — 5 out of the last 5 releases have a total of 5 signed artifacts. | HIGH | [link](https://github.com/ossf/scorecard/blob/61e84743356275f6ffca23b1b2f2cb945e19eb96/docs/checks.md#signed-releases) |
-| Vulnerabilities: 3/10 — 7 existing vulnerabilities detected | HIGH | [link](https://github.com/ossf/scorecard/blob/61e84743356275f6ffca23b1b2f2cb945e19eb96/docs/checks.md#vulnerabilities) |
+| Vulnerabilities: 4/10 — 6 existing vulnerabilities detected | HIGH | [link](https://github.com/ossf/scorecard/blob/61e84743356275f6ffca23b1b2f2cb945e19eb96/docs/checks.md#vulnerabilities) |
 | Fuzzing: 0/10 — project is not fuzzed | MEDIUM | [link](https://github.com/ossf/scorecard/blob/61e84743356275f6ffca23b1b2f2cb945e19eb96/docs/checks.md#fuzzing) |
 | Pinned-Dependencies: 9/10 — dependency not pinned by hash detected -- score normalized to 9 | MEDIUM | [link](https://github.com/ossf/scorecard/blob/61e84743356275f6ffca23b1b2f2cb945e19eb96/docs/checks.md#pinned-dependencies) |
 | Security-Policy: 4/10 — security policy file detected | MEDIUM | [link](https://github.com/ossf/scorecard/blob/61e84743356275f6ffca23b1b2f2cb945e19eb96/docs/checks.md#security-policy) |

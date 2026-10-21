@@ -13,15 +13,15 @@
     {
       "source": "osv",
       "date": "2026-10-21",
-      "revision": "b4018684f0c2",
+      "revision": "adb92492c9d0",
       "kind": "full",
       "scope": "every lockfile (Cargo, npm)",
-      "found": 1
+      "found": 0
     },
     {
       "source": "trivy",
       "date": "2026-10-21",
-      "revision": "b4018684f0c2",
+      "revision": "adb92492c9d0",
       "kind": "full",
       "scope": "whole repository",
       "found": 0
@@ -37,10 +37,10 @@
     {
       "source": "scorecard",
       "date": "2026-10-21",
-      "revision": "d1431ef1e61c",
+      "revision": "adb92492c9d0",
       "kind": "full",
       "scope": "repository settings and workflows",
-      "score": 5.7
+      "score": 5.8
     }
   ],
   "findings": [
@@ -2710,18 +2710,6 @@
       "by": "mpanichella"
     },
     {
-      "id": "OSV-RUSTSEC-2023-0071-rsa-13ee4b",
-      "source": "osv",
-      "severity": "MEDIUM",
-      "kind": "Vulnerable dependency",
-      "title": "rsa 0.10.0-rc.18: Marvin Attack: potential key recovery through timing sidechannels",
-      "component": "Cargo.lock",
-      "advisory": "RUSTSEC-2023-0071",
-      "fixed_version": null,
-      "found": "2026-10-21",
-      "status": "open"
-    },
-    {
       "id": "SC-Binary-Artifacts",
       "source": "scorecard",
       "severity": "HIGH",
@@ -2836,7 +2824,7 @@
       "source": "scorecard",
       "severity": "HIGH",
       "kind": "Repository practice",
-      "title": "Vulnerabilities: 3/10 — 7 existing vulnerabilities detected",
+      "title": "Vulnerabilities: 4/10 — 6 existing vulnerabilities detected",
       "component": "repository",
       "advisory": "https://github.com/ossf/scorecard/blob/61e84743356275f6ffca23b1b2f2cb945e19eb96/docs/checks.md#vulnerabilities",
       "found": "2026-10-21",
