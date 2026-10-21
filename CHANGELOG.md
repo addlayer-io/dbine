@@ -12,6 +12,7 @@
 
 ### Fixes
 - **SSH tunnels, security:** the SSH library is updated to fix two advisories (CVE-2026-111061, a denial of service through the SSH agent, and CVE-2026-111062).
+- **RSA keys, security:** signing in to SSH with an RSA key, and opening Zoho Vault's and Bitwarden's organization keys, now run in AWS-LC in constant time, so the timing leak in the RSA library (RUSTSEC-2023-0071, "Marvin") no longer applies. RSA keys sign with SHA-256 or SHA-512; a server that only accepts SHA-1 (`ssh-rsa`) asks for an Ed25519 or ECDSA key, or the SSH agent.
 - **TLS, security:** the TLS library and its certificate checks are updated in DBine and in 33 drivers (RUSTSEC-2026-0346 to 0349 and 0381 to 0383), so certificates from distrusted authorities are refused. The updated drivers download by themselves.
 - **Built-in AI engine:** unpacking the engine keeps only the files' read, write and run permissions.
 - **Scheduled tasks, security:** `{results}` and `{alerts}` only fill in the text of mails and messages. A script's SQL, a file or folder name, an address or an attachment path no longer takes them, so a database error echoing crafted data can't turn into SQL or a path.

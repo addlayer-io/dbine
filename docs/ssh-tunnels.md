@@ -12,7 +12,9 @@ In the connection form, the **SSH tunnel** panel:
 - **Authentication**:
   - **Password**.
   - **Private key**: the file (OpenSSH or PEM; `~` works) and its passphrase,
-    if it has one.
+    if it has one. An RSA key signs with SHA-256 or SHA-512 (`rsa-sha2-256`,
+    `rsa-sha2-512`), in AWS-LC; a server that only accepts `ssh-rsa` (SHA-1)
+    needs an Ed25519 or ECDSA key, or the agent.
   - **SSH agent**: the keys loaded in the agent (`ssh-agent`, 1Password,
     Windows' OpenSSH agent).
 - **Jump hosts** (optional): SSH servers to go through first, in order, like

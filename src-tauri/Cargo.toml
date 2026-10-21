@@ -86,6 +86,11 @@ keepass = "0.15.2"
 aes = "0.8"
 pbkdf2 = { version = "0.12", default-features = false, features = ["hmac"] }
 rsa = { version = "=0.10.0-rc.18", default-features = false, features = ["std", "encoding", "sha2"] }
+# The private-key half of that RSA (and of Bitwarden's) runs in AWS-LC, in
+# constant time: `rsa` only builds and encodes the keys (RUSTSEC-2023-0071,
+# secret_sources/rsa_lc.rs). Both are already in the tree through rustls.
+aws-lc-rs = "1"
+aws-lc-sys = "0.46"
 # CyberArk's Central Credential Provider: a client certificate in a PKCS#12
 # file, or a PEM key encrypted with a passphrase (PKCS#8).
 p12-keystore = "0.4"

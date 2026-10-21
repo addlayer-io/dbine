@@ -10,6 +10,11 @@ russh = "0.64"
 tokio = { workspace = true }
 tracing.workspace = true
 thiserror = "2"
+# RSA user keys sign with aws-lc-rs (constant time) instead of the `rsa`
+# crate (RUSTSEC-2023-0071); `rsa` only converts the key (src/rsa_sign.rs).
+# Both are already in the tree through russh.
+aws-lc-rs = "1"
+rsa = { version = "=0.10.0-rc.18", default-features = false, features = ["std", "encoding"] }
 
 # Who connected to the local port (see src/peer.rs).
 [target.'cfg(unix)'.dependencies]

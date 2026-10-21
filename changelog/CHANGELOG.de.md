@@ -10,6 +10,7 @@
 
 ### Korrekturen
 - **SSH-Tunnel, Sicherheit:** Die SSH-Bibliothek wurde aktualisiert, um zwei Sicherheitshinweise zu beheben (CVE-2026-111061, ein Denial-of-Service über den SSH-Agenten, und CVE-2026-111062).
+- **RSA-Schlüssel, Sicherheit:** Die Anmeldung per SSH mit einem RSA-Schlüssel sowie das Öffnen der Organisationsschlüssel von Zoho Vault und Bitwarden laufen jetzt in AWS-LC in konstanter Zeit, sodass das Timing-Leck der RSA-Bibliothek (RUSTSEC-2023-0071, „Marvin“) nicht mehr zutrifft. RSA-Schlüssel signieren mit SHA-256 oder SHA-512; ein Server, der nur SHA-1 (`ssh-rsa`) akzeptiert, verlangt einen Ed25519- oder ECDSA-Schlüssel oder den SSH-Agenten.
 - **TLS, Sicherheit:** Die TLS-Bibliothek und ihre Zertifikatsprüfungen wurden in DBine und in 33 Treibern aktualisiert (RUSTSEC-2026-0346 bis 0349 und 0381 bis 0383), sodass Zertifikate von nicht mehr vertrauenswürdigen Zertifizierungsstellen abgelehnt werden. Die aktualisierten Treiber werden automatisch heruntergeladen.
 - **Integrierte KI-Engine:** Beim Entpacken der Engine bleiben nur die Lese-, Schreib- und Ausführungsrechte der Dateien erhalten.
 - **Geplante Aufgaben, Sicherheit:** `{results}` und `{alerts}` füllen nur noch den Text von E-Mails und Nachrichten. Das SQL eines Skripts, der Name einer Datei oder eines Ordners, eine Adresse oder der Pfad eines Anhangs übernehmen sie nicht mehr, sodass ein Datenbankfehler, der manipulierte Daten wiedergibt, nicht zu SQL oder zu einem Pfad werden kann.

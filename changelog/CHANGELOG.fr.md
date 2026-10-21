@@ -10,6 +10,7 @@
 
 ### Corrections
 - **Tunnels SSH, sécurité :** la bibliothèque SSH est mise à jour pour corriger deux avis (CVE-2026-111061, un déni de service via l'agent SSH, et CVE-2026-111062).
+- **Clés RSA, sécurité :** la connexion SSH avec une clé RSA et l'ouverture des clés d'organisation de Zoho Vault et de Bitwarden s'exécutent désormais dans AWS-LC en temps constant, de sorte que la fuite par canal temporel de la bibliothèque RSA (RUSTSEC-2023-0071, « Marvin ») ne s'applique plus. Les clés RSA signent avec SHA-256 ou SHA-512 ; un serveur qui n'accepte que SHA-1 (`ssh-rsa`) demande une clé Ed25519 ou ECDSA, ou l'agent SSH.
 - **TLS, sécurité :** la bibliothèque TLS et ses vérifications de certificats sont mises à jour dans DBine et dans 33 pilotes (RUSTSEC-2026-0346 à 0349 et 0381 à 0383), de sorte que les certificats d'autorités qui ne sont plus approuvées sont refusés. Les pilotes mis à jour se téléchargent tout seuls.
 - **Moteur d'IA intégré :** lors de la décompression du moteur, seules les permissions de lecture, d'écriture et d'exécution des fichiers sont conservées.
 - **Tâches planifiées, sécurité :** `{results}` et `{alerts}` ne remplissent plus que le texte des e-mails et des messages. Le SQL d'un script, le nom d'un fichier ou d'un dossier, une adresse ou le chemin d'une pièce jointe ne les prennent plus, de sorte qu'une erreur de base de données qui reprend des données forgées ne peut pas se transformer en SQL ni en chemin.

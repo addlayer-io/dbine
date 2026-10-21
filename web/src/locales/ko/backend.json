@@ -5698,6 +5698,8 @@
   "no se pudo terminar la sesión {0}: no existe, ya terminó o tu usuario no tiene permiso para terminarla": "세션 {0}을(를) 종료하지 못했습니다. 세션이 없거나 이미 끝났거나 사용자에게 종료 권한이 없습니다",
   "no se pudo usar el agente SSH: {0}": "SSH 에이전트를 사용하지 못했습니다: {0}",
   "no se pudo usar la clave {0}: {1}": "키 {0}을(를) 사용하지 못했습니다: {1}",
+  "el servidor solo acepta claves RSA firmadas con SHA-1 (ssh-rsa), que DBine no usa: usá una clave Ed25519 o ECDSA, o el agente SSH": "서버가 SHA-1(ssh-rsa)로 서명된 RSA 키만 허용하는데, DBine은 이를 사용하지 않습니다. Ed25519 또는 ECDSA 키 또는 SSH 에이전트를 사용하세요",
+  "no se pudo firmar con la clave": "키로 서명하지 못했습니다",
   "no se puede borrar el catálogo «{0}»: es el de la sesión actual": "카탈로그 「{0}」은(는) 현재 세션의 카탈로그이므로 삭제할 수 없습니다",
   "no se puede borrar el dataset «{0}»: es el de la sesión actual": "데이터셋 「{0}」은(는) 현재 세션의 데이터셋이므로 삭제할 수 없습니다",
   "no se puede borrar la base de esta sesión": "이 세션의 데이터베이스는 삭제할 수 없습니다",

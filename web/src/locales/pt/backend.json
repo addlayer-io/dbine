@@ -5698,6 +5698,8 @@
   "no se pudo terminar la sesión {0}: no existe, ya terminó o tu usuario no tiene permiso para terminarla": "não foi possível encerrar a sessão {0}: não existe, já terminou ou seu usuário não tem permissão para encerrá-la",
   "no se pudo usar el agente SSH: {0}": "não foi possível usar o agente SSH: {0}",
   "no se pudo usar la clave {0}: {1}": "não foi possível usar a chave {0}: {1}",
+  "el servidor solo acepta claves RSA firmadas con SHA-1 (ssh-rsa), que DBine no usa: usá una clave Ed25519 o ECDSA, o el agente SSH": "o servidor só aceita chaves RSA assinadas com SHA-1 (ssh-rsa), que o DBine não usa: use uma chave Ed25519 ou ECDSA, ou o agente SSH",
+  "no se pudo firmar con la clave": "não foi possível assinar com a chave",
   "no se puede borrar el catálogo «{0}»: es el de la sesión actual": "não é possível excluir o catálogo “{0}”: é o da sessão atual",
   "no se puede borrar el dataset «{0}»: es el de la sesión actual": "não é possível excluir o dataset “{0}”: é o da sessão atual",
   "no se puede borrar la base de esta sesión": "não é possível excluir o banco desta sessão",

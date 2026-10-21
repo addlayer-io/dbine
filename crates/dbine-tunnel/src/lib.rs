@@ -27,6 +27,7 @@ use tokio::net::TcpListener;
 use tokio::task::JoinHandle;
 
 mod peer;
+mod rsa_sign;
 
 /// An SSH server on the way to the database.
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
@@ -336,7 +337,24 @@ async fn authenticate(handle: &mut Handle<Checker>, hop: &Hop, auth: &Auth) -> R
             let key = keys::load_secret_key(path, passphrase.as_deref().filter(|p| !p.is_empty()))
                 .map_err(|e| Error::Key { path: path.display().to_string(), message: key_error(&e, passphrase.is_some()) })?;
             let hash = handle.best_supported_rsa_hash().await.map_err(net)?.flatten();
-            handle.authenticate_publickey(hop.user.clone(), PrivateKeyWithHashAlg::new(Arc::new(key), hash)).await.map_err(net)?.success()
+            match rsa_sign::RsaSigner::from_key(&key) {
+                // RSA: signed with aws-lc-rs (src/rsa_sign.rs), never SHA-1.
+                Some(signer) => {
+                    let mut signer = signer.map_err(|message| Error::Key { path: path.display().to_string(), message })?;
+                    let hash = Some(hash.unwrap_or(HashAlg::Sha256));
+                    let ok = handle
+                        .authenticate_publickey_with(hop.user.clone(), key.public_key().clone(), hash, &mut signer)
+                        .await
+                        .map_err(|_| Error::Connect { host: hop.host.clone(), port: hop.port, message: "no se pudo firmar con la clave".into() })?
+                        .success();
+                    if !ok && handle.best_supported_rsa_hash().await.map_err(net)?.flatten().is_none() {
+                        // The server named no RSA-SHA2 algorithm: it may only take ssh-rsa (SHA-1).
+                        return Err(Error::Key { path: path.display().to_string(), message: RSA_SHA1_ONLY.into() });
+                    }
+                    ok
+                }
+                None => handle.authenticate_publickey(hop.user.clone(), PrivateKeyWithHashAlg::new(Arc::new(key), hash)).await.map_err(net)?.success(),
+            }
         }
         Auth::Agent => {
             let mut agent = agent().await?;
@@ -369,6 +387,10 @@ async fn authenticate(handle: &mut Handle<Checker>, hop: &Hop, auth: &Auth) -> R
         }))
     }
 }
+
+/// An RSA key on a server that only takes it with SHA-1 (`ssh-rsa`), which
+/// DBine doesn't sign with (src/rsa_sign.rs).
+const RSA_SHA1_ONLY: &str = "el servidor solo acepta claves RSA firmadas con SHA-1 (ssh-rsa), que DBine no usa: usá una clave Ed25519 o ECDSA, o el agente SSH";
 
 fn key_error(e: &keys::Error, had_passphrase: bool) -> String {
     match e {

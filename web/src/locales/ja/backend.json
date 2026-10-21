@@ -5698,6 +5698,8 @@
   "no se pudo terminar la sesión {0}: no existe, ya terminó o tu usuario no tiene permiso para terminarla": "セッション {0} を終了できませんでした。存在しないか、既に終了しているか、ユーザーに終了の権限がありません",
   "no se pudo usar el agente SSH: {0}": "SSH エージェントを使用できませんでした: {0}",
   "no se pudo usar la clave {0}: {1}": "キー {0} を使用できませんでした: {1}",
+  "el servidor solo acepta claves RSA firmadas con SHA-1 (ssh-rsa), que DBine no usa: usá una clave Ed25519 o ECDSA, o el agente SSH": "サーバーは SHA-1(ssh-rsa)で署名された RSA キーのみを受け付けますが、DBine はこれを使用しません。Ed25519 または ECDSA キー、もしくは SSH エージェントを使用してください",
+  "no se pudo firmar con la clave": "キーで署名できませんでした",
   "no se puede borrar el catálogo «{0}»: es el de la sesión actual": "カタログ「{0}」は削除できません。現在のセッションのものです",
   "no se puede borrar el dataset «{0}»: es el de la sesión actual": "データセット「{0}」は削除できません。現在のセッションのものです",
   "no se puede borrar la base de esta sesión": "このセッションのデータベースは削除できません",

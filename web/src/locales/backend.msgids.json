@@ -26053,6 +26053,9 @@
  "el servidor rechazó la sesión": [
   "crates/drivers/libsql/src/hrana.rs"
  ],
+ "el servidor solo acepta claves RSA firmadas con SHA-1 (ssh-rsa), que DBine no usa: usá una clave Ed25519 o ECDSA, o el agente SSH": [
+  "crates/dbine-tunnel/src/lib.rs"
+ ],
  "el servidor tardó demasiado en listar sus conexiones": [
   "crates/drivers/cassandra/src/processes.rs"
  ],
@@ -31341,6 +31344,9 @@
  ],
  "no se pudo examinar {0}: {1}": [
   "src-tauri/src/secret_sources/browse.rs"
+ ],
+ "no se pudo firmar con la clave": [
+  "crates/dbine-tunnel/src/lib.rs"
  ],
  "no se pudo firmar el token de IAM: {0}": [
   "crates/drivers/dsql/src/lib.rs"

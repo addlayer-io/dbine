@@ -674,7 +674,7 @@ pub fn decrypt_org_key(private_key: &str, shared_key: &str, key_type: &str, mast
         let Some(mut ct) = unhex(shared_key.trim()) else {
             return Err(stop("sharedKey is not hex (RSA_1024)", ORG_SHARED_FORMAT));
         };
-        let plain = left_pad(&ct, key.size()).and_then(|c| key.decrypt(rsa::Pkcs1v15Encrypt, &c).ok());
+        let plain = left_pad(&ct, key.size()).and_then(|c| super::rsa_lc::decrypt(&key, super::rsa_lc::Padding::Pkcs1v15, &c));
         wipe_bytes(&mut ct);
         plain.ok_or_else(|| stop(&format!("sharedKey: {} hex chars, RSA PKCS#1 v1.5 refused it", shared_key.trim().len()), ORG_RSA))?
     } else {
@@ -694,7 +694,7 @@ pub fn decrypt_org_key(private_key: &str, shared_key: &str, key_type: &str, mast
         let Ok(mut ct) = base64::engine::general_purpose::STANDARD.decode(shared_key.trim().as_bytes()) else {
             return Err(stop("sharedKey is not base64 (RSA_4096)", ORG_SHARED_FORMAT));
         };
-        let plain = left_pad(&ct, key.size()).and_then(|c| key.decrypt(rsa::Oaep::<rsa::sha2::Sha256>::new(), &c).ok());
+        let plain = left_pad(&ct, key.size()).and_then(|c| super::rsa_lc::decrypt(&key, super::rsa_lc::Padding::OaepSha256, &c));
         let ct_len = ct.len();
         wipe_bytes(&mut ct);
         plain.ok_or_else(|| stop(&format!("sharedKey: base64 of {ct_len} bytes, RSA-OAEP SHA-256 refused it"), ORG_RSA))?

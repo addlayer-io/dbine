@@ -68,3 +68,9 @@ reason = "Notice, not a vulnerability: zvariant, zvariant_derive and zbus_names 
 [[IgnoredVulns]]
 id = "RUSTSEC-2026-0372"
 reason = "Notice, not a vulnerability: zvariant, zvariant_derive and zbus_names are unmaintained (no known flaw; D-Bus support in Tauri's Linux stack)."
+
+# rsa 0.10.0-rc (no fixed version exists): DBine runs no private-key
+# operation with it.
+[[IgnoredVulns]]
+id = "RUSTSEC-2023-0071"
+reason = "Doesn't affect DBine. The timing leak (Marvin) is in the rsa crate's private-key operations, and DBine runs none with it: SSH sign-in with an RSA key signs in AWS-LC (crates/dbine-tunnel/src/rsa_sign.rs), and Zoho Vault's and Bitwarden's organization keys decrypt in AWS-LC (src-tauri/src/secret_sources/rsa_lc.rs). rsa only reads and encodes keys and checks server host-key signatures, which are public-key operations."

@@ -99,7 +99,7 @@ fn compile(json: &str) -> Option<Catalog> {
         patterns.push(Pattern { parts, to, literal });
     }
     // The most specific first (more fixed text wins over a looser pattern).
-    patterns.sort_by(|a, b| b.literal.cmp(&a.literal));
+    patterns.sort_by_key(|p| std::cmp::Reverse(p.literal));
     Some(Catalog { exact, patterns })
 }
 

@@ -30,6 +30,7 @@ mod delinea;
 mod https;
 mod vault_db;
 mod bitwarden;
+mod rsa_lc;
 mod ssm;
 pub mod browse;
 pub mod accounts;

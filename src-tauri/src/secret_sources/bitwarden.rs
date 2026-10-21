@@ -240,8 +240,8 @@ pub fn rsa_decrypt(s: &str, key: &rsa::RsaPrivateKey) -> Result<Vec<u8>, Fail> {
     let (t, rest) = s.trim().split_once('.').ok_or(Fail::Format)?;
     let ct = B64.decode(rest.split('|').next().unwrap_or("")).map_err(|_| Fail::Format)?;
     match t {
-        "3" | "5" => key.decrypt(rsa::Oaep::<rsa::sha2::Sha256>::new(), &ct).map_err(|_| Fail::Mac),
-        "4" | "6" => key.decrypt(rsa::Oaep::<sha1::Sha1>::new(), &ct).map_err(|_| Fail::Mac),
+        "3" | "5" => super::rsa_lc::decrypt(key, super::rsa_lc::Padding::OaepSha256, &ct).ok_or(Fail::Mac),
+        "4" | "6" => super::rsa_lc::decrypt(key, super::rsa_lc::Padding::OaepSha1, &ct).ok_or(Fail::Mac),
         t => Err(Fail::Unsupported(t.parse().unwrap_or(255))),
     }
 }

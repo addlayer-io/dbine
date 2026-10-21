@@ -5698,6 +5698,8 @@
   "no se pudo terminar la sesión {0}: no existe, ya terminó o tu usuario no tiene permiso para terminarla": "无法终止会话 {0}：它不存在、已结束，或你的用户无权终止它",
   "no se pudo usar el agente SSH: {0}": "无法使用 SSH 代理：{0}",
   "no se pudo usar la clave {0}: {1}": "无法使用密钥 {0}：{1}",
+  "el servidor solo acepta claves RSA firmadas con SHA-1 (ssh-rsa), que DBine no usa: usá una clave Ed25519 o ECDSA, o el agente SSH": "服务器只接受使用 SHA-1（ssh-rsa）签名的 RSA 密钥，而 DBine 不使用它：请改用 Ed25519 或 ECDSA 密钥，或 SSH 代理",
+  "no se pudo firmar con la clave": "无法使用密钥签名",
   "no se puede borrar el catálogo «{0}»: es el de la sesión actual": "无法删除目录“{0}”：它是当前会话的",
   "no se puede borrar el dataset «{0}»: es el de la sesión actual": "无法删除数据集“{0}”：它是当前会话的",
   "no se puede borrar la base de esta sesión": "无法删除此会话的数据库",
