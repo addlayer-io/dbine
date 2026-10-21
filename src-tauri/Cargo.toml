@@ -152,7 +152,7 @@ tauri-plugin-single-instance = "2"
 
 # The taskbar Jump List's "Nueva ventana" (src/jumplist_windows.rs).
 [target.'cfg(windows)'.dependencies]
-windows = { version = "0.61", features = [
+windows = { version = "0.62", features = [
     "Win32_Foundation",
     "Win32_Storage_EnhancedStorage",
     # Keeping the computer awake while a long query runs (src/awake.rs).
@@ -170,7 +170,7 @@ windows-sys-0-60 = { package = "windows-sys", version = "0.60", optional = true,
 windows-sys-0-61 = { package = "windows-sys", version = "0.61", optional = true, features = ["Win32_Security_Authentication_Identity", "Win32_System_Registry"] }
 # Files dropped on a window (src/open_files.rs): WebView2 gives their paths
 # to the app. The version wry already uses.
-webview2-com = "0.38"
+webview2-com = "0.39"
 
 [features]
 # Every driver crate in the app's process: dev (`cargo tauri dev` keeps the
