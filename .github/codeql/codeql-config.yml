@@ -1,0 +1,10 @@
+# CodeQL leaves test-only code out: integration tests, test data and the
+# vendored crates' tests are never built into DBine. Test modules inside src/
+# (#[cfg(test)]) can't be told apart by path; their alerts are dismissed as
+# "used in tests", each with the reason (shown on the security status page).
+paths-ignore:
+  - "**/tests/**"
+  - "**/testdata/**"
+  - "**/test_*.py"
+  - "**/*.test.mjs"
+  - "web/src/preview/**"
