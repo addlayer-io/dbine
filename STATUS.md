@@ -10,7 +10,7 @@ _Updated 2026-10-21._
 |---|---|---|---|---|
 | claude-security (source-code review) | 0 | 0 | 0 | 0 |
 | OSV-Scanner (dependency advisories) | 0 | 0 | 1 | 0 |
-| Trivy (dependencies, secrets, configuration) | 0 | 0 | 0 | 0 |
+| Trivy (secrets, configuration) | 0 | 0 | 0 | 0 |
 | CodeQL (static analysis) | 0 | 0 | 0 | 0 |
 
 Findings from the source-code review and CodeQL show only their kind and component while they're open.
@@ -25,9 +25,9 @@ Findings from the source-code review and CodeQL show only their kind and compone
 |---|---|---|---|---|
 | claude-security, release v1.0.0 | 2026-10-19 | v0.1.14..954fc5e3 (everything 1.0.0 added up to the macOS shortcut fixes) | 0 open | 954fc5e3..v1.0.0: one credential-scrub fix (9a94302f) and the five new languages; everything after v1.0.0 on main |
 | codeql | 2026-10-21 | Rust, TypeScript/Vue and workflows | 0 open | — |
-| osv | 2026-10-21 | every lockfile (Cargo, npm) at [`b30b87184`](https://github.com/addlayer-io/dbine/commit/b30b87184ae8) | 1 open | — |
-| scorecard | 2026-10-21 | repository settings and workflows at [`5c8290dc1`](https://github.com/addlayer-io/dbine/commit/5c8290dc1785) | score 5.7/10 | — |
-| trivy | 2026-10-21 | whole repository at [`b30b87184`](https://github.com/addlayer-io/dbine/commit/b30b87184ae8) | 0 open | — |
+| osv | 2026-10-21 | every lockfile (Cargo, npm) at [`d7689beba`](https://github.com/addlayer-io/dbine/commit/d7689bebafff) | 1 open | — |
+| scorecard | 2026-10-21 | repository settings and workflows at [`b30b87184`](https://github.com/addlayer-io/dbine/commit/b30b87184ae8) | score 5.7/10 | — |
+| trivy | 2026-10-21 | whole repository at [`d7689beba`](https://github.com/addlayer-io/dbine/commit/d7689bebafff) | 0 open | — |
 
 ## Not counted, and why
 
