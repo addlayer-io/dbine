@@ -49,7 +49,7 @@ tauri-plugin-opener = "2"
 # In-app updates (commands/updates.rs, docs/updates.md). Pinned to
 # 2.12: 2.13 needs tauri 2.12. Without `zip`: the updater bundles are the
 # NSIS installer, the AppImage and the macOS .app.tar.gz, none zipped.
-tauri-plugin-updater = { version = "~2.12", default-features = false, features = ["rustls-tls", "system-proxy"] }
+tauri-plugin-updater = { version = "~2.14", default-features = false, features = ["rustls-tls", "system-proxy"] }
 reqwest.workspace = true
 tokio.workspace = true
 serde.workspace = true
