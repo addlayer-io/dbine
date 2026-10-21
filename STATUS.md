@@ -11,7 +11,7 @@ _Updated 2026-10-21._
 | claude-security (source-code review) | 0 | 0 | 0 | 0 |
 | OSV-Scanner (dependency advisories) | 0 | 0 | 1 | 0 |
 | Trivy (dependencies, secrets, configuration) | 0 | 0 | 0 | 0 |
-| CodeQL (static analysis) | 93 | 112 | 0 | 0 |
+| CodeQL (static analysis) | 44 | 112 | 0 | 0 |
 
 Findings from the source-code review and CodeQL show only their kind and component while they're open.
 
@@ -61,55 +61,6 @@ Findings from the source-code review and CodeQL show only their kind and compone
 | CQ-216 | CRITICAL | codeql | Static analysis finding | `vendor` | pending |
 | CQ-217 | CRITICAL | codeql | Static analysis finding | `vendor` | pending |
 | CQ-218 | CRITICAL | codeql | Static analysis finding | `vendor` | pending |
-| CQ-219 | CRITICAL | codeql | Static analysis finding | `vendor` | pending |
-| CQ-220 | CRITICAL | codeql | Static analysis finding | `vendor` | pending |
-| CQ-221 | CRITICAL | codeql | Static analysis finding | `vendor` | pending |
-| CQ-222 | CRITICAL | codeql | Static analysis finding | `vendor` | pending |
-| CQ-223 | CRITICAL | codeql | Static analysis finding | `vendor` | pending |
-| CQ-224 | CRITICAL | codeql | Static analysis finding | `vendor` | pending |
-| CQ-225 | CRITICAL | codeql | Static analysis finding | `vendor` | pending |
-| CQ-226 | CRITICAL | codeql | Static analysis finding | `crates/drivers/dsql` | pending |
-| CQ-227 | CRITICAL | codeql | Static analysis finding | `crates/drivers/dsql` | pending |
-| CQ-228 | CRITICAL | codeql | Static analysis finding | `crates/drivers/dsql` | pending |
-| CQ-229 | CRITICAL | codeql | Static analysis finding | `crates/drivers/dsql` | pending |
-| CQ-230 | CRITICAL | codeql | Static analysis finding | `crates/drivers/dsql` | pending |
-| CQ-231 | CRITICAL | codeql | Static analysis finding | `crates/drivers/dsql` | pending |
-| CQ-232 | CRITICAL | codeql | Static analysis finding | `crates/drivers/dsql` | pending |
-| CQ-233 | CRITICAL | codeql | Static analysis finding | `crates/drivers/dsql` | pending |
-| CQ-234 | CRITICAL | codeql | Static analysis finding | `crates/drivers/dsql` | pending |
-| CQ-235 | CRITICAL | codeql | Static analysis finding | `crates/drivers/dsql` | pending |
-| CQ-236 | CRITICAL | codeql | Static analysis finding | `crates/drivers/dsql` | pending |
-| CQ-237 | CRITICAL | codeql | Static analysis finding | `crates/drivers/dsql` | pending |
-| CQ-238 | CRITICAL | codeql | Static analysis finding | `crates/drivers/dsql` | pending |
-| CQ-239 | CRITICAL | codeql | Static analysis finding | `crates/drivers/dsql` | pending |
-| CQ-240 | CRITICAL | codeql | Static analysis finding | `crates/drivers/dsql` | pending |
-| CQ-241 | CRITICAL | codeql | Static analysis finding | `crates/drivers/dsql` | pending |
-| CQ-242 | CRITICAL | codeql | Static analysis finding | `crates/drivers/iotdb` | pending |
-| CQ-243 | CRITICAL | codeql | Static analysis finding | `crates/drivers/iotdb` | pending |
-| CQ-244 | CRITICAL | codeql | Static analysis finding | `crates/drivers/iotdb` | pending |
-| CQ-245 | CRITICAL | codeql | Static analysis finding | `crates/drivers/iotdb` | pending |
-| CQ-246 | CRITICAL | codeql | Static analysis finding | `crates/drivers/iotdb` | pending |
-| CQ-247 | CRITICAL | codeql | Static analysis finding | `vendor` | pending |
-| CQ-248 | CRITICAL | codeql | Static analysis finding | `src-tauri` | pending |
-| CQ-249 | CRITICAL | codeql | Static analysis finding | `src-tauri` | pending |
-| CQ-250 | CRITICAL | codeql | Static analysis finding | `src-tauri` | pending |
-| CQ-251 | CRITICAL | codeql | Static analysis finding | `src-tauri` | pending |
-| CQ-252 | CRITICAL | codeql | Static analysis finding | `src-tauri` | pending |
-| CQ-253 | CRITICAL | codeql | Static analysis finding | `src-tauri` | pending |
-| CQ-254 | CRITICAL | codeql | Static analysis finding | `src-tauri` | pending |
-| CQ-255 | CRITICAL | codeql | Static analysis finding | `src-tauri` | pending |
-| CQ-256 | CRITICAL | codeql | Static analysis finding | `src-tauri` | pending |
-| CQ-257 | CRITICAL | codeql | Static analysis finding | `crates/dbine-core` | pending |
-| CQ-258 | CRITICAL | codeql | Static analysis finding | `crates/dbine-core` | pending |
-| CQ-259 | CRITICAL | codeql | Static analysis finding | `crates/dbine-core` | pending |
-| CQ-260 | CRITICAL | codeql | Static analysis finding | `crates/dbine-core` | pending |
-| CQ-261 | CRITICAL | codeql | Static analysis finding | `crates/dbine-core` | pending |
-| CQ-262 | CRITICAL | codeql | Static analysis finding | `crates/dbine-core` | pending |
-| CQ-263 | CRITICAL | codeql | Static analysis finding | `crates/dbine-core` | pending |
-| CQ-264 | CRITICAL | codeql | Static analysis finding | `crates/dbine-core` | pending |
-| CQ-265 | CRITICAL | codeql | Static analysis finding | `crates/dbine-core` | pending |
-| CQ-266 | CRITICAL | codeql | Static analysis finding | `crates/dbine-sync` | pending |
-| CQ-267 | CRITICAL | codeql | Static analysis finding | `crates/dbine-sync` | pending |
 | CQ-100 | HIGH | codeql | Static analysis finding | `crates/drivers/spanner` | pending |
 | CQ-101 | HIGH | codeql | Static analysis finding | `crates/drivers/sqlserver` | pending |
 | CQ-102 | HIGH | codeql | Static analysis finding | `crates/drivers/sqlserver` | pending |
@@ -229,10 +180,10 @@ Findings from the source-code review and CodeQL show only their kind and compone
 | Tool | Date | Covered | Result | Not covered yet |
 |---|---|---|---|---|
 | claude-security, release v1.0.0 | 2026-10-19 | v0.1.14..954fc5e3 (everything 1.0.0 added up to the macOS shortcut fixes) | 0 open | 954fc5e3..v1.0.0: one credential-scrub fix (9a94302f) and the five new languages; everything after v1.0.0 on main |
-| codeql | 2026-10-21 | Rust, TypeScript/Vue and workflows | 205 open | — |
-| osv | 2026-10-21 | every lockfile (Cargo, npm) at [`a73578b12`](https://github.com/addlayer-io/dbine/commit/a73578b122f4) | 1 open | — |
-| scorecard | 2026-10-21 | repository settings and workflows at [`9ca288e99`](https://github.com/addlayer-io/dbine/commit/9ca288e99e30) | score 5.5/10 | — |
-| trivy | 2026-10-21 | whole repository at [`a73578b12`](https://github.com/addlayer-io/dbine/commit/a73578b122f4) | 0 open | — |
+| codeql | 2026-10-21 | Rust, TypeScript/Vue and workflows | 156 open | — |
+| osv | 2026-10-21 | every lockfile (Cargo, npm) at [`5c8290dc1`](https://github.com/addlayer-io/dbine/commit/5c8290dc1785) | 1 open | — |
+| scorecard | 2026-10-21 | repository settings and workflows at [`a73578b12`](https://github.com/addlayer-io/dbine/commit/a73578b122f4) | score 5.7/10 | — |
+| trivy | 2026-10-21 | whole repository at [`5c8290dc1`](https://github.com/addlayer-io/dbine/commit/5c8290dc1785) | 0 open | — |
 
 ## Not counted, and why
 
@@ -240,6 +191,55 @@ Findings reviewed and found not to affect DBine. Each one says why and who decid
 
 | Finding | Where | Why | Decided in |
 |---|---|---|---|
+| CodeQL rust/hard-coded-cryptographic-value: Hard-coded cryptographic value | `vendor/tiberius/src/tds/codec/login.rs` | used in tests — Test-only fixture: a dummy password in the vendored tiberius crate's #[cfg(test)] module. | mpanichella |
+| CodeQL rust/hard-coded-cryptographic-value: Hard-coded cryptographic value | `vendor/tiberius/src/tds/codec/login.rs` | used in tests — Test-only fixture: a dummy password in the vendored tiberius crate's #[cfg(test)] module. | mpanichella |
+| CodeQL rust/hard-coded-cryptographic-value: Hard-coded cryptographic value | `vendor/tiberius/src/tds/codec/login.rs` | used in tests — Test-only fixture: a dummy password in the vendored tiberius crate's #[cfg(test)] module. | mpanichella |
+| CodeQL rust/hard-coded-cryptographic-value: Hard-coded cryptographic value | `vendor/tiberius/src/tds/codec/login.rs` | used in tests — Test-only fixture: a dummy password in the vendored tiberius crate's #[cfg(test)] module. | mpanichella |
+| CodeQL rust/hard-coded-cryptographic-value: Hard-coded cryptographic value | `vendor/tiberius/tests/special_char_password.rs` | used in tests — Test-only fixture: a dummy credential in an integration test under a tests/ directory, not compiled into the shipped app. | mpanichella |
+| CodeQL rust/hard-coded-cryptographic-value: Hard-coded cryptographic value | `vendor/tiberius/tests/special_char_password.rs` | used in tests — Test-only fixture: a dummy credential in an integration test under a tests/ directory, not compiled into the shipped app. | mpanichella |
+| CodeQL rust/hard-coded-cryptographic-value: Hard-coded cryptographic value | `vendor/tiberius/tests/special_char_password.rs` | used in tests — Test-only fixture: a dummy credential in an integration test under a tests/ directory, not compiled into the shipped app. | mpanichella |
+| CodeQL rust/hard-coded-cryptographic-value: Hard-coded cryptographic value | `crates/drivers/dsql/tests/compare.rs` | used in tests — Test-only fixture: a dummy credential in an integration test under a tests/ directory, not compiled into the shipped app. | mpanichella |
+| CodeQL rust/hard-coded-cryptographic-value: Hard-coded cryptographic value | `crates/drivers/dsql/tests/index_usage.rs` | used in tests — Test-only fixture: a dummy credential in an integration test under a tests/ directory, not compiled into the shipped app. | mpanichella |
+| CodeQL rust/hard-coded-cryptographic-value: Hard-coded cryptographic value | `crates/drivers/dsql/tests/processes.rs` | used in tests — Test-only fixture: a dummy credential in an integration test under a tests/ directory, not compiled into the shipped app. | mpanichella |
+| CodeQL rust/hard-coded-cryptographic-value: Hard-coded cryptographic value | `crates/drivers/dsql/tests/integration.rs` | used in tests — Test-only fixture: a dummy credential in an integration test under a tests/ directory, not compiled into the shipped app. | mpanichella |
+| CodeQL rust/hard-coded-cryptographic-value: Hard-coded cryptographic value | `crates/drivers/dsql/tests/security.rs` | used in tests — Test-only fixture: a dummy credential in an integration test under a tests/ directory, not compiled into the shipped app. | mpanichella |
+| CodeQL rust/hard-coded-cryptographic-value: Hard-coded cryptographic value | `crates/drivers/dsql/tests/integration.rs` | used in tests — Test-only fixture: a dummy credential in an integration test under a tests/ directory, not compiled into the shipped app. | mpanichella |
+| CodeQL rust/hard-coded-cryptographic-value: Hard-coded cryptographic value | `crates/drivers/dsql/tests/integration.rs` | used in tests — Test-only fixture: a dummy credential in an integration test under a tests/ directory, not compiled into the shipped app. | mpanichella |
+| CodeQL rust/hard-coded-cryptographic-value: Hard-coded cryptographic value | `crates/drivers/dsql/tests/security.rs` | used in tests — Test-only fixture: a dummy credential in an integration test under a tests/ directory, not compiled into the shipped app. | mpanichella |
+| CodeQL rust/hard-coded-cryptographic-value: Hard-coded cryptographic value | `crates/drivers/dsql/tests/security.rs` | used in tests — Test-only fixture: a dummy credential in an integration test under a tests/ directory, not compiled into the shipped app. | mpanichella |
+| CodeQL rust/hard-coded-cryptographic-value: Hard-coded cryptographic value | `crates/drivers/dsql/tests/sort.rs` | used in tests — Test-only fixture: a dummy credential in an integration test under a tests/ directory, not compiled into the shipped app. | mpanichella |
+| CodeQL rust/hard-coded-cryptographic-value: Hard-coded cryptographic value | `crates/drivers/dsql/tests/stats.rs` | used in tests — Test-only fixture: a dummy credential in an integration test under a tests/ directory, not compiled into the shipped app. | mpanichella |
+| CodeQL rust/hard-coded-cryptographic-value: Hard-coded cryptographic value | `crates/drivers/dsql/tests/integration.rs` | used in tests — Test-only fixture: a dummy credential in an integration test under a tests/ directory, not compiled into the shipped app. | mpanichella |
+| CodeQL rust/hard-coded-cryptographic-value: Hard-coded cryptographic value | `crates/drivers/dsql/tests/integration.rs` | used in tests — Test-only fixture: a dummy credential in an integration test under a tests/ directory, not compiled into the shipped app. | mpanichella |
+| CodeQL rust/hard-coded-cryptographic-value: Hard-coded cryptographic value | `crates/drivers/dsql/tests/transfer.rs` | used in tests — Test-only fixture: a dummy credential in an integration test under a tests/ directory, not compiled into the shipped app. | mpanichella |
+| CodeQL rust/hard-coded-cryptographic-value: Hard-coded cryptographic value | `crates/drivers/dsql/tests/integration.rs` | used in tests — Test-only fixture: a dummy credential in an integration test under a tests/ directory, not compiled into the shipped app. | mpanichella |
+| CodeQL rust/hard-coded-cryptographic-value: Hard-coded cryptographic value | `crates/drivers/dsql/tests/integration.rs` | used in tests — Test-only fixture: a dummy credential in an integration test under a tests/ directory, not compiled into the shipped app. | mpanichella |
+| CodeQL rust/hard-coded-cryptographic-value: Hard-coded cryptographic value | `crates/drivers/iotdb/tests/permissions.rs` | used in tests — Test-only fixture: a dummy credential in an integration test under a tests/ directory, not compiled into the shipped app. | mpanichella |
+| CodeQL rust/hard-coded-cryptographic-value: Hard-coded cryptographic value | `crates/drivers/iotdb/tests/permissions.rs` | used in tests — Test-only fixture: a dummy credential in an integration test under a tests/ directory, not compiled into the shipped app. | mpanichella |
+| CodeQL rust/hard-coded-cryptographic-value: Hard-coded cryptographic value | `crates/drivers/iotdb/tests/permissions.rs` | used in tests — Test-only fixture: a dummy credential in an integration test under a tests/ directory, not compiled into the shipped app. | mpanichella |
+| CodeQL rust/hard-coded-cryptographic-value: Hard-coded cryptographic value | `crates/drivers/iotdb/tests/security.rs` | used in tests — Test-only fixture: a dummy credential in an integration test under a tests/ directory, not compiled into the shipped app. | mpanichella |
+| CodeQL rust/hard-coded-cryptographic-value: Hard-coded cryptographic value | `crates/drivers/iotdb/tests/security.rs` | used in tests — Test-only fixture: a dummy credential in an integration test under a tests/ directory, not compiled into the shipped app. | mpanichella |
+| CodeQL rust/hard-coded-cryptographic-value: Hard-coded cryptographic value | `vendor/tiberius/src/tds/time.rs` | false positive — Not cryptographic: the byte length of a TDS time field for its scale (3, 4 or 5), wrongly matched as a nonce. | mpanichella |
+| CodeQL rust/hard-coded-cryptographic-value: Hard-coded cryptographic value | `src-tauri/src/secret_sources/bitwarden.rs` | false positive — Not a constant key: a zero-initialised array that SymKey::from_bytes overwrites with the decrypted key bytes it is given (and zeroes on drop). | mpanichella |
+| CodeQL rust/hard-coded-cryptographic-value: Hard-coded cryptographic value | `src-tauri/src/secret_sources/bitwarden.rs` | used in tests — Test-only fixture: a constant IV used to check the EncString encryption round trip in the #[cfg(test)] module. | mpanichella |
+| CodeQL rust/hard-coded-cryptographic-value: Hard-coded cryptographic value | `src-tauri/src/secret_sources/zoho.rs` | false positive — Not a constant key: a zero-padded buffer that receives the account's key text, as Zoho Vault's client-side AES-CTR format requires for interoperability. | mpanichella |
+| CodeQL rust/hard-coded-cryptographic-value: Hard-coded cryptographic value | `src-tauri/src/secret_sources/zoho.rs` | false positive — Not a constant key: a zero-initialised buffer overwritten with the AES block derived from the account's key text (Zoho Vault's format). | mpanichella |
+| CodeQL rust/hard-coded-cryptographic-value: Hard-coded cryptographic value | `src-tauri/src/secret_sources/zoho.rs` | used in tests — Test-only fixture: a constant nonce passed to the #[cfg(test)]-only encrypt() helper that builds a mock Zoho Vault account. | mpanichella |
+| CodeQL rust/hard-coded-cryptographic-value: Hard-coded cryptographic value | `src-tauri/src/secret_sources/zoho.rs` | used in tests — Test-only fixture: a constant nonce passed to the #[cfg(test)]-only encrypt() helper that builds a mock Zoho Vault account. | mpanichella |
+| CodeQL rust/hard-coded-cryptographic-value: Hard-coded cryptographic value | `src-tauri/src/secret_sources/zoho.rs` | used in tests — Test-only fixture: a constant nonce passed to the #[cfg(test)]-only encrypt() helper that builds a mock Zoho Vault account. | mpanichella |
+| CodeQL rust/hard-coded-cryptographic-value: Hard-coded cryptographic value | `src-tauri/src/secret_sources/zoho.rs` | used in tests — Test-only fixture: a constant nonce passed to the #[cfg(test)]-only encrypt() helper that builds a mock Zoho Vault account. | mpanichella |
+| CodeQL rust/hard-coded-cryptographic-value: Hard-coded cryptographic value | `src-tauri/src/secret_sources/zoho.rs` | used in tests — Test-only fixture: a constant nonce passed to the #[cfg(test)]-only encrypt() helper that builds a mock Zoho Vault account. | mpanichella |
+| CodeQL rust/hard-coded-cryptographic-value: Hard-coded cryptographic value | `crates/dbine-core/src/secrets.rs` | false positive — Not a constant nonce: a zero-initialised buffer filled from the OS RNG (thread_rng().fill_bytes) before each XChaCha20-Poly1305 vault write. | mpanichella |
+| CodeQL rust/hard-coded-cryptographic-value: Hard-coded cryptographic value | `crates/dbine-core/src/secrets.rs` | false positive — Not a constant key: a zero-initialised buffer filled from the OS RNG and stored in the OS keychain as the vault key. | mpanichella |
+| CodeQL rust/hard-coded-cryptographic-value: Hard-coded cryptographic value | `crates/dbine-core/src/secrets.rs` | used in tests — Test-only fixture: a constant key used to check the vault's seal/open round trip, wrong-key and fresh-nonce behaviour in #[cfg(test)]. | mpanichella |
+| CodeQL rust/hard-coded-cryptographic-value: Hard-coded cryptographic value | `crates/dbine-core/src/secrets.rs` | used in tests — Test-only fixture: a constant key used to check the vault's seal/open round trip, wrong-key and fresh-nonce behaviour in #[cfg(test)]. | mpanichella |
+| CodeQL rust/hard-coded-cryptographic-value: Hard-coded cryptographic value | `crates/dbine-core/src/secrets.rs` | used in tests — Test-only fixture: a constant key used to check the vault's seal/open round trip, wrong-key and fresh-nonce behaviour in #[cfg(test)]. | mpanichella |
+| CodeQL rust/hard-coded-cryptographic-value: Hard-coded cryptographic value | `crates/dbine-core/src/secrets.rs` | used in tests — Test-only fixture: a constant key used to check the vault's seal/open round trip, wrong-key and fresh-nonce behaviour in #[cfg(test)]. | mpanichella |
+| CodeQL rust/hard-coded-cryptographic-value: Hard-coded cryptographic value | `crates/dbine-core/src/secrets.rs` | used in tests — Test-only fixture: a constant key used to check the vault's seal/open round trip, wrong-key and fresh-nonce behaviour in #[cfg(test)]. | mpanichella |
+| CodeQL rust/hard-coded-cryptographic-value: Hard-coded cryptographic value | `crates/dbine-core/src/secrets.rs` | used in tests — Test-only fixture: a constant key used to check the vault's seal/open round trip, wrong-key and fresh-nonce behaviour in #[cfg(test)]. | mpanichella |
+| CodeQL rust/hard-coded-cryptographic-value: Hard-coded cryptographic value | `crates/dbine-core/src/secrets.rs` | used in tests — Test-only fixture: a constant key used to check the vault's seal/open round trip, wrong-key and fresh-nonce behaviour in #[cfg(test)]. | mpanichella |
+| CodeQL rust/hard-coded-cryptographic-value: Hard-coded cryptographic value | `crates/dbine-sync/src/crypto.rs` | false positive — Not a constant key: a zero-initialised output buffer that Argon2id overwrites with the key derived from the user's passphrase and a random per-backup salt. | mpanichella |
+| CodeQL rust/hard-coded-cryptographic-value: Hard-coded cryptographic value | `crates/dbine-sync/src/crypto.rs` | false positive — Not a constant nonce: a zero-initialised buffer filled from the OS RNG (thread_rng().fill_bytes) before each XChaCha20-Poly1305 encryption. | mpanichella |
 | Trivy secret rule exception `bigquery-test-service-account` | `crates/drivers/bigquery/src/gcp.rs` | The unit test in gcp_tests builds a fake service-account JSON around the throwaway key in crates/drivers/bigquery/tests/test_key.pem; it holds no real credential. | trivy-secret.yaml |
 | Trivy secret rule exception `postgres-test-entra-token` | `crates/drivers/postgres/src/cloud_auth.rs` | The unit test entra_claims_say_who_signed_in decodes a made-up, unsigned JWT ({"upn":"ana@contoso.com"}); it grants nothing. | trivy-secret.yaml |
 | Advisory GHSA-wrw7-89jp-8q8g | `dependencies` | Doesn't affect DBine. The flaw is in glib::VariantStrIter, which only runs through Variant::array_iter_str, and neither DBine nor any of its dependencies calls it (checked in gtk, gdk, gio, webkit2gtk, javascriptcore, soup3, wry and tao). glib 0.18 comes with Tauri's GTK 3 stack on Linux and can't be upgraded on DBine's side. | osv-scanner.toml |
@@ -258,7 +258,7 @@ _None._
 
 ## Repository practices
 
-OpenSSF Scorecard: **5.5/10** (2026-10-21). The checks below 10, with Scorecard's own risk level. They describe how the repository is run, not a vulnerability in DBine, and aren't counted in the badge.
+OpenSSF Scorecard: **5.7/10** (2026-10-21). The checks below 10, with Scorecard's own risk level. They describe how the repository is run, not a vulnerability in DBine, and aren't counted in the badge.
 
 | Check | Risk | Docs |
 |---|---|---|
@@ -267,9 +267,9 @@ OpenSSF Scorecard: **5.5/10** (2026-10-21). The checks below 10, with Scorecard'
 | Code-Review: 0/10 — Found 0/30 approved changesets -- score normalized to 0 | HIGH | [link](https://github.com/ossf/scorecard/blob/61e84743356275f6ffca23b1b2f2cb945e19eb96/docs/checks.md#code-review) |
 | Maintained: 0/10 — project was created within the last 90 days. Please review its contents carefully | HIGH | [link](https://github.com/ossf/scorecard/blob/61e84743356275f6ffca23b1b2f2cb945e19eb96/docs/checks.md#maintained) |
 | Signed-Releases: 8/10 — 5 out of the last 5 releases have a total of 5 signed artifacts. | HIGH | [link](https://github.com/ossf/scorecard/blob/61e84743356275f6ffca23b1b2f2cb945e19eb96/docs/checks.md#signed-releases) |
-| Vulnerabilities: 0/10 — 28 existing vulnerabilities detected | HIGH | [link](https://github.com/ossf/scorecard/blob/61e84743356275f6ffca23b1b2f2cb945e19eb96/docs/checks.md#vulnerabilities) |
+| Vulnerabilities: 3/10 — 7 existing vulnerabilities detected | HIGH | [link](https://github.com/ossf/scorecard/blob/61e84743356275f6ffca23b1b2f2cb945e19eb96/docs/checks.md#vulnerabilities) |
 | Fuzzing: 0/10 — project is not fuzzed | MEDIUM | [link](https://github.com/ossf/scorecard/blob/61e84743356275f6ffca23b1b2f2cb945e19eb96/docs/checks.md#fuzzing) |
 | Pinned-Dependencies: 9/10 — dependency not pinned by hash detected -- score normalized to 9 | MEDIUM | [link](https://github.com/ossf/scorecard/blob/61e84743356275f6ffca23b1b2f2cb945e19eb96/docs/checks.md#pinned-dependencies) |
 | Security-Policy: 4/10 — security policy file detected | MEDIUM | [link](https://github.com/ossf/scorecard/blob/61e84743356275f6ffca23b1b2f2cb945e19eb96/docs/checks.md#security-policy) |
-| CII-Best-Practices: 0/10 — no effort to earn an OpenSSF best practices badge detected | LOW | [link](https://github.com/ossf/scorecard/blob/61e84743356275f6ffca23b1b2f2cb945e19eb96/docs/checks.md#cii-best-practices) |
+| CII-Best-Practices: 2/10 — badge detected: InProgress | LOW | [link](https://github.com/ossf/scorecard/blob/61e84743356275f6ffca23b1b2f2cb945e19eb96/docs/checks.md#cii-best-practices) |
 | Contributors: 0/10 — project has 0 contributing companies or organizations -- score normalized to 0 | LOW | [link](https://github.com/ossf/scorecard/blob/61e84743356275f6ffca23b1b2f2cb945e19eb96/docs/checks.md#contributors) |

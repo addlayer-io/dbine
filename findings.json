@@ -53,7 +53,7 @@
     {
       "source": "osv",
       "date": "2026-10-21",
-      "revision": "a73578b122f4",
+      "revision": "5c8290dc1785",
       "kind": "full",
       "scope": "every lockfile (Cargo, npm)",
       "found": 1
@@ -61,7 +61,7 @@
     {
       "source": "trivy",
       "date": "2026-10-21",
-      "revision": "a73578b122f4",
+      "revision": "5c8290dc1785",
       "kind": "full",
       "scope": "whole repository",
       "found": 0
@@ -72,15 +72,15 @@
       "revision": "",
       "kind": "full",
       "scope": "Rust, TypeScript/Vue and workflows",
-      "found": 205
+      "found": 156
     },
     {
       "source": "scorecard",
       "date": "2026-10-21",
-      "revision": "9ca288e99e30",
+      "revision": "a73578b122f4",
       "kind": "full",
       "scope": "repository settings and workflows",
-      "score": 5.5
+      "score": 5.7
     }
   ],
   "findings": [
@@ -1160,441 +1160,637 @@
       "source": "codeql",
       "severity": "CRITICAL",
       "kind": "Static analysis finding",
-      "component": "vendor",
+      "component": "vendor/tiberius/src/tds/codec/login.rs",
       "found": "2026-10-21",
-      "status": "open"
+      "status": "dismissed",
+      "title": "CodeQL rust/hard-coded-cryptographic-value: Hard-coded cryptographic value",
+      "dismissed": "2026-10-21",
+      "reason": "used in tests — Test-only fixture: a dummy password in the vendored tiberius crate's #[cfg(test)] module.",
+      "by": "mpanichella"
     },
     {
       "id": "CQ-220",
       "source": "codeql",
       "severity": "CRITICAL",
       "kind": "Static analysis finding",
-      "component": "vendor",
+      "component": "vendor/tiberius/src/tds/codec/login.rs",
       "found": "2026-10-21",
-      "status": "open"
+      "status": "dismissed",
+      "title": "CodeQL rust/hard-coded-cryptographic-value: Hard-coded cryptographic value",
+      "dismissed": "2026-10-21",
+      "reason": "used in tests — Test-only fixture: a dummy password in the vendored tiberius crate's #[cfg(test)] module.",
+      "by": "mpanichella"
     },
     {
       "id": "CQ-221",
       "source": "codeql",
       "severity": "CRITICAL",
       "kind": "Static analysis finding",
-      "component": "vendor",
+      "component": "vendor/tiberius/src/tds/codec/login.rs",
       "found": "2026-10-21",
-      "status": "open"
+      "status": "dismissed",
+      "title": "CodeQL rust/hard-coded-cryptographic-value: Hard-coded cryptographic value",
+      "dismissed": "2026-10-21",
+      "reason": "used in tests — Test-only fixture: a dummy password in the vendored tiberius crate's #[cfg(test)] module.",
+      "by": "mpanichella"
     },
     {
       "id": "CQ-222",
       "source": "codeql",
       "severity": "CRITICAL",
       "kind": "Static analysis finding",
-      "component": "vendor",
+      "component": "vendor/tiberius/src/tds/codec/login.rs",
       "found": "2026-10-21",
-      "status": "open"
+      "status": "dismissed",
+      "title": "CodeQL rust/hard-coded-cryptographic-value: Hard-coded cryptographic value",
+      "dismissed": "2026-10-21",
+      "reason": "used in tests — Test-only fixture: a dummy password in the vendored tiberius crate's #[cfg(test)] module.",
+      "by": "mpanichella"
     },
     {
       "id": "CQ-223",
       "source": "codeql",
       "severity": "CRITICAL",
       "kind": "Static analysis finding",
-      "component": "vendor",
+      "component": "vendor/tiberius/tests/special_char_password.rs",
       "found": "2026-10-21",
-      "status": "open"
+      "status": "dismissed",
+      "title": "CodeQL rust/hard-coded-cryptographic-value: Hard-coded cryptographic value",
+      "dismissed": "2026-10-21",
+      "reason": "used in tests — Test-only fixture: a dummy credential in an integration test under a tests/ directory, not compiled into the shipped app.",
+      "by": "mpanichella"
     },
     {
       "id": "CQ-224",
       "source": "codeql",
       "severity": "CRITICAL",
       "kind": "Static analysis finding",
-      "component": "vendor",
+      "component": "vendor/tiberius/tests/special_char_password.rs",
       "found": "2026-10-21",
-      "status": "open"
+      "status": "dismissed",
+      "title": "CodeQL rust/hard-coded-cryptographic-value: Hard-coded cryptographic value",
+      "dismissed": "2026-10-21",
+      "reason": "used in tests — Test-only fixture: a dummy credential in an integration test under a tests/ directory, not compiled into the shipped app.",
+      "by": "mpanichella"
     },
     {
       "id": "CQ-225",
       "source": "codeql",
       "severity": "CRITICAL",
       "kind": "Static analysis finding",
-      "component": "vendor",
+      "component": "vendor/tiberius/tests/special_char_password.rs",
       "found": "2026-10-21",
-      "status": "open"
+      "status": "dismissed",
+      "title": "CodeQL rust/hard-coded-cryptographic-value: Hard-coded cryptographic value",
+      "dismissed": "2026-10-21",
+      "reason": "used in tests — Test-only fixture: a dummy credential in an integration test under a tests/ directory, not compiled into the shipped app.",
+      "by": "mpanichella"
     },
     {
       "id": "CQ-226",
       "source": "codeql",
       "severity": "CRITICAL",
       "kind": "Static analysis finding",
-      "component": "crates/drivers/dsql",
+      "component": "crates/drivers/dsql/tests/compare.rs",
       "found": "2026-10-21",
-      "status": "open"
+      "status": "dismissed",
+      "title": "CodeQL rust/hard-coded-cryptographic-value: Hard-coded cryptographic value",
+      "dismissed": "2026-10-21",
+      "reason": "used in tests — Test-only fixture: a dummy credential in an integration test under a tests/ directory, not compiled into the shipped app.",
+      "by": "mpanichella"
     },
     {
       "id": "CQ-227",
       "source": "codeql",
       "severity": "CRITICAL",
       "kind": "Static analysis finding",
-      "component": "crates/drivers/dsql",
+      "component": "crates/drivers/dsql/tests/index_usage.rs",
       "found": "2026-10-21",
-      "status": "open"
+      "status": "dismissed",
+      "title": "CodeQL rust/hard-coded-cryptographic-value: Hard-coded cryptographic value",
+      "dismissed": "2026-10-21",
+      "reason": "used in tests — Test-only fixture: a dummy credential in an integration test under a tests/ directory, not compiled into the shipped app.",
+      "by": "mpanichella"
     },
     {
       "id": "CQ-228",
       "source": "codeql",
       "severity": "CRITICAL",
       "kind": "Static analysis finding",
-      "component": "crates/drivers/dsql",
+      "component": "crates/drivers/dsql/tests/processes.rs",
       "found": "2026-10-21",
-      "status": "open"
+      "status": "dismissed",
+      "title": "CodeQL rust/hard-coded-cryptographic-value: Hard-coded cryptographic value",
+      "dismissed": "2026-10-21",
+      "reason": "used in tests — Test-only fixture: a dummy credential in an integration test under a tests/ directory, not compiled into the shipped app.",
+      "by": "mpanichella"
     },
     {
       "id": "CQ-229",
       "source": "codeql",
       "severity": "CRITICAL",
       "kind": "Static analysis finding",
-      "component": "crates/drivers/dsql",
+      "component": "crates/drivers/dsql/tests/integration.rs",
       "found": "2026-10-21",
-      "status": "open"
+      "status": "dismissed",
+      "title": "CodeQL rust/hard-coded-cryptographic-value: Hard-coded cryptographic value",
+      "dismissed": "2026-10-21",
+      "reason": "used in tests — Test-only fixture: a dummy credential in an integration test under a tests/ directory, not compiled into the shipped app.",
+      "by": "mpanichella"
     },
     {
       "id": "CQ-230",
       "source": "codeql",
       "severity": "CRITICAL",
       "kind": "Static analysis finding",
-      "component": "crates/drivers/dsql",
+      "component": "crates/drivers/dsql/tests/security.rs",
       "found": "2026-10-21",
-      "status": "open"
+      "status": "dismissed",
+      "title": "CodeQL rust/hard-coded-cryptographic-value: Hard-coded cryptographic value",
+      "dismissed": "2026-10-21",
+      "reason": "used in tests — Test-only fixture: a dummy credential in an integration test under a tests/ directory, not compiled into the shipped app.",
+      "by": "mpanichella"
     },
     {
       "id": "CQ-231",
       "source": "codeql",
       "severity": "CRITICAL",
       "kind": "Static analysis finding",
-      "component": "crates/drivers/dsql",
+      "component": "crates/drivers/dsql/tests/integration.rs",
       "found": "2026-10-21",
-      "status": "open"
+      "status": "dismissed",
+      "title": "CodeQL rust/hard-coded-cryptographic-value: Hard-coded cryptographic value",
+      "dismissed": "2026-10-21",
+      "reason": "used in tests — Test-only fixture: a dummy credential in an integration test under a tests/ directory, not compiled into the shipped app.",
+      "by": "mpanichella"
     },
     {
       "id": "CQ-232",
       "source": "codeql",
       "severity": "CRITICAL",
       "kind": "Static analysis finding",
-      "component": "crates/drivers/dsql",
+      "component": "crates/drivers/dsql/tests/integration.rs",
       "found": "2026-10-21",
-      "status": "open"
+      "status": "dismissed",
+      "title": "CodeQL rust/hard-coded-cryptographic-value: Hard-coded cryptographic value",
+      "dismissed": "2026-10-21",
+      "reason": "used in tests — Test-only fixture: a dummy credential in an integration test under a tests/ directory, not compiled into the shipped app.",
+      "by": "mpanichella"
     },
     {
       "id": "CQ-233",
       "source": "codeql",
       "severity": "CRITICAL",
       "kind": "Static analysis finding",
-      "component": "crates/drivers/dsql",
+      "component": "crates/drivers/dsql/tests/security.rs",
       "found": "2026-10-21",
-      "status": "open"
+      "status": "dismissed",
+      "title": "CodeQL rust/hard-coded-cryptographic-value: Hard-coded cryptographic value",
+      "dismissed": "2026-10-21",
+      "reason": "used in tests — Test-only fixture: a dummy credential in an integration test under a tests/ directory, not compiled into the shipped app.",
+      "by": "mpanichella"
     },
     {
       "id": "CQ-234",
       "source": "codeql",
       "severity": "CRITICAL",
       "kind": "Static analysis finding",
-      "component": "crates/drivers/dsql",
+      "component": "crates/drivers/dsql/tests/security.rs",
       "found": "2026-10-21",
-      "status": "open"
+      "status": "dismissed",
+      "title": "CodeQL rust/hard-coded-cryptographic-value: Hard-coded cryptographic value",
+      "dismissed": "2026-10-21",
+      "reason": "used in tests — Test-only fixture: a dummy credential in an integration test under a tests/ directory, not compiled into the shipped app.",
+      "by": "mpanichella"
     },
     {
       "id": "CQ-235",
       "source": "codeql",
       "severity": "CRITICAL",
       "kind": "Static analysis finding",
-      "component": "crates/drivers/dsql",
+      "component": "crates/drivers/dsql/tests/sort.rs",
       "found": "2026-10-21",
-      "status": "open"
+      "status": "dismissed",
+      "title": "CodeQL rust/hard-coded-cryptographic-value: Hard-coded cryptographic value",
+      "dismissed": "2026-10-21",
+      "reason": "used in tests — Test-only fixture: a dummy credential in an integration test under a tests/ directory, not compiled into the shipped app.",
+      "by": "mpanichella"
     },
     {
       "id": "CQ-236",
       "source": "codeql",
       "severity": "CRITICAL",
       "kind": "Static analysis finding",
-      "component": "crates/drivers/dsql",
+      "component": "crates/drivers/dsql/tests/stats.rs",
       "found": "2026-10-21",
-      "status": "open"
+      "status": "dismissed",
+      "title": "CodeQL rust/hard-coded-cryptographic-value: Hard-coded cryptographic value",
+      "dismissed": "2026-10-21",
+      "reason": "used in tests — Test-only fixture: a dummy credential in an integration test under a tests/ directory, not compiled into the shipped app.",
+      "by": "mpanichella"
     },
     {
       "id": "CQ-237",
       "source": "codeql",
       "severity": "CRITICAL",
       "kind": "Static analysis finding",
-      "component": "crates/drivers/dsql",
+      "component": "crates/drivers/dsql/tests/integration.rs",
       "found": "2026-10-21",
-      "status": "open"
+      "status": "dismissed",
+      "title": "CodeQL rust/hard-coded-cryptographic-value: Hard-coded cryptographic value",
+      "dismissed": "2026-10-21",
+      "reason": "used in tests — Test-only fixture: a dummy credential in an integration test under a tests/ directory, not compiled into the shipped app.",
+      "by": "mpanichella"
     },
     {
       "id": "CQ-238",
       "source": "codeql",
       "severity": "CRITICAL",
       "kind": "Static analysis finding",
-      "component": "crates/drivers/dsql",
+      "component": "crates/drivers/dsql/tests/integration.rs",
       "found": "2026-10-21",
-      "status": "open"
+      "status": "dismissed",
+      "title": "CodeQL rust/hard-coded-cryptographic-value: Hard-coded cryptographic value",
+      "dismissed": "2026-10-21",
+      "reason": "used in tests — Test-only fixture: a dummy credential in an integration test under a tests/ directory, not compiled into the shipped app.",
+      "by": "mpanichella"
     },
     {
       "id": "CQ-239",
       "source": "codeql",
       "severity": "CRITICAL",
       "kind": "Static analysis finding",
-      "component": "crates/drivers/dsql",
+      "component": "crates/drivers/dsql/tests/transfer.rs",
       "found": "2026-10-21",
-      "status": "open"
+      "status": "dismissed",
+      "title": "CodeQL rust/hard-coded-cryptographic-value: Hard-coded cryptographic value",
+      "dismissed": "2026-10-21",
+      "reason": "used in tests — Test-only fixture: a dummy credential in an integration test under a tests/ directory, not compiled into the shipped app.",
+      "by": "mpanichella"
     },
     {
       "id": "CQ-240",
       "source": "codeql",
       "severity": "CRITICAL",
       "kind": "Static analysis finding",
-      "component": "crates/drivers/dsql",
+      "component": "crates/drivers/dsql/tests/integration.rs",
       "found": "2026-10-21",
-      "status": "open"
+      "status": "dismissed",
+      "title": "CodeQL rust/hard-coded-cryptographic-value: Hard-coded cryptographic value",
+      "dismissed": "2026-10-21",
+      "reason": "used in tests — Test-only fixture: a dummy credential in an integration test under a tests/ directory, not compiled into the shipped app.",
+      "by": "mpanichella"
     },
     {
       "id": "CQ-241",
       "source": "codeql",
       "severity": "CRITICAL",
       "kind": "Static analysis finding",
-      "component": "crates/drivers/dsql",
+      "component": "crates/drivers/dsql/tests/integration.rs",
       "found": "2026-10-21",
-      "status": "open"
+      "status": "dismissed",
+      "title": "CodeQL rust/hard-coded-cryptographic-value: Hard-coded cryptographic value",
+      "dismissed": "2026-10-21",
+      "reason": "used in tests — Test-only fixture: a dummy credential in an integration test under a tests/ directory, not compiled into the shipped app.",
+      "by": "mpanichella"
     },
     {
       "id": "CQ-242",
       "source": "codeql",
       "severity": "CRITICAL",
       "kind": "Static analysis finding",
-      "component": "crates/drivers/iotdb",
+      "component": "crates/drivers/iotdb/tests/permissions.rs",
       "found": "2026-10-21",
-      "status": "open"
+      "status": "dismissed",
+      "title": "CodeQL rust/hard-coded-cryptographic-value: Hard-coded cryptographic value",
+      "dismissed": "2026-10-21",
+      "reason": "used in tests — Test-only fixture: a dummy credential in an integration test under a tests/ directory, not compiled into the shipped app.",
+      "by": "mpanichella"
     },
     {
       "id": "CQ-243",
       "source": "codeql",
       "severity": "CRITICAL",
       "kind": "Static analysis finding",
-      "component": "crates/drivers/iotdb",
+      "component": "crates/drivers/iotdb/tests/permissions.rs",
       "found": "2026-10-21",
-      "status": "open"
+      "status": "dismissed",
+      "title": "CodeQL rust/hard-coded-cryptographic-value: Hard-coded cryptographic value",
+      "dismissed": "2026-10-21",
+      "reason": "used in tests — Test-only fixture: a dummy credential in an integration test under a tests/ directory, not compiled into the shipped app.",
+      "by": "mpanichella"
     },
     {
       "id": "CQ-244",
       "source": "codeql",
       "severity": "CRITICAL",
       "kind": "Static analysis finding",
-      "component": "crates/drivers/iotdb",
+      "component": "crates/drivers/iotdb/tests/permissions.rs",
       "found": "2026-10-21",
-      "status": "open"
+      "status": "dismissed",
+      "title": "CodeQL rust/hard-coded-cryptographic-value: Hard-coded cryptographic value",
+      "dismissed": "2026-10-21",
+      "reason": "used in tests — Test-only fixture: a dummy credential in an integration test under a tests/ directory, not compiled into the shipped app.",
+      "by": "mpanichella"
     },
     {
       "id": "CQ-245",
       "source": "codeql",
       "severity": "CRITICAL",
       "kind": "Static analysis finding",
-      "component": "crates/drivers/iotdb",
+      "component": "crates/drivers/iotdb/tests/security.rs",
       "found": "2026-10-21",
-      "status": "open"
+      "status": "dismissed",
+      "title": "CodeQL rust/hard-coded-cryptographic-value: Hard-coded cryptographic value",
+      "dismissed": "2026-10-21",
+      "reason": "used in tests — Test-only fixture: a dummy credential in an integration test under a tests/ directory, not compiled into the shipped app.",
+      "by": "mpanichella"
     },
     {
       "id": "CQ-246",
       "source": "codeql",
       "severity": "CRITICAL",
       "kind": "Static analysis finding",
-      "component": "crates/drivers/iotdb",
+      "component": "crates/drivers/iotdb/tests/security.rs",
       "found": "2026-10-21",
-      "status": "open"
+      "status": "dismissed",
+      "title": "CodeQL rust/hard-coded-cryptographic-value: Hard-coded cryptographic value",
+      "dismissed": "2026-10-21",
+      "reason": "used in tests — Test-only fixture: a dummy credential in an integration test under a tests/ directory, not compiled into the shipped app.",
+      "by": "mpanichella"
     },
     {
       "id": "CQ-247",
       "source": "codeql",
       "severity": "CRITICAL",
       "kind": "Static analysis finding",
-      "component": "vendor",
+      "component": "vendor/tiberius/src/tds/time.rs",
       "found": "2026-10-21",
-      "status": "open"
+      "status": "dismissed",
+      "title": "CodeQL rust/hard-coded-cryptographic-value: Hard-coded cryptographic value",
+      "dismissed": "2026-10-21",
+      "reason": "false positive — Not cryptographic: the byte length of a TDS time field for its scale (3, 4 or 5), wrongly matched as a nonce.",
+      "by": "mpanichella"
     },
     {
       "id": "CQ-248",
       "source": "codeql",
       "severity": "CRITICAL",
       "kind": "Static analysis finding",
-      "component": "src-tauri",
+      "component": "src-tauri/src/secret_sources/bitwarden.rs",
       "found": "2026-10-21",
-      "status": "open"
+      "status": "dismissed",
+      "title": "CodeQL rust/hard-coded-cryptographic-value: Hard-coded cryptographic value",
+      "dismissed": "2026-10-21",
+      "reason": "false positive — Not a constant key: a zero-initialised array that SymKey::from_bytes overwrites with the decrypted key bytes it is given (and zeroes on drop).",
+      "by": "mpanichella"
     },
     {
       "id": "CQ-249",
       "source": "codeql",
       "severity": "CRITICAL",
       "kind": "Static analysis finding",
-      "component": "src-tauri",
+      "component": "src-tauri/src/secret_sources/bitwarden.rs",
       "found": "2026-10-21",
-      "status": "open"
+      "status": "dismissed",
+      "title": "CodeQL rust/hard-coded-cryptographic-value: Hard-coded cryptographic value",
+      "dismissed": "2026-10-21",
+      "reason": "used in tests — Test-only fixture: a constant IV used to check the EncString encryption round trip in the #[cfg(test)] module.",
+      "by": "mpanichella"
     },
     {
       "id": "CQ-250",
       "source": "codeql",
       "severity": "CRITICAL",
       "kind": "Static analysis finding",
-      "component": "src-tauri",
+      "component": "src-tauri/src/secret_sources/zoho.rs",
       "found": "2026-10-21",
-      "status": "open"
+      "status": "dismissed",
+      "title": "CodeQL rust/hard-coded-cryptographic-value: Hard-coded cryptographic value",
+      "dismissed": "2026-10-21",
+      "reason": "false positive — Not a constant key: a zero-padded buffer that receives the account's key text, as Zoho Vault's client-side AES-CTR format requires for interoperability.",
+      "by": "mpanichella"
     },
     {
       "id": "CQ-251",
       "source": "codeql",
       "severity": "CRITICAL",
       "kind": "Static analysis finding",
-      "component": "src-tauri",
+      "component": "src-tauri/src/secret_sources/zoho.rs",
       "found": "2026-10-21",
-      "status": "open"
+      "status": "dismissed",
+      "title": "CodeQL rust/hard-coded-cryptographic-value: Hard-coded cryptographic value",
+      "dismissed": "2026-10-21",
+      "reason": "false positive — Not a constant key: a zero-initialised buffer overwritten with the AES block derived from the account's key text (Zoho Vault's format).",
+      "by": "mpanichella"
     },
     {
       "id": "CQ-252",
       "source": "codeql",
       "severity": "CRITICAL",
       "kind": "Static analysis finding",
-      "component": "src-tauri",
+      "component": "src-tauri/src/secret_sources/zoho.rs",
       "found": "2026-10-21",
-      "status": "open"
+      "status": "dismissed",
+      "title": "CodeQL rust/hard-coded-cryptographic-value: Hard-coded cryptographic value",
+      "dismissed": "2026-10-21",
+      "reason": "used in tests — Test-only fixture: a constant nonce passed to the #[cfg(test)]-only encrypt() helper that builds a mock Zoho Vault account.",
+      "by": "mpanichella"
     },
     {
       "id": "CQ-253",
       "source": "codeql",
       "severity": "CRITICAL",
       "kind": "Static analysis finding",
-      "component": "src-tauri",
+      "component": "src-tauri/src/secret_sources/zoho.rs",
       "found": "2026-10-21",
-      "status": "open"
+      "status": "dismissed",
+      "title": "CodeQL rust/hard-coded-cryptographic-value: Hard-coded cryptographic value",
+      "dismissed": "2026-10-21",
+      "reason": "used in tests — Test-only fixture: a constant nonce passed to the #[cfg(test)]-only encrypt() helper that builds a mock Zoho Vault account.",
+      "by": "mpanichella"
     },
     {
       "id": "CQ-254",
       "source": "codeql",
       "severity": "CRITICAL",
       "kind": "Static analysis finding",
-      "component": "src-tauri",
+      "component": "src-tauri/src/secret_sources/zoho.rs",
       "found": "2026-10-21",
-      "status": "open"
+      "status": "dismissed",
+      "title": "CodeQL rust/hard-coded-cryptographic-value: Hard-coded cryptographic value",
+      "dismissed": "2026-10-21",
+      "reason": "used in tests — Test-only fixture: a constant nonce passed to the #[cfg(test)]-only encrypt() helper that builds a mock Zoho Vault account.",
+      "by": "mpanichella"
     },
     {
       "id": "CQ-255",
       "source": "codeql",
       "severity": "CRITICAL",
       "kind": "Static analysis finding",
-      "component": "src-tauri",
+      "component": "src-tauri/src/secret_sources/zoho.rs",
       "found": "2026-10-21",
-      "status": "open"
+      "status": "dismissed",
+      "title": "CodeQL rust/hard-coded-cryptographic-value: Hard-coded cryptographic value",
+      "dismissed": "2026-10-21",
+      "reason": "used in tests — Test-only fixture: a constant nonce passed to the #[cfg(test)]-only encrypt() helper that builds a mock Zoho Vault account.",
+      "by": "mpanichella"
     },
     {
       "id": "CQ-256",
       "source": "codeql",
       "severity": "CRITICAL",
       "kind": "Static analysis finding",
-      "component": "src-tauri",
+      "component": "src-tauri/src/secret_sources/zoho.rs",
       "found": "2026-10-21",
-      "status": "open"
+      "status": "dismissed",
+      "title": "CodeQL rust/hard-coded-cryptographic-value: Hard-coded cryptographic value",
+      "dismissed": "2026-10-21",
+      "reason": "used in tests — Test-only fixture: a constant nonce passed to the #[cfg(test)]-only encrypt() helper that builds a mock Zoho Vault account.",
+      "by": "mpanichella"
     },
     {
       "id": "CQ-257",
       "source": "codeql",
       "severity": "CRITICAL",
       "kind": "Static analysis finding",
-      "component": "crates/dbine-core",
+      "component": "crates/dbine-core/src/secrets.rs",
       "found": "2026-10-21",
-      "status": "open"
+      "status": "dismissed",
+      "title": "CodeQL rust/hard-coded-cryptographic-value: Hard-coded cryptographic value",
+      "dismissed": "2026-10-21",
+      "reason": "false positive — Not a constant nonce: a zero-initialised buffer filled from the OS RNG (thread_rng().fill_bytes) before each XChaCha20-Poly1305 vault write.",
+      "by": "mpanichella"
     },
     {
       "id": "CQ-258",
       "source": "codeql",
       "severity": "CRITICAL",
       "kind": "Static analysis finding",
-      "component": "crates/dbine-core",
+      "component": "crates/dbine-core/src/secrets.rs",
       "found": "2026-10-21",
-      "status": "open"
+      "status": "dismissed",
+      "title": "CodeQL rust/hard-coded-cryptographic-value: Hard-coded cryptographic value",
+      "dismissed": "2026-10-21",
+      "reason": "false positive — Not a constant key: a zero-initialised buffer filled from the OS RNG and stored in the OS keychain as the vault key.",
+      "by": "mpanichella"
     },
     {
       "id": "CQ-259",
       "source": "codeql",
       "severity": "CRITICAL",
       "kind": "Static analysis finding",
-      "component": "crates/dbine-core",
+      "component": "crates/dbine-core/src/secrets.rs",
       "found": "2026-10-21",
-      "status": "open"
+      "status": "dismissed",
+      "title": "CodeQL rust/hard-coded-cryptographic-value: Hard-coded cryptographic value",
+      "dismissed": "2026-10-21",
+      "reason": "used in tests — Test-only fixture: a constant key used to check the vault's seal/open round trip, wrong-key and fresh-nonce behaviour in #[cfg(test)].",
+      "by": "mpanichella"
     },
     {
       "id": "CQ-260",
       "source": "codeql",
       "severity": "CRITICAL",
       "kind": "Static analysis finding",
-      "component": "crates/dbine-core",
+      "component": "crates/dbine-core/src/secrets.rs",
       "found": "2026-10-21",
-      "status": "open"
+      "status": "dismissed",
+      "title": "CodeQL rust/hard-coded-cryptographic-value: Hard-coded cryptographic value",
+      "dismissed": "2026-10-21",
+      "reason": "used in tests — Test-only fixture: a constant key used to check the vault's seal/open round trip, wrong-key and fresh-nonce behaviour in #[cfg(test)].",
+      "by": "mpanichella"
     },
     {
       "id": "CQ-261",
       "source": "codeql",
       "severity": "CRITICAL",
       "kind": "Static analysis finding",
-      "component": "crates/dbine-core",
+      "component": "crates/dbine-core/src/secrets.rs",
       "found": "2026-10-21",
-      "status": "open"
+      "status": "dismissed",
+      "title": "CodeQL rust/hard-coded-cryptographic-value: Hard-coded cryptographic value",
+      "dismissed": "2026-10-21",
+      "reason": "used in tests — Test-only fixture: a constant key used to check the vault's seal/open round trip, wrong-key and fresh-nonce behaviour in #[cfg(test)].",
+      "by": "mpanichella"
     },
     {
       "id": "CQ-262",
       "source": "codeql",
       "severity": "CRITICAL",
       "kind": "Static analysis finding",
-      "component": "crates/dbine-core",
+      "component": "crates/dbine-core/src/secrets.rs",
       "found": "2026-10-21",
-      "status": "open"
+      "status": "dismissed",
+      "title": "CodeQL rust/hard-coded-cryptographic-value: Hard-coded cryptographic value",
+      "dismissed": "2026-10-21",
+      "reason": "used in tests — Test-only fixture: a constant key used to check the vault's seal/open round trip, wrong-key and fresh-nonce behaviour in #[cfg(test)].",
+      "by": "mpanichella"
     },
     {
       "id": "CQ-263",
       "source": "codeql",
       "severity": "CRITICAL",
       "kind": "Static analysis finding",
-      "component": "crates/dbine-core",
+      "component": "crates/dbine-core/src/secrets.rs",
       "found": "2026-10-21",
-      "status": "open"
+      "status": "dismissed",
+      "title": "CodeQL rust/hard-coded-cryptographic-value: Hard-coded cryptographic value",
+      "dismissed": "2026-10-21",
+      "reason": "used in tests — Test-only fixture: a constant key used to check the vault's seal/open round trip, wrong-key and fresh-nonce behaviour in #[cfg(test)].",
+      "by": "mpanichella"
     },
     {
       "id": "CQ-264",
       "source": "codeql",
       "severity": "CRITICAL",
       "kind": "Static analysis finding",
-      "component": "crates/dbine-core",
+      "component": "crates/dbine-core/src/secrets.rs",
       "found": "2026-10-21",
-      "status": "open"
+      "status": "dismissed",
+      "title": "CodeQL rust/hard-coded-cryptographic-value: Hard-coded cryptographic value",
+      "dismissed": "2026-10-21",
+      "reason": "used in tests — Test-only fixture: a constant key used to check the vault's seal/open round trip, wrong-key and fresh-nonce behaviour in #[cfg(test)].",
+      "by": "mpanichella"
     },
     {
       "id": "CQ-265",
       "source": "codeql",
       "severity": "CRITICAL",
       "kind": "Static analysis finding",
-      "component": "crates/dbine-core",
+      "component": "crates/dbine-core/src/secrets.rs",
       "found": "2026-10-21",
-      "status": "open"
+      "status": "dismissed",
+      "title": "CodeQL rust/hard-coded-cryptographic-value: Hard-coded cryptographic value",
+      "dismissed": "2026-10-21",
+      "reason": "used in tests — Test-only fixture: a constant key used to check the vault's seal/open round trip, wrong-key and fresh-nonce behaviour in #[cfg(test)].",
+      "by": "mpanichella"
     },
     {
       "id": "CQ-266",
       "source": "codeql",
       "severity": "CRITICAL",
       "kind": "Static analysis finding",
-      "component": "crates/dbine-sync",
+      "component": "crates/dbine-sync/src/crypto.rs",
       "found": "2026-10-21",
-      "status": "open"
+      "status": "dismissed",
+      "title": "CodeQL rust/hard-coded-cryptographic-value: Hard-coded cryptographic value",
+      "dismissed": "2026-10-21",
+      "reason": "false positive — Not a constant key: a zero-initialised output buffer that Argon2id overwrites with the key derived from the user's passphrase and a random per-backup salt.",
+      "by": "mpanichella"
     },
     {
       "id": "CQ-267",
       "source": "codeql",
       "severity": "CRITICAL",
       "kind": "Static analysis finding",
-      "component": "crates/dbine-sync",
+      "component": "crates/dbine-sync/src/crypto.rs",
       "found": "2026-10-21",
-      "status": "open"
+      "status": "dismissed",
+      "title": "CodeQL rust/hard-coded-cryptographic-value: Hard-coded cryptographic value",
+      "dismissed": "2026-10-21",
+      "reason": "false positive — Not a constant nonce: a zero-initialised buffer filled from the OS RNG (thread_rng().fill_bytes) before each XChaCha20-Poly1305 encryption.",
+      "by": "mpanichella"
     },
     {
       "id": "CQ-268",
@@ -1968,7 +2164,7 @@
       "source": "scorecard",
       "severity": "LOW",
       "kind": "Repository practice",
-      "title": "CII-Best-Practices: 0/10 — no effort to earn an OpenSSF best practices badge detected",
+      "title": "CII-Best-Practices: 2/10 — badge detected: InProgress",
       "component": "repository",
       "advisory": "https://github.com/ossf/scorecard/blob/61e84743356275f6ffca23b1b2f2cb945e19eb96/docs/checks.md#cii-best-practices",
       "found": "2026-10-21",
@@ -2056,7 +2252,7 @@
       "source": "scorecard",
       "severity": "HIGH",
       "kind": "Repository practice",
-      "title": "Vulnerabilities: 0/10 — 28 existing vulnerabilities detected",
+      "title": "Vulnerabilities: 3/10 — 7 existing vulnerabilities detected",
       "component": "repository",
       "advisory": "https://github.com/ossf/scorecard/blob/61e84743356275f6ffca23b1b2f2cb945e19eb96/docs/checks.md#vulnerabilities",
       "found": "2026-10-21",
