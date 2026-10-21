@@ -1,56 +1,6 @@
 {
   "scans": [
     {
-      "source": "claude-security",
-      "release": "v1.0.0",
-      "scan_id": "c4b83d93-0f6c-44f7-a669-8756c1ad121a",
-      "date": "2026-10-19",
-      "revision": "a712c0eed01f",
-      "kind": "changes",
-      "scope": "whole repository",
-      "found": 9
-    },
-    {
-      "source": "claude-security",
-      "release": "v1.0.0",
-      "scan_id": "47c740dc-333a-4b03-a9bc-fb9b6232818d",
-      "date": "2026-10-19",
-      "revision": "4944e3ac3184",
-      "kind": "changes",
-      "scope": "whole repository",
-      "found": 11
-    },
-    {
-      "source": "claude-security",
-      "release": "v1.0.0",
-      "scan_id": "432e85ec-bc3b-4639-9914-ce348f576b5d",
-      "date": "2026-10-19",
-      "revision": "aa71a141a91f",
-      "kind": "changes",
-      "scope": "9b5671c..76c8b33",
-      "found": 4
-    },
-    {
-      "source": "claude-security",
-      "release": "v1.0.0",
-      "scan_id": "26b49fe1-9bfc-466d-8f7b-f8995d33dba8",
-      "date": "2026-10-19",
-      "revision": "1c71c7b0b4a5",
-      "kind": "changes",
-      "scope": "9b5671c..76c8b33",
-      "found": 0
-    },
-    {
-      "source": "claude-security",
-      "release": "v1.0.0",
-      "scan_id": "97057e2f-8052-4a73-a707-9779ded776b9",
-      "date": "2026-10-19",
-      "revision": "954fc5e34c38",
-      "kind": "changes",
-      "scope": "9b5671c..d460f81",
-      "found": 3
-    },
-    {
       "source": "osv",
       "date": "2026-10-21",
       "revision": "d1431ef1e61c",
@@ -81,6 +31,16 @@
       "kind": "full",
       "scope": "repository settings and workflows",
       "score": 5.7
+    },
+    {
+      "source": "claude-security",
+      "release": "v1.1.0",
+      "scan_id": "564af13d-bf7d-4198-9e5b-c7019b6a0198",
+      "date": "2026-10-21",
+      "revision": "9aec57c144f8",
+      "kind": "changes",
+      "scope": "954fc5e3..9aec57c1",
+      "found": 3
     }
   ],
   "findings": [
@@ -2884,8 +2844,8 @@
     }
   ],
   "claude_coverage": {
-    "release": "v1.0.0",
-    "scanned": "v0.1.14..954fc5e3 (everything 1.0.0 added up to the macOS shortcut fixes)",
-    "not_covered": "954fc5e3..v1.0.0: one credential-scrub fix (9a94302f) and the five new languages; everything after v1.0.0 on main"
+    "release": "v1.1.0",
+    "scanned": "954fc5e3..9aec57c1 (everything 1.1.0 adds, and the 1.0.0 commits not scanned before)",
+    "not_covered": "3938642d and c4ee3112 (the fixes for this scan's three findings) and 56619d9d (the release commit)"
   }
 }

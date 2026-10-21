@@ -23,7 +23,7 @@ Findings from the source-code review and CodeQL show only their kind and compone
 
 | Tool | Date | Covered | Result | Not covered yet |
 |---|---|---|---|---|
-| claude-security, release v1.0.0 | 2026-10-19 | v0.1.14..954fc5e3 (everything 1.0.0 added up to the macOS shortcut fixes) | 0 open | 954fc5e3..v1.0.0: one credential-scrub fix (9a94302f) and the five new languages; everything after v1.0.0 on main |
+| claude-security, release v1.1.0 | 2026-10-21 | 954fc5e3..9aec57c1 (everything 1.1.0 adds, and the 1.0.0 commits not scanned before) | 0 open | 3938642d and c4ee3112 (the fixes for this scan's three findings) and 56619d9d (the release commit) |
 | codeql | 2026-10-21 | Rust, TypeScript/Vue and workflows | 0 open | — |
 | osv | 2026-10-21 | every lockfile (Cargo, npm) at [`d1431ef1e`](https://github.com/addlayer-io/dbine/commit/d1431ef1e61c) | 1 open | — |
 | scorecard | 2026-10-21 | repository settings and workflows at [`0faeba1c3`](https://github.com/addlayer-io/dbine/commit/0faeba1c3f6c) | score 5.7/10 | — |
