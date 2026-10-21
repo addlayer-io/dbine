@@ -24,6 +24,7 @@ ROOT = pathlib.Path(__file__).resolve().parents[2]
 TEMPLATE = ROOT / "packaging" / "aur" / "PKGBUILD.in"
 METAINFO = ROOT / "flatpak" / "io.addlayer.dbine.metainfo.xml"
 LICENSE = ROOT / "LICENSE"
+NOTICE = ROOT / "NOTICE"
 
 # Debian package -> Arch package, for every name the .deb's Depends may list.
 DEB_TO_ARCH = {
@@ -103,10 +104,15 @@ def main():
     out.mkdir(parents=True, exist_ok=True)
 
     if LICENSE.is_file():
-        (out / "LICENSE").write_bytes(LICENSE.read_bytes())
-        lic_source = "'LICENSE'"
-        lic_sum = f"'{hashlib.sha256(LICENSE.read_bytes()).hexdigest()}'"
-        lic_install = '  install -Dm644 "$srcdir/LICENSE" "$pkgdir/usr/share/licenses/$pkgname/LICENSE"'
+        # Apache 2.0: the license and the NOTICE file travel with the package.
+        files = [f for f in (LICENSE, NOTICE) if f.is_file()]
+        for f in files:
+            (out / f.name).write_bytes(f.read_bytes())
+        lic_source = " ".join(f"'{f.name}'" for f in files)
+        lic_sum = " ".join(f"'{hashlib.sha256(f.read_bytes()).hexdigest()}'" for f in files)
+        lic_install = "\n".join(
+            f'  install -Dm644 "$srcdir/{f.name}" "$pkgdir/usr/share/licenses/$pkgname/{f.name}"' for f in files
+        )
     else:
         print("warning: the repository has no LICENSE file; the package ships none", file=sys.stderr)
         lic_source = lic_sum = ""

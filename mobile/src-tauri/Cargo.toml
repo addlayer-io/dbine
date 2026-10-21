@@ -2,7 +2,7 @@
 name = "dbine-mobile"
 version = "0.1.0"
 edition = "2021"
-license = "MIT"
+license = "Apache-2.0"
 description = "DBine's phone app: pairs with DBine by QR code and shows its locks and processes"
 
 # Its own workspace: the desktop builds and CI never compile it, and it

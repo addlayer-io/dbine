@@ -158,7 +158,7 @@ def main():
         "Author": "AddLayer",
         "PackageName": "DBine",
         "PackageUrl": "https://dbine.com",
-        "License": "MIT",
+        "License": "Apache-2.0",
         "ShortDescription": summary,
         "Description": description,
         "Moniker": "dbine",

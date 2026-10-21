@@ -64,7 +64,7 @@ fine-grained token with Contents and Pull requests (read and write) on
 
 ## winget
 
-The package is `AddLayer.DBine` (publisher AddLayer, MIT, homepage
+The package is `AddLayer.DBine` (publisher AddLayer, Apache-2.0, homepage
 https://dbine.com, moniker `dbine`). Its installer is the release's NSIS
 setup: `InstallerType: nullsoft`, `Scope: user`, because Tauri's NSIS
 installer is per-user by default (`tauri.conf.json` doesn't set
@@ -196,11 +196,8 @@ packaging fix, run the workflow by hand with a higher `pkgrel`.
    gh secret set AUR_EMAIL --repo addlayer-io/dbine --body '<email>'
    ```
    Then delete `aur_dbine` from disk.
-5. Add a `LICENSE` file (the MIT text with the copyright line) at the root
-   of the repository. Arch requires MIT packages to ship it; until it
-   exists, namcap reports it and the workflow warns instead of failing, and
-   the package goes out without it. The next release after it lands
-   includes it by itself.
+5. The package ships the repository's `LICENSE` (Apache 2.0) and `NOTICE`
+   files, as Apache 2.0 requires.
 6. First push: `gh workflow run aur.yml --repo addlayer-io/dbine
    -f tag=v<latest> -f dry_run=false`, or wait for the next release. The
    push creates https://aur.archlinux.org/packages/dbine-bin. There is no

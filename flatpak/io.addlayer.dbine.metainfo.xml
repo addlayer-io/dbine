@@ -5,7 +5,7 @@
   <name>DBine</name>
   <summary>Manage SQL, NoSQL and analytical databases in one app</summary>
   <metadata_license>CC0-1.0</metadata_license>
-  <project_license>MIT</project_license>
+  <project_license>Apache-2.0</project_license>
   <developer id="io.addlayer">
     <name>AddLayer</name>
   </developer>
