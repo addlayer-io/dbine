@@ -25,9 +25,9 @@ Findings from the source-code review and CodeQL show only their kind and compone
 |---|---|---|---|---|
 | claude-security, release v1.0.0 | 2026-10-19 | v0.1.14..954fc5e3 (everything 1.0.0 added up to the macOS shortcut fixes) | 0 open | 954fc5e3..v1.0.0: one credential-scrub fix (9a94302f) and the five new languages; everything after v1.0.0 on main |
 | codeql | 2026-10-21 | Rust, TypeScript/Vue and workflows | 0 open | — |
-| osv | 2026-10-21 | every lockfile (Cargo, npm) at [`1b8cc26a9`](https://github.com/addlayer-io/dbine/commit/1b8cc26a9b7a) | 1 open | — |
+| osv | 2026-10-21 | every lockfile (Cargo, npm) at [`0faeba1c3`](https://github.com/addlayer-io/dbine/commit/0faeba1c3f6c) | 1 open | — |
 | scorecard | 2026-10-21 | repository settings and workflows at [`1b8cc26a9`](https://github.com/addlayer-io/dbine/commit/1b8cc26a9b7a) | score 5.7/10 | — |
-| trivy | 2026-10-21 | whole repository at [`1b8cc26a9`](https://github.com/addlayer-io/dbine/commit/1b8cc26a9b7a) | 0 open | — |
+| trivy | 2026-10-21 | whole repository at [`0faeba1c3`](https://github.com/addlayer-io/dbine/commit/0faeba1c3f6c) | 0 open | — |
 
 ## Not counted, and why
 
