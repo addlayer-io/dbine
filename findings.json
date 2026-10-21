@@ -240,7 +240,10 @@
       "advisory": "GHSA-cq8v-f236-94qc",
       "fixed_version": "0.9.3, 0.10.1, 0.8.6",
       "found": "2026-10-21",
-      "status": "open"
+      "status": "dismissed",
+      "dismissed": "2026-10-21",
+      "reason": "Doesn't affect DBine. The flaw needs rand's log feature and a custom logger that calls ThreadRng; DBine's build doesn't enable that feature (rand 0.7.3 comes from winauth, the Windows sign-in for SQL Server, with default features only).",
+      "by": "Marcos Panichella (AddLayer)"
     },
     {
       "id": "TV-GHSA-wrw7-89jp-8q8g-glib-13ee4b",
@@ -252,7 +255,10 @@
       "advisory": "GHSA-wrw7-89jp-8q8g",
       "fixed_version": "0.20.0",
       "found": "2026-10-21",
-      "status": "open"
+      "status": "dismissed",
+      "dismissed": "2026-10-21",
+      "reason": "Doesn't affect DBine. The flaw is in glib::VariantStrIter, which only runs through Variant::array_iter_str, and neither DBine nor any of its dependencies calls it (checked in gtk, gdk, gio, webkit2gtk, javascriptcore, soup3, wry and tao). glib 0.18 comes with Tauri's GTK 3 stack on Linux and can't be upgraded on DBine's side.",
+      "by": "Marcos Panichella (AddLayer)"
     },
     {
       "id": "TV-GHSA-wrw7-89jp-8q8g-glib-9761a8",
@@ -264,7 +270,10 @@
       "advisory": "GHSA-wrw7-89jp-8q8g",
       "fixed_version": "0.20.0",
       "found": "2026-10-21",
-      "status": "open"
+      "status": "dismissed",
+      "dismissed": "2026-10-21",
+      "reason": "Doesn't affect DBine. The flaw is in glib::VariantStrIter, which only runs through Variant::array_iter_str, and neither DBine nor any of its dependencies calls it (checked in gtk, gdk, gio, webkit2gtk, javascriptcore, soup3, wry and tao). glib 0.18 comes with Tauri's GTK 3 stack on Linux and can't be upgraded on DBine's side.",
+      "by": "Marcos Panichella (AddLayer)"
     }
   ],
   "claude_coverage": {

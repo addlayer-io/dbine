@@ -9,16 +9,12 @@ _Updated 2026-10-21._
 | Source | Critical | High | Medium | Low |
 |---|---|---|---|---|
 | claude-security (source-code review) | 0 | 0 | 0 | 0 |
-| Trivy (dependencies, secrets, configuration) | 0 | 0 | 2 | 1 |
+| Trivy (dependencies, secrets, configuration) | 0 | 0 | 0 | 0 |
 | CodeQL (static analysis) | 0 | 0 | 0 | 0 |
 
 Findings from the source-code review and CodeQL show only their kind and component while they're open.
 
-| ID | Severity | Source | Finding | Where | Fix |
-|---|---|---|---|---|---|
-| TV-GHSA-wrw7-89jp-8q8g-glib-13ee4b | MEDIUM | trivy | glib 0.18.5: Unsoundness in `Iterator` and `DoubleEndedIterator` impls for `glib::VariantStrIter` | `Cargo.lock` | upgrade to 0.20.0 |
-| TV-GHSA-wrw7-89jp-8q8g-glib-9761a8 | MEDIUM | trivy | glib 0.18.5: Unsoundness in `Iterator` and `DoubleEndedIterator` impls for `glib::VariantStrIter` | `mobile/src-tauri/Cargo.lock` | upgrade to 0.20.0 |
-| TV-GHSA-cq8v-f236-94qc-rand-13ee4b | LOW | trivy | rand 0.7.3: Rand is unsound with a custom logger using rand::rng() | `Cargo.lock` | upgrade to 0.9.3, 0.10.1, 0.8.6 |
+_None._
 
 ## What the last scans covered
 
@@ -31,10 +27,13 @@ Findings from the source-code review and CodeQL show only their kind and compone
 
 ## Not counted, and why
 
-Findings judged not to be a vulnerability. Each one says why and who decided.
+Findings reviewed and found not to affect DBine. Each one says why and who decided.
 
 | Finding | Where | Why | Decided in |
 |---|---|---|---|
+| rand 0.7.3: Rand is unsound with a custom logger using rand::rng() | `Cargo.lock` | Doesn't affect DBine. The flaw needs rand's log feature and a custom logger that calls ThreadRng; DBine's build doesn't enable that feature (rand 0.7.3 comes from winauth, the Windows sign-in for SQL Server, with default features only). | Marcos Panichella (AddLayer) |
+| glib 0.18.5: Unsoundness in `Iterator` and `DoubleEndedIterator` impls for `glib::VariantStrIter` | `Cargo.lock` | Doesn't affect DBine. The flaw is in glib::VariantStrIter, which only runs through Variant::array_iter_str, and neither DBine nor any of its dependencies calls it (checked in gtk, gdk, gio, webkit2gtk, javascriptcore, soup3, wry and tao). glib 0.18 comes with Tauri's GTK 3 stack on Linux and can't be upgraded on DBine's side. | Marcos Panichella (AddLayer) |
+| glib 0.18.5: Unsoundness in `Iterator` and `DoubleEndedIterator` impls for `glib::VariantStrIter` | `mobile/src-tauri/Cargo.lock` | Doesn't affect DBine. The flaw is in glib::VariantStrIter, which only runs through Variant::array_iter_str, and neither DBine nor any of its dependencies calls it (checked in gtk, gdk, gio, webkit2gtk, javascriptcore, soup3, wry and tao). glib 0.18 comes with Tauri's GTK 3 stack on Linux and can't be upgraded on DBine's side. | Marcos Panichella (AddLayer) |
 | Trivy secret rule exception `bigquery-test-service-account` | `crates/drivers/bigquery/src/gcp.rs` | The unit test in gcp_tests builds a fake service-account JSON around the throwaway key in crates/drivers/bigquery/tests/test_key.pem; it holds no real credential. | trivy-secret.yaml |
 | Trivy secret rule exception `postgres-test-entra-token` | `crates/drivers/postgres/src/cloud_auth.rs` | The unit test entra_claims_say_who_signed_in decodes a made-up, unsigned JWT ({"upn":"ana@contoso.com"}); it grants nothing. | trivy-secret.yaml |
 
