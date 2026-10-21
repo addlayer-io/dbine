@@ -53,7 +53,7 @@
     {
       "source": "osv",
       "date": "2026-10-21",
-      "revision": "5c8290dc1785",
+      "revision": "b30b87184ae8",
       "kind": "full",
       "scope": "every lockfile (Cargo, npm)",
       "found": 1
@@ -61,7 +61,7 @@
     {
       "source": "trivy",
       "date": "2026-10-21",
-      "revision": "5c8290dc1785",
+      "revision": "b30b87184ae8",
       "kind": "full",
       "scope": "whole repository",
       "found": 0
@@ -72,12 +72,12 @@
       "revision": "",
       "kind": "full",
       "scope": "Rust, TypeScript/Vue and workflows",
-      "found": 156
+      "found": 0
     },
     {
       "source": "scorecard",
       "date": "2026-10-21",
-      "revision": "a73578b122f4",
+      "revision": "5c8290dc1785",
       "kind": "full",
       "scope": "repository settings and workflows",
       "score": 5.7
@@ -89,1071 +89,1547 @@
       "source": "codeql",
       "severity": "HIGH",
       "kind": "Static analysis finding",
-      "component": "crates/drivers/spanner",
+      "component": "crates/drivers/spanner/src/transfer.rs",
       "found": "2026-10-21",
-      "status": "open"
+      "status": "dismissed",
+      "title": "CodeQL rust/cleartext-logging: Cleartext logging of sensitive information",
+      "dismissed": "2026-10-21",
+      "reason": "used in tests — panic! message in the #[cfg(test)] mod tests of spanner/transfer.rs that prints a Cell decoded from a hard-coded JSON fixture, only in test output.",
+      "by": "mpanichella"
     },
     {
       "id": "CQ-101",
       "source": "codeql",
       "severity": "HIGH",
       "kind": "Static analysis finding",
-      "component": "crates/drivers/sqlserver",
+      "component": "crates/drivers/sqlserver/src/variant.rs",
       "found": "2026-10-21",
-      "status": "open"
+      "status": "dismissed",
+      "title": "CodeQL rust/cleartext-logging: Cleartext logging of sensitive information",
+      "dismissed": "2026-10-21",
+      "reason": "used in tests — Assertion message in the #[cfg(test)] mod tests of variant.rs that prints the list of form field names shown for Entra MFA, not any field value.",
+      "by": "mpanichella"
     },
     {
       "id": "CQ-102",
       "source": "codeql",
       "severity": "HIGH",
       "kind": "Static analysis finding",
-      "component": "crates/drivers/sqlserver",
+      "component": "crates/drivers/sqlserver/tests/delta.rs",
       "found": "2026-10-21",
-      "status": "open"
+      "status": "dismissed",
+      "title": "CodeQL rust/cleartext-logging: Cleartext logging of sensitive information",
+      "dismissed": "2026-10-21",
+      "reason": "used in tests — tests/delta.rs is an integration test; the panic prints a driver error and the test's own SQL text, only in test runs.",
+      "by": "mpanichella"
     },
     {
       "id": "CQ-103",
       "source": "codeql",
       "severity": "HIGH",
       "kind": "Static analysis finding",
-      "component": "crates/drivers/sqlserver",
+      "component": "crates/drivers/sqlserver/tests/security.rs",
       "found": "2026-10-21",
-      "status": "open"
+      "status": "dismissed",
+      "title": "CodeQL rust/cleartext-logging: Cleartext logging of sensitive information",
+      "dismissed": "2026-10-21",
+      "reason": "used in tests — tests/security.rs is an integration test; the panic/assert prints the test's own SQL and the driver error, only in test runs.",
+      "by": "mpanichella"
     },
     {
       "id": "CQ-104",
       "source": "codeql",
       "severity": "HIGH",
       "kind": "Static analysis finding",
-      "component": "crates/drivers/tdengine",
+      "component": "crates/drivers/tdengine/tests/security.rs",
       "found": "2026-10-21",
-      "status": "open"
+      "status": "dismissed",
+      "title": "CodeQL rust/cleartext-logging: Cleartext logging of sensitive information",
+      "dismissed": "2026-10-21",
+      "reason": "used in tests — tests/security.rs is an integration test for TDengine; the panic/assert prints the test's own SQL and the driver error, only in test runs.",
+      "by": "mpanichella"
     },
     {
       "id": "CQ-105",
       "source": "codeql",
       "severity": "HIGH",
       "kind": "Static analysis finding",
-      "component": "crates/drivers/trino",
+      "component": "crates/drivers/trino/tests/security.rs",
       "found": "2026-10-21",
-      "status": "open"
+      "status": "dismissed",
+      "title": "CodeQL rust/cleartext-logging: Cleartext logging of sensitive information",
+      "dismissed": "2026-10-21",
+      "reason": "used in tests — tests/security.rs is an integration test for Trino; the assert prints the generated security script and the server's refusal message, only in test runs.",
+      "by": "mpanichella"
     },
     {
       "id": "CQ-106",
       "source": "codeql",
       "severity": "HIGH",
       "kind": "Static analysis finding",
-      "component": "crates/drivers/trino",
+      "component": "crates/drivers/trino/tests/security.rs",
       "found": "2026-10-21",
-      "status": "open"
+      "status": "dismissed",
+      "title": "CodeQL rust/cleartext-logging: Cleartext logging of sensitive information",
+      "dismissed": "2026-10-21",
+      "reason": "used in tests — tests/security.rs is an integration test for Trino; the assert prints a GRANT script for the fixed role 'ana' and the server's error, only in test runs.",
+      "by": "mpanichella"
     },
     {
       "id": "CQ-107",
       "source": "codeql",
       "severity": "HIGH",
       "kind": "Static analysis finding",
-      "component": "crates/drivers/trino",
+      "component": "crates/drivers/trino/src/transfer.rs",
       "found": "2026-10-21",
-      "status": "open"
+      "status": "dismissed",
+      "title": "CodeQL rust/cleartext-logging: Cleartext logging of sensitive information",
+      "dismissed": "2026-10-21",
+      "reason": "used in tests — Assertion message in the #[cfg(test)] mod tests of trino/transfer.rs that prints a ROW literal built from a fixed JSON fixture, only in test output.",
+      "by": "mpanichella"
     },
     {
       "id": "CQ-108",
       "source": "codeql",
       "severity": "HIGH",
       "kind": "Static analysis finding",
-      "component": "crates/drivers/trino",
+      "component": "crates/drivers/trino/src/transfer.rs",
       "found": "2026-10-21",
-      "status": "open"
+      "status": "dismissed",
+      "title": "CodeQL rust/cleartext-logging: Cleartext logging of sensitive information",
+      "dismissed": "2026-10-21",
+      "reason": "used in tests — Assertion message in the #[cfg(test)] mod tests of trino/transfer.rs that prints fixed date Cells and the literal() result, only in test output.",
+      "by": "mpanichella"
     },
     {
       "id": "CQ-109",
       "source": "codeql",
       "severity": "HIGH",
       "kind": "Static analysis finding",
-      "component": "crates/drivers/trino",
+      "component": "crates/drivers/trino/src/transfer.rs",
       "found": "2026-10-21",
-      "status": "open"
+      "status": "dismissed",
+      "title": "CodeQL rust/cleartext-logging: Cleartext logging of sensitive information",
+      "dismissed": "2026-10-21",
+      "reason": "used in tests — Assertion message in the #[cfg(test)] mod tests of trino/transfer.rs that prints the literal() result for a fixed timestamp string, only in test output.",
+      "by": "mpanichella"
     },
     {
       "id": "CQ-110",
       "source": "codeql",
       "severity": "HIGH",
       "kind": "Static analysis finding",
-      "component": "src-tauri",
+      "component": "src-tauri/src/commands/connections.rs",
       "found": "2026-10-21",
-      "status": "open"
+      "status": "dismissed",
+      "title": "CodeQL rust/cleartext-logging: Cleartext logging of sensitive information",
+      "dismissed": "2026-10-21",
+      "reason": "used in tests — Assertion message in the #[cfg(test)] mod tests of commands/connections.rs that prints a generated test connection id, only in test output.",
+      "by": "mpanichella"
     },
     {
       "id": "CQ-111",
       "source": "codeql",
       "severity": "HIGH",
       "kind": "Static analysis finding",
-      "component": "src-tauri",
+      "component": "src-tauri/src/secret_sources/aws.rs",
       "found": "2026-10-21",
-      "status": "open"
+      "status": "dismissed",
+      "title": "CodeQL rust/cleartext-logging: Cleartext logging of sensitive information",
+      "dismissed": "2026-10-21",
+      "reason": "used in tests — Assertion message in the #[cfg(test)] mod tests of secret_sources/aws.rs; it prints a mock-server error string for a missing secret, only in test runs.",
+      "by": "mpanichella"
     },
     {
       "id": "CQ-112",
       "source": "codeql",
       "severity": "HIGH",
       "kind": "Static analysis finding",
-      "component": "src-tauri",
+      "component": "src-tauri/src/secret_sources/azure.rs",
       "found": "2026-10-21",
-      "status": "open"
+      "status": "dismissed",
+      "title": "CodeQL rust/cleartext-logging: Cleartext logging of sensitive information",
+      "dismissed": "2026-10-21",
+      "reason": "used in tests — Assertion message in the #[cfg(test)] mod tests of secret_sources/azure.rs; it prints a mock-server error string for a missing secret, only in test runs.",
+      "by": "mpanichella"
     },
     {
       "id": "CQ-113",
       "source": "codeql",
       "severity": "HIGH",
       "kind": "Static analysis finding",
-      "component": "src-tauri",
+      "component": "src-tauri/src/notebook.rs",
       "found": "2026-10-21",
-      "status": "open"
+      "status": "dismissed",
+      "title": "CodeQL rust/cleartext-logging: Cleartext logging of sensitive information",
+      "dismissed": "2026-10-21",
+      "reason": "used in tests — Assertion in the #[cfg(test)] mod tests of notebook.rs that checks dummy markers ('tok-SECRET-1' etc.) are absent from exports; it prints only on failure in test runs.",
+      "by": "mpanichella"
     },
     {
       "id": "CQ-114",
       "source": "codeql",
       "severity": "HIGH",
       "kind": "Static analysis finding",
-      "component": "src-tauri",
+      "component": "src-tauri/src/secret_sources/accounts.rs",
       "found": "2026-10-21",
-      "status": "open"
+      "status": "dismissed",
+      "title": "CodeQL rust/cleartext-logging: Cleartext logging of sensitive information",
+      "dismissed": "2026-10-21",
+      "reason": "used in tests — Assertion message in the #[cfg(test)] mod tests of secret_sources/accounts.rs; the values are fixtures (dummy passphrases and API-key tokens) and are printed only on test failure.",
+      "by": "mpanichella"
     },
     {
       "id": "CQ-115",
       "source": "codeql",
       "severity": "HIGH",
       "kind": "Static analysis finding",
-      "component": "src-tauri",
+      "component": "src-tauri/src/secret_sources/accounts.rs",
       "found": "2026-10-21",
-      "status": "open"
+      "status": "dismissed",
+      "title": "CodeQL rust/cleartext-logging: Cleartext logging of sensitive information",
+      "dismissed": "2026-10-21",
+      "reason": "used in tests — Assertion message in the #[cfg(test)] mod tests of secret_sources/accounts.rs; the values are fixtures (dummy passphrases and API-key tokens) and are printed only on test failure.",
+      "by": "mpanichella"
     },
     {
       "id": "CQ-116",
       "source": "codeql",
       "severity": "HIGH",
       "kind": "Static analysis finding",
-      "component": "src-tauri",
+      "component": "src-tauri/src/secret_sources/bitwarden.rs",
       "found": "2026-10-21",
-      "status": "open"
+      "status": "dismissed",
+      "title": "CodeQL rust/cleartext-logging: Cleartext logging of sensitive information",
+      "dismissed": "2026-10-21",
+      "reason": "used in tests — Assertion message in the #[cfg(test)] mod tests of secret_sources/bitwarden.rs against a mock server with dummy credentials, printed only on test failure.",
+      "by": "mpanichella"
     },
     {
       "id": "CQ-117",
       "source": "codeql",
       "severity": "HIGH",
       "kind": "Static analysis finding",
-      "component": "src-tauri",
+      "component": "src-tauri/src/secret_sources/bitwarden.rs",
       "found": "2026-10-21",
-      "status": "open"
+      "status": "dismissed",
+      "title": "CodeQL rust/cleartext-logging: Cleartext logging of sensitive information",
+      "dismissed": "2026-10-21",
+      "reason": "used in tests — Assertion message in the #[cfg(test)] mod tests of secret_sources/bitwarden.rs against a mock server with dummy credentials, printed only on test failure.",
+      "by": "mpanichella"
     },
     {
       "id": "CQ-118",
       "source": "codeql",
       "severity": "HIGH",
       "kind": "Static analysis finding",
-      "component": "src-tauri",
+      "component": "src-tauri/src/secret_sources/bitwarden.rs",
       "found": "2026-10-21",
-      "status": "open"
+      "status": "dismissed",
+      "title": "CodeQL rust/cleartext-logging: Cleartext logging of sensitive information",
+      "dismissed": "2026-10-21",
+      "reason": "used in tests — Assertion message in the #[cfg(test)] mod tests of secret_sources/bitwarden.rs against a mock server with dummy credentials, printed only on test failure.",
+      "by": "mpanichella"
     },
     {
       "id": "CQ-119",
       "source": "codeql",
       "severity": "HIGH",
       "kind": "Static analysis finding",
-      "component": "src-tauri",
+      "component": "src-tauri/src/secret_sources/accounts.rs",
       "found": "2026-10-21",
-      "status": "open"
+      "status": "dismissed",
+      "title": "CodeQL rust/cleartext-logging: Cleartext logging of sensitive information",
+      "dismissed": "2026-10-21",
+      "reason": "used in tests — Assertion message in the #[cfg(test)] mod tests of secret_sources/accounts.rs; the values are fixtures (dummy passphrases and API-key tokens) and are printed only on test failure.",
+      "by": "mpanichella"
     },
     {
       "id": "CQ-120",
       "source": "codeql",
       "severity": "HIGH",
       "kind": "Static analysis finding",
-      "component": "src-tauri",
+      "component": "src-tauri/src/secret_sources/accounts.rs",
       "found": "2026-10-21",
-      "status": "open"
+      "status": "dismissed",
+      "title": "CodeQL rust/cleartext-logging: Cleartext logging of sensitive information",
+      "dismissed": "2026-10-21",
+      "reason": "used in tests — Assertion message in the #[cfg(test)] mod tests of secret_sources/accounts.rs; the values are fixtures (dummy passphrases and API-key tokens) and are printed only on test failure.",
+      "by": "mpanichella"
     },
     {
       "id": "CQ-121",
       "source": "codeql",
       "severity": "HIGH",
       "kind": "Static analysis finding",
-      "component": "src-tauri",
+      "component": "src-tauri/src/secret_sources/accounts.rs",
       "found": "2026-10-21",
-      "status": "open"
+      "status": "dismissed",
+      "title": "CodeQL rust/cleartext-logging: Cleartext logging of sensitive information",
+      "dismissed": "2026-10-21",
+      "reason": "used in tests — Assertion message in the #[cfg(test)] mod tests of secret_sources/accounts.rs; the values are fixtures (dummy passphrases and API-key tokens) and are printed only on test failure.",
+      "by": "mpanichella"
     },
     {
       "id": "CQ-122",
       "source": "codeql",
       "severity": "HIGH",
       "kind": "Static analysis finding",
-      "component": "src-tauri",
+      "component": "src-tauri/src/secret_sources/accounts.rs",
       "found": "2026-10-21",
-      "status": "open"
+      "status": "dismissed",
+      "title": "CodeQL rust/cleartext-logging: Cleartext logging of sensitive information",
+      "dismissed": "2026-10-21",
+      "reason": "used in tests — Assertion message in the #[cfg(test)] mod tests of secret_sources/accounts.rs; the values are fixtures (dummy passphrases and API-key tokens) and are printed only on test failure.",
+      "by": "mpanichella"
     },
     {
       "id": "CQ-123",
       "source": "codeql",
       "severity": "HIGH",
       "kind": "Static analysis finding",
-      "component": "src-tauri",
+      "component": "src-tauri/src/secret_sources/mod.rs",
       "found": "2026-10-21",
-      "status": "open"
+      "status": "dismissed",
+      "title": "CodeQL rust/cleartext-logging: Cleartext logging of sensitive information",
+      "dismissed": "2026-10-21",
+      "reason": "used in tests — Located in the #[cfg(test)] pub(crate) mod tests of secret_sources/mod.rs (lines 659-1424); values are test fixtures printed only in test runs.",
+      "by": "mpanichella"
     },
     {
       "id": "CQ-124",
       "source": "codeql",
       "severity": "HIGH",
       "kind": "Static analysis finding",
-      "component": "src-tauri",
+      "component": "src-tauri/src/secret_sources/mod.rs",
       "found": "2026-10-21",
-      "status": "open"
+      "status": "dismissed",
+      "title": "CodeQL rust/cleartext-logging: Cleartext logging of sensitive information",
+      "dismissed": "2026-10-21",
+      "reason": "used in tests — Located in the #[cfg(test)] pub(crate) mod tests of secret_sources/mod.rs (lines 659-1424); values are test fixtures printed only in test runs.",
+      "by": "mpanichella"
     },
     {
       "id": "CQ-125",
       "source": "codeql",
       "severity": "HIGH",
       "kind": "Static analysis finding",
-      "component": "src-tauri",
+      "component": "src-tauri/src/secret_sources/mod.rs",
       "found": "2026-10-21",
-      "status": "open"
+      "status": "dismissed",
+      "title": "CodeQL rust/cleartext-logging: Cleartext logging of sensitive information",
+      "dismissed": "2026-10-21",
+      "reason": "used in tests — Located in the #[cfg(test)] pub(crate) mod tests of secret_sources/mod.rs (lines 659-1424); values are test fixtures printed only in test runs.",
+      "by": "mpanichella"
     },
     {
       "id": "CQ-126",
       "source": "codeql",
       "severity": "HIGH",
       "kind": "Static analysis finding",
-      "component": "src-tauri",
+      "component": "src-tauri/src/secret_sources/mod.rs",
       "found": "2026-10-21",
-      "status": "open"
+      "status": "dismissed",
+      "title": "CodeQL rust/cleartext-logging: Cleartext logging of sensitive information",
+      "dismissed": "2026-10-21",
+      "reason": "used in tests — Located in the #[cfg(test)] pub(crate) mod tests of secret_sources/mod.rs (lines 659-1424); values are test fixtures printed only in test runs.",
+      "by": "mpanichella"
     },
     {
       "id": "CQ-127",
       "source": "codeql",
       "severity": "HIGH",
       "kind": "Static analysis finding",
-      "component": "src-tauri",
+      "component": "src-tauri/src/secret_sources/zoho.rs",
       "found": "2026-10-21",
-      "status": "open"
+      "status": "dismissed",
+      "title": "CodeQL rust/cleartext-logging: Cleartext logging of sensitive information",
+      "dismissed": "2026-10-21",
+      "reason": "used in tests — Located in the #[cfg(test)] mod tests of secret_sources/zoho.rs (mock server, dummy refresh token and test vectors); output only in test runs, and the asserts check secrets are absent.",
+      "by": "mpanichella"
     },
     {
       "id": "CQ-128",
       "source": "codeql",
       "severity": "HIGH",
       "kind": "Static analysis finding",
-      "component": "src-tauri",
+      "component": "src-tauri/src/secret_sources/zoho.rs",
       "found": "2026-10-21",
-      "status": "open"
+      "status": "dismissed",
+      "title": "CodeQL rust/cleartext-logging: Cleartext logging of sensitive information",
+      "dismissed": "2026-10-21",
+      "reason": "used in tests — Located in the #[cfg(test)] mod tests of secret_sources/zoho.rs (mock server, dummy refresh token and test vectors); output only in test runs, and the asserts check secrets are absent.",
+      "by": "mpanichella"
     },
     {
       "id": "CQ-129",
       "source": "codeql",
       "severity": "HIGH",
       "kind": "Static analysis finding",
-      "component": "src-tauri",
+      "component": "src-tauri/src/secret_sources/zoho.rs",
       "found": "2026-10-21",
-      "status": "open"
+      "status": "dismissed",
+      "title": "CodeQL rust/cleartext-logging: Cleartext logging of sensitive information",
+      "dismissed": "2026-10-21",
+      "reason": "used in tests — Located in the #[cfg(test)] mod tests of secret_sources/zoho.rs (mock server, dummy refresh token and test vectors); output only in test runs, and the asserts check secrets are absent.",
+      "by": "mpanichella"
     },
     {
       "id": "CQ-130",
       "source": "codeql",
       "severity": "HIGH",
       "kind": "Static analysis finding",
-      "component": "src-tauri",
+      "component": "src-tauri/src/secret_sources/zoho.rs",
       "found": "2026-10-21",
-      "status": "open"
+      "status": "dismissed",
+      "title": "CodeQL rust/cleartext-logging: Cleartext logging of sensitive information",
+      "dismissed": "2026-10-21",
+      "reason": "used in tests — Located in the #[cfg(test)] mod tests of secret_sources/zoho.rs (mock server, dummy refresh token and test vectors); output only in test runs, and the asserts check secrets are absent.",
+      "by": "mpanichella"
     },
     {
       "id": "CQ-131",
       "source": "codeql",
       "severity": "HIGH",
       "kind": "Static analysis finding",
-      "component": "src-tauri",
+      "component": "src-tauri/src/secret_sources/zoho.rs",
       "found": "2026-10-21",
-      "status": "open"
+      "status": "dismissed",
+      "title": "CodeQL rust/cleartext-logging: Cleartext logging of sensitive information",
+      "dismissed": "2026-10-21",
+      "reason": "used in tests — Located in the #[cfg(test)] mod tests of secret_sources/zoho.rs (mock server, dummy refresh token and test vectors); output only in test runs, and the asserts check secrets are absent.",
+      "by": "mpanichella"
     },
     {
       "id": "CQ-132",
       "source": "codeql",
       "severity": "HIGH",
       "kind": "Static analysis finding",
-      "component": "crates/dbine-plugin-host",
+      "component": "crates/dbine-plugin-host/tests/newer_app.rs",
       "found": "2026-10-21",
-      "status": "open"
+      "status": "dismissed",
+      "title": "CodeQL rust/cleartext-logging: Cleartext logging of sensitive information",
+      "dismissed": "2026-10-21",
+      "reason": "used in tests — The flagged assert! message at crates/dbine-plugin-host/tests/newer_app.rs:40 is in an integration test under a tests/ directory, which is not compiled into the app, and it only prints test fixture values (SQL text, error or fixture data) when that test fails.",
+      "by": "mpanichella"
     },
     {
       "id": "CQ-133",
       "source": "codeql",
       "severity": "HIGH",
       "kind": "Static analysis finding",
-      "component": "crates/dbine-plugin-host",
+      "component": "crates/dbine-plugin-host/tests/newer_app.rs",
       "found": "2026-10-21",
-      "status": "open"
+      "status": "dismissed",
+      "title": "CodeQL rust/cleartext-logging: Cleartext logging of sensitive information",
+      "dismissed": "2026-10-21",
+      "reason": "used in tests — The flagged assert! message at crates/dbine-plugin-host/tests/newer_app.rs:41 is in an integration test under a tests/ directory, which is not compiled into the app, and it only prints test fixture values (SQL text, error or fixture data) when that test fails.",
+      "by": "mpanichella"
     },
     {
       "id": "CQ-134",
       "source": "codeql",
       "severity": "HIGH",
       "kind": "Static analysis finding",
-      "component": "crates/dbine-plugin",
+      "component": "crates/dbine-plugin/src/proto.rs",
       "found": "2026-10-21",
-      "status": "open"
+      "status": "dismissed",
+      "title": "CodeQL rust/cleartext-logging: Cleartext logging of sensitive information",
+      "dismissed": "2026-10-21",
+      "reason": "used in tests — The flagged panic! message at crates/dbine-plugin/src/proto.rs:899 is inside the #[cfg(test)] mod tests at the end of the file, so it is not compiled into the shipped app and only prints hard-coded test fixtures (names, SQL text, dates or error kinds) when that unit test fails.",
+      "by": "mpanichella"
     },
     {
       "id": "CQ-135",
       "source": "codeql",
       "severity": "HIGH",
       "kind": "Static analysis finding",
-      "component": "crates/dbine-plugin",
+      "component": "crates/dbine-plugin/src/proto.rs",
       "found": "2026-10-21",
-      "status": "open"
+      "status": "dismissed",
+      "title": "CodeQL rust/cleartext-logging: Cleartext logging of sensitive information",
+      "dismissed": "2026-10-21",
+      "reason": "used in tests — The flagged assert! message at crates/dbine-plugin/src/proto.rs:924 is inside the #[cfg(test)] mod tests at the end of the file, so it is not compiled into the shipped app and only prints hard-coded test fixtures (names, SQL text, dates or error kinds) when that unit test fails.",
+      "by": "mpanichella"
     },
     {
       "id": "CQ-136",
       "source": "codeql",
       "severity": "HIGH",
       "kind": "Static analysis finding",
-      "component": "crates/dbine-plugin",
+      "component": "crates/dbine-plugin/src/proto.rs",
       "found": "2026-10-21",
-      "status": "open"
+      "status": "dismissed",
+      "title": "CodeQL rust/cleartext-logging: Cleartext logging of sensitive information",
+      "dismissed": "2026-10-21",
+      "reason": "used in tests — The flagged panic! message at crates/dbine-plugin/src/proto.rs:937 is inside the #[cfg(test)] mod tests at the end of the file, so it is not compiled into the shipped app and only prints hard-coded test fixtures (names, SQL text, dates or error kinds) when that unit test fails.",
+      "by": "mpanichella"
     },
     {
       "id": "CQ-137",
       "source": "codeql",
       "severity": "HIGH",
       "kind": "Static analysis finding",
-      "component": "crates/drivers/cassandra",
+      "component": "crates/drivers/cassandra/tests/security.rs",
       "found": "2026-10-21",
-      "status": "open"
+      "status": "dismissed",
+      "title": "CodeQL rust/cleartext-logging: Cleartext logging of sensitive information",
+      "dismissed": "2026-10-21",
+      "reason": "used in tests — The flagged assert! message at crates/drivers/cassandra/tests/security.rs:28 is in an integration test under a tests/ directory, which is not compiled into the app, and it only prints test fixture values (SQL text, error or fixture data) when that test fails.",
+      "by": "mpanichella"
     },
     {
       "id": "CQ-138",
       "source": "codeql",
       "severity": "HIGH",
       "kind": "Static analysis finding",
-      "component": "crates/drivers/cassandra",
+      "component": "crates/drivers/cassandra/src/transfer.rs",
       "found": "2026-10-21",
-      "status": "open"
+      "status": "dismissed",
+      "title": "CodeQL rust/cleartext-logging: Cleartext logging of sensitive information",
+      "dismissed": "2026-10-21",
+      "reason": "used in tests — The flagged panic! message at crates/drivers/cassandra/src/transfer.rs:1238 is inside the #[cfg(test)] mod tests at the end of the file, so it is not compiled into the shipped app and only prints hard-coded test fixtures (names, SQL text, dates or error kinds) when that unit test",
+      "by": "mpanichella"
     },
     {
       "id": "CQ-139",
       "source": "codeql",
       "severity": "HIGH",
       "kind": "Static analysis finding",
-      "component": "crates/drivers/cassandra",
+      "component": "crates/drivers/cassandra/src/transfer.rs",
       "found": "2026-10-21",
-      "status": "open"
+      "status": "dismissed",
+      "title": "CodeQL rust/cleartext-logging: Cleartext logging of sensitive information",
+      "dismissed": "2026-10-21",
+      "reason": "used in tests — The flagged assert! message at crates/drivers/cassandra/src/transfer.rs:1239 is inside the #[cfg(test)] mod tests at the end of the file, so it is not compiled into the shipped app and only prints hard-coded test fixtures (names, SQL text, dates or error kinds) when that unit tes",
+      "by": "mpanichella"
     },
     {
       "id": "CQ-140",
       "source": "codeql",
       "severity": "HIGH",
       "kind": "Static analysis finding",
-      "component": "crates/drivers/clickhouse",
+      "component": "crates/drivers/clickhouse/tests/security.rs",
       "found": "2026-10-21",
-      "status": "open"
+      "status": "dismissed",
+      "title": "CodeQL rust/cleartext-logging: Cleartext logging of sensitive information",
+      "dismissed": "2026-10-21",
+      "reason": "used in tests — The flagged assert! message at crates/drivers/clickhouse/tests/security.rs:23 is in an integration test under a tests/ directory, which is not compiled into the app, and it only prints test fixture values (SQL text, error or fixture data) when that test fails.",
+      "by": "mpanichella"
     },
     {
       "id": "CQ-141",
       "source": "codeql",
       "severity": "HIGH",
       "kind": "Static analysis finding",
-      "component": "crates/drivers/databricks",
+      "component": "crates/drivers/databricks/src/lib.rs",
       "found": "2026-10-21",
-      "status": "open"
+      "status": "dismissed",
+      "title": "CodeQL rust/cleartext-logging: Cleartext logging of sensitive information",
+      "dismissed": "2026-10-21",
+      "reason": "used in tests — The flagged assert! message at crates/drivers/databricks/src/lib.rs:1100 is inside the #[cfg(test)] mod tests at the end of the file, so it is not compiled into the shipped app and only prints hard-coded test fixtures (names, SQL text, dates or error kinds) when that unit test fa",
+      "by": "mpanichella"
     },
     {
       "id": "CQ-142",
       "source": "codeql",
       "severity": "HIGH",
       "kind": "Static analysis finding",
-      "component": "crates/drivers/dynamodb",
+      "component": "crates/drivers/dynamodb/src/transfer.rs",
       "found": "2026-10-21",
-      "status": "open"
+      "status": "dismissed",
+      "title": "CodeQL rust/cleartext-logging: Cleartext logging of sensitive information",
+      "dismissed": "2026-10-21",
+      "reason": "used in tests — The flagged assert! message at crates/drivers/dynamodb/src/transfer.rs:1324 is inside the #[cfg(test)] mod tests at the end of the file, so it is not compiled into the shipped app and only prints hard-coded test fixtures (names, SQL text, dates or error kinds) when that unit test",
+      "by": "mpanichella"
     },
     {
       "id": "CQ-143",
       "source": "codeql",
       "severity": "HIGH",
       "kind": "Static analysis finding",
-      "component": "crates/drivers/elasticsearch",
+      "component": "crates/drivers/elasticsearch/tests/security.rs",
       "found": "2026-10-21",
-      "status": "open"
+      "status": "dismissed",
+      "title": "CodeQL rust/cleartext-logging: Cleartext logging of sensitive information",
+      "dismissed": "2026-10-21",
+      "reason": "used in tests — The flagged assert! message at crates/drivers/elasticsearch/tests/security.rs:45 is in an integration test under a tests/ directory, which is not compiled into the app, and it only prints test fixture values (SQL text, error or fixture data) when that test fails.",
+      "by": "mpanichella"
     },
     {
       "id": "CQ-144",
       "source": "codeql",
       "severity": "HIGH",
       "kind": "Static analysis finding",
-      "component": "crates/drivers/influxdb",
+      "component": "crates/drivers/influxdb/tests/security.rs",
       "found": "2026-10-21",
-      "status": "open"
+      "status": "dismissed",
+      "title": "CodeQL rust/cleartext-logging: Cleartext logging of sensitive information",
+      "dismissed": "2026-10-21",
+      "reason": "used in tests — The flagged assert! message at crates/drivers/influxdb/tests/security.rs:34 is in an integration test under a tests/ directory, which is not compiled into the app, and it only prints test fixture values (SQL text, error or fixture data) when that test fails.",
+      "by": "mpanichella"
     },
     {
       "id": "CQ-145",
       "source": "codeql",
       "severity": "HIGH",
       "kind": "Static analysis finding",
-      "component": "crates/drivers/postgres",
+      "component": "crates/drivers/postgres/src/cloud_auth.rs",
       "found": "2026-10-21",
-      "status": "open"
+      "status": "dismissed",
+      "title": "CodeQL rust/cleartext-logging: Cleartext logging of sensitive information",
+      "dismissed": "2026-10-21",
+      "reason": "used in tests — The flagged assert! message at crates/drivers/postgres/src/cloud_auth.rs:1349 is inside the #[cfg(test)] mod tests at the end of the file, so it is not compiled into the shipped app and only prints hard-coded test fixtures (names, SQL text, dates or error kinds) when that unit te",
+      "by": "mpanichella"
     },
     {
       "id": "CQ-146",
       "source": "codeql",
       "severity": "HIGH",
       "kind": "Static analysis finding",
-      "component": "crates/drivers/odbc",
+      "component": "crates/drivers/odbc/src/lib.rs",
       "found": "2026-10-21",
-      "status": "open"
+      "status": "dismissed",
+      "title": "CodeQL rust/cleartext-logging: Cleartext logging of sensitive information",
+      "dismissed": "2026-10-21",
+      "reason": "used in tests — The flagged assert_eq! message at crates/drivers/odbc/src/lib.rs:1747 is inside the #[cfg(test)] mod tests at the end of the file, so it is not compiled into the shipped app and only prints hard-coded test fixtures (names, SQL text, dates or error kinds) when that unit test fails",
+      "by": "mpanichella"
     },
     {
       "id": "CQ-147",
       "source": "codeql",
       "severity": "HIGH",
       "kind": "Static analysis finding",
-      "component": "crates/drivers/phoenix",
+      "component": "crates/drivers/phoenix/src/lib.rs",
       "found": "2026-10-21",
-      "status": "open"
+      "status": "dismissed",
+      "title": "CodeQL rust/cleartext-logging: Cleartext logging of sensitive information",
+      "dismissed": "2026-10-21",
+      "reason": "used in tests — The flagged assert_eq! message at crates/drivers/phoenix/src/lib.rs:1130 is inside the #[cfg(test)] mod tests at the end of the file, so it is not compiled into the shipped app and only prints hard-coded test fixtures (names, SQL text, dates or error kinds) when that unit test fa",
+      "by": "mpanichella"
     },
     {
       "id": "CQ-148",
       "source": "codeql",
       "severity": "HIGH",
       "kind": "Static analysis finding",
-      "component": "crates/drivers/postgres",
+      "component": "crates/drivers/postgres/src/lib.rs",
       "found": "2026-10-21",
-      "status": "open"
+      "status": "dismissed",
+      "title": "CodeQL rust/cleartext-logging: Cleartext logging of sensitive information",
+      "dismissed": "2026-10-21",
+      "reason": "used in tests — The flagged assert_eq! message at crates/drivers/postgres/src/lib.rs:941 is inside the #[cfg(test)] mod tests at the end of the file, so it is not compiled into the shipped app and only prints hard-coded test fixtures (names, SQL text, dates or error kinds) when that unit test fa",
+      "by": "mpanichella"
     },
     {
       "id": "CQ-149",
       "source": "codeql",
       "severity": "HIGH",
       "kind": "Static analysis finding",
-      "component": "crates/drivers/snowflake",
+      "component": "crates/drivers/snowflake/src/lib.rs",
       "found": "2026-10-21",
-      "status": "open"
+      "status": "dismissed",
+      "title": "CodeQL rust/cleartext-logging: Cleartext logging of sensitive information",
+      "dismissed": "2026-10-21",
+      "reason": "used in tests — The flagged assert_eq! message at crates/drivers/snowflake/src/lib.rs:1342 is inside the #[cfg(test)] mod tests at the end of the file, so it is not compiled into the shipped app and only prints hard-coded test fixtures (names, SQL text, dates or error kinds) when that unit test ",
+      "by": "mpanichella"
     },
     {
       "id": "CQ-150",
       "source": "codeql",
       "severity": "HIGH",
       "kind": "Static analysis finding",
-      "component": "crates/drivers/spanner",
+      "component": "crates/drivers/spanner/src/lib.rs",
       "found": "2026-10-21",
-      "status": "open"
+      "status": "dismissed",
+      "title": "CodeQL rust/cleartext-logging: Cleartext logging of sensitive information",
+      "dismissed": "2026-10-21",
+      "reason": "used in tests — Assertion message inside the #[cfg(test)] mod tests of the Spanner driver; it formats a driver id and a GRANT script result for the fixed role 'ana', only in test output.",
+      "by": "mpanichella"
     },
     {
       "id": "CQ-151",
       "source": "codeql",
       "severity": "HIGH",
       "kind": "Static analysis finding",
-      "component": "crates/drivers/sqlserver",
+      "component": "crates/drivers/sqlserver/src/lib.rs",
       "found": "2026-10-21",
-      "status": "open"
+      "status": "dismissed",
+      "title": "CodeQL rust/cleartext-logging: Cleartext logging of sensitive information",
+      "dismissed": "2026-10-21",
+      "reason": "used in tests — Assertion message inside the #[cfg(test)] mod tests of the SQL Server driver; it formats a driver id and a GRANT script result for the fixed role 'ana', only in test output.",
+      "by": "mpanichella"
     },
     {
       "id": "CQ-152",
       "source": "codeql",
       "severity": "HIGH",
       "kind": "Static analysis finding",
-      "component": "crates/drivers/sqlserver",
+      "component": "crates/drivers/sqlserver/src/transfer.rs",
       "found": "2026-10-21",
-      "status": "open"
+      "status": "dismissed",
+      "title": "CodeQL rust/cleartext-logging: Cleartext logging of sensitive information",
+      "dismissed": "2026-10-21",
+      "reason": "used in tests — assert_eq! message in the #[cfg(test)] mod tests of sqlserver/transfer.rs that prints a round-tripped Cell from a fixed test value, only in test output.",
+      "by": "mpanichella"
     },
     {
       "id": "CQ-153",
       "source": "codeql",
       "severity": "HIGH",
       "kind": "Static analysis finding",
-      "component": "crates/drivers/trino",
+      "component": "crates/drivers/trino/src/lib.rs",
       "found": "2026-10-21",
-      "status": "open"
+      "status": "dismissed",
+      "title": "CodeQL rust/cleartext-logging: Cleartext logging of sensitive information",
+      "dismissed": "2026-10-21",
+      "reason": "used in tests — Assertion message inside the #[cfg(test)] mod tests of the Trino driver; it formats a driver id and a GRANT script result for the fixed role 'ana', only in test output.",
+      "by": "mpanichella"
     },
     {
       "id": "CQ-154",
       "source": "codeql",
       "severity": "HIGH",
       "kind": "Static analysis finding",
-      "component": "src-tauri",
+      "component": "src-tauri/src/secret_sources/accounts.rs",
       "found": "2026-10-21",
-      "status": "open"
+      "status": "dismissed",
+      "title": "CodeQL rust/cleartext-logging: Cleartext logging of sensitive information",
+      "dismissed": "2026-10-21",
+      "reason": "used in tests — Assertion message in the #[cfg(test)] mod tests of secret_sources/accounts.rs; the values are fixtures (dummy passphrases and API-key tokens) and are printed only on test failure.",
+      "by": "mpanichella"
     },
     {
       "id": "CQ-155",
       "source": "codeql",
       "severity": "HIGH",
       "kind": "Static analysis finding",
-      "component": "crates/drivers/cassandra",
+      "component": "crates/drivers/cassandra/src/transfer.rs",
       "found": "2026-10-21",
-      "status": "open"
+      "status": "dismissed",
+      "title": "CodeQL rust/cleartext-logging: Cleartext logging of sensitive information",
+      "dismissed": "2026-10-21",
+      "reason": "used in tests — The flagged assert_eq! message at crates/drivers/cassandra/src/transfer.rs:1227 is inside the #[cfg(test)] mod tests at the end of the file, so it is not compiled into the shipped app and only prints hard-coded test fixtures (names, SQL text, dates or error kinds) when that unit ",
+      "by": "mpanichella"
     },
     {
       "id": "CQ-156",
       "source": "codeql",
       "severity": "HIGH",
       "kind": "Static analysis finding",
-      "component": "crates/drivers/cassandra",
+      "component": "crates/drivers/cassandra/src/transfer.rs",
       "found": "2026-10-21",
-      "status": "open"
+      "status": "dismissed",
+      "title": "CodeQL rust/cleartext-logging: Cleartext logging of sensitive information",
+      "dismissed": "2026-10-21",
+      "reason": "used in tests — The flagged assert_eq! message at crates/drivers/cassandra/src/transfer.rs:1240 is inside the #[cfg(test)] mod tests at the end of the file, so it is not compiled into the shipped app and only prints hard-coded test fixtures (names, SQL text, dates or error kinds) when that unit ",
+      "by": "mpanichella"
     },
     {
       "id": "CQ-157",
       "source": "codeql",
       "severity": "HIGH",
       "kind": "Static analysis finding",
-      "component": "crates/drivers/couchbase",
+      "component": "crates/drivers/couchbase/src/lib.rs",
       "found": "2026-10-21",
-      "status": "open"
+      "status": "dismissed",
+      "title": "CodeQL rust/cleartext-logging: Cleartext logging of sensitive information",
+      "dismissed": "2026-10-21",
+      "reason": "used in tests — The flagged assert_eq! message at crates/drivers/couchbase/src/lib.rs:1342 is inside the #[cfg(test)] mod tests at the end of the file, so it is not compiled into the shipped app and only prints hard-coded test fixtures (names, SQL text, dates or error kinds) when that unit test ",
+      "by": "mpanichella"
     },
     {
       "id": "CQ-158",
       "source": "codeql",
       "severity": "HIGH",
       "kind": "Static analysis finding",
-      "component": "crates/drivers/databricks",
+      "component": "crates/drivers/databricks/src/lib.rs",
       "found": "2026-10-21",
-      "status": "open"
+      "status": "dismissed",
+      "title": "CodeQL rust/cleartext-logging: Cleartext logging of sensitive information",
+      "dismissed": "2026-10-21",
+      "reason": "used in tests — The flagged assert_eq! message at crates/drivers/databricks/src/lib.rs:1087 is inside the #[cfg(test)] mod tests at the end of the file, so it is not compiled into the shipped app and only prints hard-coded test fixtures (names, SQL text, dates or error kinds) when that unit test",
+      "by": "mpanichella"
     },
     {
       "id": "CQ-159",
       "source": "codeql",
       "severity": "HIGH",
       "kind": "Static analysis finding",
-      "component": "crates/drivers/dremio",
+      "component": "crates/drivers/dremio/src/lib.rs",
       "found": "2026-10-21",
-      "status": "open"
+      "status": "dismissed",
+      "title": "CodeQL rust/cleartext-logging: Cleartext logging of sensitive information",
+      "dismissed": "2026-10-21",
+      "reason": "used in tests — The flagged assert_eq! message at crates/drivers/dremio/src/lib.rs:1026 is inside the #[cfg(test)] mod tests at the end of the file, so it is not compiled into the shipped app and only prints hard-coded test fixtures (names, SQL text, dates or error kinds) when that unit test fai",
+      "by": "mpanichella"
     },
     {
       "id": "CQ-160",
       "source": "codeql",
       "severity": "HIGH",
       "kind": "Static analysis finding",
-      "component": "crates/drivers/dsql",
+      "component": "crates/drivers/dsql/src/lib.rs",
       "found": "2026-10-21",
-      "status": "open"
+      "status": "dismissed",
+      "title": "CodeQL rust/cleartext-logging: Cleartext logging of sensitive information",
+      "dismissed": "2026-10-21",
+      "reason": "used in tests — The flagged assert_eq! message at crates/drivers/dsql/src/lib.rs:1050 is inside the #[cfg(test)] mod tests at the end of the file, so it is not compiled into the shipped app and only prints hard-coded test fixtures (names, SQL text, dates or error kinds) when that unit test fails",
+      "by": "mpanichella"
     },
     {
       "id": "CQ-161",
       "source": "codeql",
       "severity": "HIGH",
       "kind": "Static analysis finding",
-      "component": "crates/drivers/elasticsearch",
+      "component": "crates/drivers/elasticsearch/src/security.rs",
       "found": "2026-10-21",
-      "status": "open"
+      "status": "dismissed",
+      "title": "CodeQL rust/cleartext-logging: Cleartext logging of sensitive information",
+      "dismissed": "2026-10-21",
+      "reason": "used in tests — The flagged assert_eq! message at crates/drivers/elasticsearch/src/security.rs:497 is inside the #[cfg(test)] mod tests at the end of the file, so it is not compiled into the shipped app and only prints hard-coded test fixtures (names, SQL text, dates or error kinds) when that un",
+      "by": "mpanichella"
     },
     {
       "id": "CQ-162",
       "source": "codeql",
       "severity": "HIGH",
       "kind": "Static analysis finding",
-      "component": "crates/drivers/phoenix",
+      "component": "crates/drivers/phoenix/tests/integration.rs",
       "found": "2026-10-21",
-      "status": "open"
+      "status": "dismissed",
+      "title": "CodeQL rust/cleartext-logging: Cleartext logging of sensitive information",
+      "dismissed": "2026-10-21",
+      "reason": "used in tests — The flagged assert! message at crates/drivers/phoenix/tests/integration.rs:430 is in an integration test under a tests/ directory, which is not compiled into the app, and it only prints test fixture values (SQL text, error or fixture data) when that test fails.",
+      "by": "mpanichella"
     },
     {
       "id": "CQ-163",
       "source": "codeql",
       "severity": "HIGH",
       "kind": "Static analysis finding",
-      "component": "crates/drivers/phoenix",
+      "component": "crates/drivers/phoenix/tests/integration.rs",
       "found": "2026-10-21",
-      "status": "open"
+      "status": "dismissed",
+      "title": "CodeQL rust/cleartext-logging: Cleartext logging of sensitive information",
+      "dismissed": "2026-10-21",
+      "reason": "used in tests — The flagged assert! message at crates/drivers/phoenix/tests/integration.rs:431 is in an integration test under a tests/ directory, which is not compiled into the app, and it only prints test fixture values (SQL text, error or fixture data) when that test fails.",
+      "by": "mpanichella"
     },
     {
       "id": "CQ-164",
       "source": "codeql",
       "severity": "HIGH",
       "kind": "Static analysis finding",
-      "component": "crates/drivers/sqlserver",
+      "component": "crates/drivers/sqlserver/src/cancel_live.rs",
       "found": "2026-10-21",
-      "status": "open"
+      "status": "dismissed",
+      "title": "CodeQL rust/cleartext-logging: Cleartext logging of sensitive information",
+      "dismissed": "2026-10-21",
+      "reason": "used in tests — cancel_live.rs is declared as #[cfg(test)] mod cancel_live (an ignored live test); the eprintln prints the env var name and SQL Server session ids, never the URL or password.",
+      "by": "mpanichella"
     },
     {
       "id": "CQ-165",
       "source": "codeql",
       "severity": "HIGH",
       "kind": "Static analysis finding",
-      "component": "src-tauri",
+      "component": "src-tauri/src/secret_sources/accounts.rs",
       "found": "2026-10-21",
-      "status": "open"
+      "status": "dismissed",
+      "title": "CodeQL rust/cleartext-logging: Cleartext logging of sensitive information",
+      "dismissed": "2026-10-21",
+      "reason": "used in tests — Assertion message in the #[cfg(test)] mod tests of secret_sources/accounts.rs; the values are fixtures (dummy passphrases and API-key tokens) and are printed only on test failure.",
+      "by": "mpanichella"
     },
     {
       "id": "CQ-166",
       "source": "codeql",
       "severity": "HIGH",
       "kind": "Static analysis finding",
-      "component": "src-tauri",
+      "component": "src-tauri/src/secret_sources/accounts.rs",
       "found": "2026-10-21",
-      "status": "open"
+      "status": "dismissed",
+      "title": "CodeQL rust/cleartext-logging: Cleartext logging of sensitive information",
+      "dismissed": "2026-10-21",
+      "reason": "used in tests — Assertion message in the #[cfg(test)] mod tests of secret_sources/accounts.rs; the values are fixtures (dummy passphrases and API-key tokens) and are printed only on test failure.",
+      "by": "mpanichella"
     },
     {
       "id": "CQ-167",
       "source": "codeql",
       "severity": "HIGH",
       "kind": "Static analysis finding",
-      "component": "src-tauri",
+      "component": "src-tauri/src/secret_sources/accounts.rs",
       "found": "2026-10-21",
-      "status": "open"
+      "status": "dismissed",
+      "title": "CodeQL rust/cleartext-logging: Cleartext logging of sensitive information",
+      "dismissed": "2026-10-21",
+      "reason": "used in tests — Assertion message in the #[cfg(test)] mod tests of secret_sources/accounts.rs; the values are fixtures (dummy passphrases and API-key tokens) and are printed only on test failure.",
+      "by": "mpanichella"
     },
     {
       "id": "CQ-168",
       "source": "codeql",
       "severity": "HIGH",
       "kind": "Static analysis finding",
-      "component": "src-tauri",
+      "component": "src-tauri/src/secret_sources/accounts.rs",
       "found": "2026-10-21",
-      "status": "open"
+      "status": "dismissed",
+      "title": "CodeQL rust/cleartext-logging: Cleartext logging of sensitive information",
+      "dismissed": "2026-10-21",
+      "reason": "used in tests — Assertion message in the #[cfg(test)] mod tests of secret_sources/accounts.rs; the values are fixtures (dummy passphrases and API-key tokens) and are printed only on test failure.",
+      "by": "mpanichella"
     },
     {
       "id": "CQ-169",
       "source": "codeql",
       "severity": "HIGH",
       "kind": "Static analysis finding",
-      "component": "src-tauri",
+      "component": "src-tauri/src/secret_sources/mod.rs",
       "found": "2026-10-21",
-      "status": "open"
+      "status": "dismissed",
+      "title": "CodeQL rust/cleartext-logging: Cleartext logging of sensitive information",
+      "dismissed": "2026-10-21",
+      "reason": "used in tests — Located in the #[cfg(test)] pub(crate) mod tests of secret_sources/mod.rs (lines 659-1424); values are test fixtures printed only in test runs.",
+      "by": "mpanichella"
     },
     {
       "id": "CQ-170",
       "source": "codeql",
       "severity": "HIGH",
       "kind": "Static analysis finding",
-      "component": "src-tauri",
+      "component": "src-tauri/src/secret_sources/gcp.rs",
       "found": "2026-10-21",
-      "status": "open"
+      "status": "dismissed",
+      "title": "CodeQL rust/cleartext-logging: Cleartext logging of sensitive information",
+      "dismissed": "2026-10-21",
+      "reason": "false positive — The flagged line inserts a gcloud account e-mail and an active flag into the list returned to the connection wizard (from 'gcloud config list'/'gcloud auth list'); no token or secret is read there and nothing is logged.",
+      "by": "mpanichella"
     },
     {
       "id": "CQ-171",
       "source": "codeql",
       "severity": "HIGH",
       "kind": "Static analysis finding",
-      "component": "crates/drivers/postgres",
+      "component": "crates/drivers/postgres/src/session.rs",
       "found": "2026-10-21",
-      "status": "open"
+      "status": "dismissed",
+      "title": "CodeQL rust/cleartext-storage-database: Cleartext storage of sensitive information in a database",
+      "dismissed": "2026-10-21",
+      "reason": "false positive — with_password is a catalog query that returns only the boolean 'a.rolpassword IS NOT NULL' (whether a role has a password) to list users; no password or hash is read, sent or stored.",
+      "by": "mpanichella"
     },
     {
       "id": "CQ-172",
       "source": "codeql",
       "severity": "HIGH",
       "kind": "Static analysis finding",
-      "component": "crates/drivers/mysql",
+      "component": "crates/drivers/mysql/src/session.rs",
       "found": "2026-10-21",
-      "status": "open"
+      "status": "dismissed",
+      "title": "CodeQL rust/cleartext-storage-database: Cleartext storage of sensitive information in a database",
+      "dismissed": "2026-10-21",
+      "reason": "false positive — The flagged values are a numeric MySQL connection id (session_id parses to u64) and quoted account names (user@host) sent as SQL to the user's own database for KILL/user-management statements; no secret is stored by DBine there.",
+      "by": "mpanichella"
     },
     {
       "id": "CQ-173",
       "source": "codeql",
       "severity": "HIGH",
       "kind": "Static analysis finding",
-      "component": "src-tauri",
+      "component": "src-tauri/src/secret_sources/zoho.rs",
       "found": "2026-10-21",
-      "status": "open"
+      "status": "dismissed",
+      "title": "CodeQL rust/cleartext-transmission: Cleartext transmission of sensitive information",
+      "dismissed": "2026-10-21",
+      "reason": "false positive — ep.accounts comes from Endpoints::of, which always builds https:// URLs from Zoho's fixed data-centre hosts, and every production client for these calls is built with https_only(true) and no redirects; http:// endpoints appear only in the in-test mock server.",
+      "by": "mpanichella"
     },
     {
       "id": "CQ-174",
       "source": "codeql",
       "severity": "HIGH",
       "kind": "Static analysis finding",
-      "component": "src-tauri",
+      "component": "src-tauri/src/secret_sources/zoho.rs",
       "found": "2026-10-21",
-      "status": "open"
+      "status": "dismissed",
+      "title": "CodeQL rust/cleartext-transmission: Cleartext transmission of sensitive information",
+      "dismissed": "2026-10-21",
+      "reason": "false positive — revoke_with is called only with an accounts base built as format!(\"https://{host}\") from Zoho's fixed host list and through zoho::https_client(), which sets https_only(true) and disables redirects; the http:// bases exist only in the test mock server.",
+      "by": "mpanichella"
     },
     {
       "id": "CQ-175",
       "source": "codeql",
       "severity": "CRITICAL",
       "kind": "Static analysis finding",
-      "component": "crates/drivers/sqlserver",
+      "component": "crates/drivers/sqlserver/src/entra.rs",
       "found": "2026-10-21",
-      "status": "open"
+      "status": "dismissed",
+      "title": "CodeQL rust/hard-coded-cryptographic-value: Hard-coded cryptographic value",
+      "dismissed": "2026-10-21",
+      "reason": "false positive — Not a password: the public Microsoft Entra sign-in host URL (login.microsoftonline.com) used to build OAuth and realm-discovery URLs.",
+      "by": "mpanichella"
     },
     {
       "id": "CQ-176",
       "source": "codeql",
       "severity": "CRITICAL",
       "kind": "Static analysis finding",
-      "component": "crates/drivers/sqlserver",
+      "component": "crates/drivers/sqlserver/src/lib.rs",
       "found": "2026-10-21",
-      "status": "open"
+      "status": "dismissed",
+      "title": "CodeQL rust/hard-coded-cryptographic-value: Hard-coded cryptographic value",
+      "dismissed": "2026-10-21",
+      "reason": "used in tests — Test-only fixture: a dummy password used to check auth-method parsing in the #[cfg(test)] module.",
+      "by": "mpanichella"
     },
     {
       "id": "CQ-177",
       "source": "codeql",
       "severity": "CRITICAL",
       "kind": "Static analysis finding",
-      "component": "crates/drivers/sqlserver",
+      "component": "crates/drivers/sqlserver/src/lib.rs",
       "found": "2026-10-21",
-      "status": "open"
+      "status": "dismissed",
+      "title": "CodeQL rust/hard-coded-cryptographic-value: Hard-coded cryptographic value",
+      "dismissed": "2026-10-21",
+      "reason": "used in tests — Test-only fixture: a dummy password used to check auth-method parsing in the #[cfg(test)] module.",
+      "by": "mpanichella"
     },
     {
       "id": "CQ-178",
       "source": "codeql",
       "severity": "CRITICAL",
       "kind": "Static analysis finding",
-      "component": "src-tauri",
+      "component": "src-tauri/src/commands/security.rs",
       "found": "2026-10-21",
-      "status": "open"
+      "status": "dismissed",
+      "title": "CodeQL rust/hard-coded-cryptographic-value: Hard-coded cryptographic value",
+      "dismissed": "2026-10-21",
+      "reason": "used in tests — Test-only fixture: a dummy password used to check that scripts hide it, in the #[cfg(test)] module.",
+      "by": "mpanichella"
     },
     {
       "id": "CQ-179",
       "source": "codeql",
       "severity": "CRITICAL",
       "kind": "Static analysis finding",
-      "component": "src-tauri",
+      "component": "src-tauri/src/secret_sources/bitwarden.rs",
       "found": "2026-10-21",
-      "status": "open"
+      "status": "dismissed",
+      "title": "CodeQL rust/hard-coded-cryptographic-value: Hard-coded cryptographic value",
+      "dismissed": "2026-10-21",
+      "reason": "used in tests — Test-only fixture: dummy passwords and API secrets against a mock Bitwarden server in the #[cfg(test)] module.",
+      "by": "mpanichella"
     },
     {
       "id": "CQ-180",
       "source": "codeql",
       "severity": "CRITICAL",
       "kind": "Static analysis finding",
-      "component": "src-tauri",
+      "component": "src-tauri/src/secret_sources/bitwarden.rs",
       "found": "2026-10-21",
-      "status": "open"
+      "status": "dismissed",
+      "title": "CodeQL rust/hard-coded-cryptographic-value: Hard-coded cryptographic value",
+      "dismissed": "2026-10-21",
+      "reason": "used in tests — Test-only fixture: dummy passwords and API secrets against a mock Bitwarden server in the #[cfg(test)] module.",
+      "by": "mpanichella"
     },
     {
       "id": "CQ-181",
       "source": "codeql",
       "severity": "CRITICAL",
       "kind": "Static analysis finding",
-      "component": "src-tauri",
+      "component": "src-tauri/src/secret_sources/bitwarden.rs",
       "found": "2026-10-21",
-      "status": "open"
+      "status": "dismissed",
+      "title": "CodeQL rust/hard-coded-cryptographic-value: Hard-coded cryptographic value",
+      "dismissed": "2026-10-21",
+      "reason": "used in tests — Test-only fixture: dummy passwords and API secrets against a mock Bitwarden server in the #[cfg(test)] module.",
+      "by": "mpanichella"
     },
     {
       "id": "CQ-182",
       "source": "codeql",
       "severity": "CRITICAL",
       "kind": "Static analysis finding",
-      "component": "src-tauri",
+      "component": "src-tauri/src/secret_sources/bitwarden.rs",
       "found": "2026-10-21",
-      "status": "open"
+      "status": "dismissed",
+      "title": "CodeQL rust/hard-coded-cryptographic-value: Hard-coded cryptographic value",
+      "dismissed": "2026-10-21",
+      "reason": "used in tests — Test-only fixture: dummy passwords and API secrets against a mock Bitwarden server in the #[cfg(test)] module.",
+      "by": "mpanichella"
     },
     {
       "id": "CQ-183",
       "source": "codeql",
       "severity": "CRITICAL",
       "kind": "Static analysis finding",
-      "component": "src-tauri",
+      "component": "src-tauri/src/secret_sources/bitwarden.rs",
       "found": "2026-10-21",
-      "status": "open"
+      "status": "dismissed",
+      "title": "CodeQL rust/hard-coded-cryptographic-value: Hard-coded cryptographic value",
+      "dismissed": "2026-10-21",
+      "reason": "used in tests — Test-only fixture: dummy passwords and API secrets against a mock Bitwarden server in the #[cfg(test)] module.",
+      "by": "mpanichella"
     },
     {
       "id": "CQ-184",
       "source": "codeql",
       "severity": "CRITICAL",
       "kind": "Static analysis finding",
-      "component": "src-tauri",
+      "component": "src-tauri/src/secret_sources/bitwarden.rs",
       "found": "2026-10-21",
-      "status": "open"
+      "status": "dismissed",
+      "title": "CodeQL rust/hard-coded-cryptographic-value: Hard-coded cryptographic value",
+      "dismissed": "2026-10-21",
+      "reason": "used in tests — Test-only fixture: dummy passwords and API secrets against a mock Bitwarden server in the #[cfg(test)] module.",
+      "by": "mpanichella"
     },
     {
       "id": "CQ-185",
       "source": "codeql",
       "severity": "CRITICAL",
       "kind": "Static analysis finding",
-      "component": "src-tauri",
+      "component": "src-tauri/src/secret_sources/bitwarden.rs",
       "found": "2026-10-21",
-      "status": "open"
+      "status": "dismissed",
+      "title": "CodeQL rust/hard-coded-cryptographic-value: Hard-coded cryptographic value",
+      "dismissed": "2026-10-21",
+      "reason": "used in tests — Test-only fixture: dummy passwords and API secrets against a mock Bitwarden server in the #[cfg(test)] module.",
+      "by": "mpanichella"
     },
     {
       "id": "CQ-186",
       "source": "codeql",
       "severity": "CRITICAL",
       "kind": "Static analysis finding",
-      "component": "src-tauri",
+      "component": "src-tauri/src/secret_sources/bitwarden.rs",
       "found": "2026-10-21",
-      "status": "open"
+      "status": "dismissed",
+      "title": "CodeQL rust/hard-coded-cryptographic-value: Hard-coded cryptographic value",
+      "dismissed": "2026-10-21",
+      "reason": "used in tests — Test-only fixture: dummy passwords and API secrets against a mock Bitwarden server in the #[cfg(test)] module.",
+      "by": "mpanichella"
     },
     {
       "id": "CQ-187",
       "source": "codeql",
       "severity": "CRITICAL",
       "kind": "Static analysis finding",
-      "component": "src-tauri",
+      "component": "src-tauri/src/secret_sources/bitwarden.rs",
       "found": "2026-10-21",
-      "status": "open"
+      "status": "dismissed",
+      "title": "CodeQL rust/hard-coded-cryptographic-value: Hard-coded cryptographic value",
+      "dismissed": "2026-10-21",
+      "reason": "used in tests — Test-only fixture: dummy passwords and API secrets against a mock Bitwarden server in the #[cfg(test)] module.",
+      "by": "mpanichella"
     },
     {
       "id": "CQ-188",
       "source": "codeql",
       "severity": "CRITICAL",
       "kind": "Static analysis finding",
-      "component": "src-tauri",
+      "component": "src-tauri/src/secret_sources/delinea.rs",
       "found": "2026-10-21",
-      "status": "open"
+      "status": "dismissed",
+      "title": "CodeQL rust/hard-coded-cryptographic-value: Hard-coded cryptographic value",
+      "dismissed": "2026-10-21",
+      "reason": "used in tests — Test-only fixture: dummy credentials against a mock Delinea server in the #[cfg(test)] module.",
+      "by": "mpanichella"
     },
     {
       "id": "CQ-189",
       "source": "codeql",
       "severity": "CRITICAL",
       "kind": "Static analysis finding",
-      "component": "src-tauri",
+      "component": "src-tauri/src/secret_sources/delinea.rs",
       "found": "2026-10-21",
-      "status": "open"
+      "status": "dismissed",
+      "title": "CodeQL rust/hard-coded-cryptographic-value: Hard-coded cryptographic value",
+      "dismissed": "2026-10-21",
+      "reason": "used in tests — Test-only fixture: dummy credentials against a mock Delinea server in the #[cfg(test)] module.",
+      "by": "mpanichella"
     },
     {
       "id": "CQ-190",
       "source": "codeql",
       "severity": "CRITICAL",
       "kind": "Static analysis finding",
-      "component": "src-tauri",
+      "component": "src-tauri/src/secret_sources/delinea.rs",
       "found": "2026-10-21",
-      "status": "open"
+      "status": "dismissed",
+      "title": "CodeQL rust/hard-coded-cryptographic-value: Hard-coded cryptographic value",
+      "dismissed": "2026-10-21",
+      "reason": "used in tests — Test-only fixture: dummy credentials against a mock Delinea server in the #[cfg(test)] module.",
+      "by": "mpanichella"
     },
     {
       "id": "CQ-191",
       "source": "codeql",
       "severity": "CRITICAL",
       "kind": "Static analysis finding",
-      "component": "src-tauri",
+      "component": "src-tauri/src/secret_sources/delinea.rs",
       "found": "2026-10-21",
-      "status": "open"
+      "status": "dismissed",
+      "title": "CodeQL rust/hard-coded-cryptographic-value: Hard-coded cryptographic value",
+      "dismissed": "2026-10-21",
+      "reason": "used in tests — Test-only fixture: dummy credentials against a mock Delinea server in the #[cfg(test)] module.",
+      "by": "mpanichella"
     },
     {
       "id": "CQ-192",
       "source": "codeql",
       "severity": "CRITICAL",
       "kind": "Static analysis finding",
-      "component": "src-tauri",
+      "component": "src-tauri/src/secret_sources/delinea.rs",
       "found": "2026-10-21",
-      "status": "open"
+      "status": "dismissed",
+      "title": "CodeQL rust/hard-coded-cryptographic-value: Hard-coded cryptographic value",
+      "dismissed": "2026-10-21",
+      "reason": "used in tests — Test-only fixture: dummy credentials against a mock Delinea server in the #[cfg(test)] module.",
+      "by": "mpanichella"
     },
     {
       "id": "CQ-193",
       "source": "codeql",
       "severity": "CRITICAL",
       "kind": "Static analysis finding",
-      "component": "src-tauri",
+      "component": "src-tauri/src/secret_sources/delinea.rs",
       "found": "2026-10-21",
-      "status": "open"
+      "status": "dismissed",
+      "title": "CodeQL rust/hard-coded-cryptographic-value: Hard-coded cryptographic value",
+      "dismissed": "2026-10-21",
+      "reason": "used in tests — Test-only fixture: dummy credentials against a mock Delinea server in the #[cfg(test)] module.",
+      "by": "mpanichella"
     },
     {
       "id": "CQ-194",
       "source": "codeql",
       "severity": "CRITICAL",
       "kind": "Static analysis finding",
-      "component": "src-tauri",
+      "component": "src-tauri/src/secret_sources/delinea.rs",
       "found": "2026-10-21",
-      "status": "open"
+      "status": "dismissed",
+      "title": "CodeQL rust/hard-coded-cryptographic-value: Hard-coded cryptographic value",
+      "dismissed": "2026-10-21",
+      "reason": "used in tests — Test-only fixture: dummy credentials against a mock Delinea server in the #[cfg(test)] module.",
+      "by": "mpanichella"
     },
     {
       "id": "CQ-195",
       "source": "codeql",
       "severity": "CRITICAL",
       "kind": "Static analysis finding",
-      "component": "src-tauri",
+      "component": "src-tauri/src/secret_sources/delinea.rs",
       "found": "2026-10-21",
-      "status": "open"
+      "status": "dismissed",
+      "title": "CodeQL rust/hard-coded-cryptographic-value: Hard-coded cryptographic value",
+      "dismissed": "2026-10-21",
+      "reason": "used in tests — Test-only fixture: dummy credentials against a mock Delinea server in the #[cfg(test)] module.",
+      "by": "mpanichella"
     },
     {
       "id": "CQ-196",
       "source": "codeql",
       "severity": "CRITICAL",
       "kind": "Static analysis finding",
-      "component": "src-tauri",
+      "component": "src-tauri/src/secret_sources/delinea.rs",
       "found": "2026-10-21",
-      "status": "open"
+      "status": "dismissed",
+      "title": "CodeQL rust/hard-coded-cryptographic-value: Hard-coded cryptographic value",
+      "dismissed": "2026-10-21",
+      "reason": "used in tests — Test-only fixture: dummy credentials against a mock Delinea server in the #[cfg(test)] module.",
+      "by": "mpanichella"
     },
     {
       "id": "CQ-197",
       "source": "codeql",
       "severity": "CRITICAL",
       "kind": "Static analysis finding",
-      "component": "src-tauri",
+      "component": "src-tauri/src/secret_sources/delinea.rs",
       "found": "2026-10-21",
-      "status": "open"
+      "status": "dismissed",
+      "title": "CodeQL rust/hard-coded-cryptographic-value: Hard-coded cryptographic value",
+      "dismissed": "2026-10-21",
+      "reason": "used in tests — Test-only fixture: dummy credentials against a mock Delinea server in the #[cfg(test)] module.",
+      "by": "mpanichella"
     },
     {
       "id": "CQ-198",
       "source": "codeql",
       "severity": "CRITICAL",
       "kind": "Static analysis finding",
-      "component": "src-tauri",
+      "component": "src-tauri/src/secret_sources/delinea.rs",
       "found": "2026-10-21",
-      "status": "open"
+      "status": "dismissed",
+      "title": "CodeQL rust/hard-coded-cryptographic-value: Hard-coded cryptographic value",
+      "dismissed": "2026-10-21",
+      "reason": "used in tests — Test-only fixture: dummy credentials against a mock Delinea server in the #[cfg(test)] module.",
+      "by": "mpanichella"
     },
     {
       "id": "CQ-199",
       "source": "codeql",
       "severity": "CRITICAL",
       "kind": "Static analysis finding",
-      "component": "src-tauri",
+      "component": "src-tauri/src/secret_sources/delinea.rs",
       "found": "2026-10-21",
-      "status": "open"
+      "status": "dismissed",
+      "title": "CodeQL rust/hard-coded-cryptographic-value: Hard-coded cryptographic value",
+      "dismissed": "2026-10-21",
+      "reason": "used in tests — Test-only fixture: dummy credentials against a mock Delinea server in the #[cfg(test)] module.",
+      "by": "mpanichella"
     },
     {
       "id": "CQ-200",
       "source": "codeql",
       "severity": "CRITICAL",
       "kind": "Static analysis finding",
-      "component": "src-tauri",
+      "component": "src-tauri/src/secret_sources/delinea.rs",
       "found": "2026-10-21",
-      "status": "open"
+      "status": "dismissed",
+      "title": "CodeQL rust/hard-coded-cryptographic-value: Hard-coded cryptographic value",
+      "dismissed": "2026-10-21",
+      "reason": "used in tests — Test-only fixture: dummy credentials against a mock Delinea server in the #[cfg(test)] module.",
+      "by": "mpanichella"
     },
     {
       "id": "CQ-201",
       "source": "codeql",
       "severity": "CRITICAL",
       "kind": "Static analysis finding",
-      "component": "src-tauri",
+      "component": "src-tauri/src/secret_sources/delinea.rs",
       "found": "2026-10-21",
-      "status": "open"
+      "status": "dismissed",
+      "title": "CodeQL rust/hard-coded-cryptographic-value: Hard-coded cryptographic value",
+      "dismissed": "2026-10-21",
+      "reason": "used in tests — Test-only fixture: dummy credentials against a mock Delinea server in the #[cfg(test)] module.",
+      "by": "mpanichella"
     },
     {
       "id": "CQ-202",
       "source": "codeql",
       "severity": "CRITICAL",
       "kind": "Static analysis finding",
-      "component": "src-tauri",
+      "component": "src-tauri/src/secret_sources/zoho.rs",
       "found": "2026-10-21",
-      "status": "open"
+      "status": "dismissed",
+      "title": "CodeQL rust/hard-coded-cryptographic-value: Hard-coded cryptographic value",
+      "dismissed": "2026-10-21",
+      "reason": "false positive — Not a constant salt: an empty fallback when Zoho's GET_LOGIN omits SALT, and the PBKDF2 path rejects an empty salt before deriving any key.",
+      "by": "mpanichella"
     },
     {
       "id": "CQ-203",
       "source": "codeql",
       "severity": "CRITICAL",
       "kind": "Static analysis finding",
-      "component": "src-tauri",
+      "component": "src-tauri/src/secret_sources/zoho.rs",
       "found": "2026-10-21",
-      "status": "open"
+      "status": "dismissed",
+      "title": "CodeQL rust/hard-coded-cryptographic-value: Hard-coded cryptographic value",
+      "dismissed": "2026-10-21",
+      "reason": "used in tests — Test-only fixture: dummy keys passed to decrypt() in the #[cfg(test)] module to check that wrong keys and malformed input fail.",
+      "by": "mpanichella"
     },
     {
       "id": "CQ-204",
       "source": "codeql",
       "severity": "CRITICAL",
       "kind": "Static analysis finding",
-      "component": "src-tauri",
+      "component": "src-tauri/src/secret_sources/zoho.rs",
       "found": "2026-10-21",
-      "status": "open"
+      "status": "dismissed",
+      "title": "CodeQL rust/hard-coded-cryptographic-value: Hard-coded cryptographic value",
+      "dismissed": "2026-10-21",
+      "reason": "used in tests — Test-only fixture: dummy keys passed to decrypt() in the #[cfg(test)] module to check that wrong keys and malformed input fail.",
+      "by": "mpanichella"
     },
     {
       "id": "CQ-205",
       "source": "codeql",
       "severity": "CRITICAL",
       "kind": "Static analysis finding",
-      "component": "src-tauri",
+      "component": "src-tauri/src/secret_sources/zoho.rs",
       "found": "2026-10-21",
-      "status": "open"
+      "status": "dismissed",
+      "title": "CodeQL rust/hard-coded-cryptographic-value: Hard-coded cryptographic value",
+      "dismissed": "2026-10-21",
+      "reason": "used in tests — Test-only fixture: dummy keys passed to decrypt() in the #[cfg(test)] module to check that wrong keys and malformed input fail.",
+      "by": "mpanichella"
     },
     {
       "id": "CQ-206",
       "source": "codeql",
       "severity": "CRITICAL",
       "kind": "Static analysis finding",
-      "component": "vendor",
+      "component": "vendor/tiberius/src/client/auth.rs",
       "found": "2026-10-21",
-      "status": "open"
+      "status": "dismissed",
+      "title": "CodeQL rust/hard-coded-cryptographic-value: Hard-coded cryptographic value",
+      "dismissed": "2026-10-21",
+      "reason": "used in tests — Test-only fixture: a dummy password in the vendored tiberius crate's #[cfg(test)] module.",
+      "by": "mpanichella"
     },
     {
       "id": "CQ-207",
       "source": "codeql",
       "severity": "CRITICAL",
       "kind": "Static analysis finding",
-      "component": "vendor",
+      "component": "vendor/tiberius/src/client/auth.rs",
       "found": "2026-10-21",
-      "status": "open"
+      "status": "dismissed",
+      "title": "CodeQL rust/hard-coded-cryptographic-value: Hard-coded cryptographic value",
+      "dismissed": "2026-10-21",
+      "reason": "used in tests — Test-only fixture: a dummy password in the vendored tiberius crate's #[cfg(test)] module.",
+      "by": "mpanichella"
     },
     {
       "id": "CQ-208",
       "source": "codeql",
       "severity": "CRITICAL",
       "kind": "Static analysis finding",
-      "component": "vendor",
+      "component": "vendor/tiberius/src/client/auth.rs",
       "found": "2026-10-21",
-      "status": "open"
+      "status": "dismissed",
+      "title": "CodeQL rust/hard-coded-cryptographic-value: Hard-coded cryptographic value",
+      "dismissed": "2026-10-21",
+      "reason": "used in tests — Test-only fixture: a dummy password in the vendored tiberius crate's #[cfg(test)] module.",
+      "by": "mpanichella"
     },
     {
       "id": "CQ-209",
       "source": "codeql",
       "severity": "CRITICAL",
       "kind": "Static analysis finding",
-      "component": "vendor",
+      "component": "vendor/tiberius/src/client/config.rs",
       "found": "2026-10-21",
-      "status": "open"
+      "status": "dismissed",
+      "title": "CodeQL rust/hard-coded-cryptographic-value: Hard-coded cryptographic value",
+      "dismissed": "2026-10-21",
+      "reason": "false positive — Not a hard-coded password: an empty-string fallback when the connection string has no password, which the server then rejects at LOGIN.",
+      "by": "mpanichella"
     },
     {
       "id": "CQ-210",
       "source": "codeql",
       "severity": "CRITICAL",
       "kind": "Static analysis finding",
-      "component": "vendor",
+      "component": "vendor/tiberius/src/client/config.rs",
       "found": "2026-10-21",
-      "status": "open"
+      "status": "dismissed",
+      "title": "CodeQL rust/hard-coded-cryptographic-value: Hard-coded cryptographic value",
+      "dismissed": "2026-10-21",
+      "reason": "false positive — Not a hard-coded password: an empty-string fallback when the connection string has no password, which the server then rejects at LOGIN.",
+      "by": "mpanichella"
     },
     {
       "id": "CQ-211",
       "source": "codeql",
       "severity": "CRITICAL",
       "kind": "Static analysis finding",
-      "component": "vendor",
+      "component": "vendor/tiberius/src/client/config.rs",
       "found": "2026-10-21",
-      "status": "open"
+      "status": "dismissed",
+      "title": "CodeQL rust/hard-coded-cryptographic-value: Hard-coded cryptographic value",
+      "dismissed": "2026-10-21",
+      "reason": "false positive — Not a hard-coded password: an empty-string fallback when the connection string has no password, which the server then rejects at LOGIN.",
+      "by": "mpanichella"
     },
     {
       "id": "CQ-212",
       "source": "codeql",
       "severity": "CRITICAL",
       "kind": "Static analysis finding",
-      "component": "vendor",
+      "component": "vendor/tiberius/src/client/config.rs",
       "found": "2026-10-21",
-      "status": "open"
+      "status": "dismissed",
+      "title": "CodeQL rust/hard-coded-cryptographic-value: Hard-coded cryptographic value",
+      "dismissed": "2026-10-21",
+      "reason": "used in tests — Test-only fixture: a dummy password in the vendored tiberius crate's #[cfg(test)] module.",
+      "by": "mpanichella"
     },
     {
       "id": "CQ-213",
       "source": "codeql",
       "severity": "CRITICAL",
       "kind": "Static analysis finding",
-      "component": "vendor",
+      "component": "vendor/tiberius/src/client/config.rs",
       "found": "2026-10-21",
-      "status": "open"
+      "status": "dismissed",
+      "title": "CodeQL rust/hard-coded-cryptographic-value: Hard-coded cryptographic value",
+      "dismissed": "2026-10-21",
+      "reason": "used in tests — Test-only fixture: a dummy password in the vendored tiberius crate's #[cfg(test)] module.",
+      "by": "mpanichella"
     },
     {
       "id": "CQ-214",
       "source": "codeql",
       "severity": "CRITICAL",
       "kind": "Static analysis finding",
-      "component": "vendor",
+      "component": "vendor/tiberius/src/client/config.rs",
       "found": "2026-10-21",
-      "status": "open"
+      "status": "dismissed",
+      "title": "CodeQL rust/hard-coded-cryptographic-value: Hard-coded cryptographic value",
+      "dismissed": "2026-10-21",
+      "reason": "used in tests — Test-only fixture: a dummy password in the vendored tiberius crate's #[cfg(test)] module.",
+      "by": "mpanichella"
     },
     {
       "id": "CQ-215",
       "source": "codeql",
       "severity": "CRITICAL",
       "kind": "Static analysis finding",
-      "component": "vendor",
+      "component": "vendor/tiberius/src/client/config.rs",
       "found": "2026-10-21",
-      "status": "open"
+      "status": "dismissed",
+      "title": "CodeQL rust/hard-coded-cryptographic-value: Hard-coded cryptographic value",
+      "dismissed": "2026-10-21",
+      "reason": "used in tests — Test-only fixture: a dummy password in the vendored tiberius crate's #[cfg(test)] module.",
+      "by": "mpanichella"
     },
     {
       "id": "CQ-216",
       "source": "codeql",
       "severity": "CRITICAL",
       "kind": "Static analysis finding",
-      "component": "vendor",
+      "component": "vendor/tiberius/src/client/config.rs",
       "found": "2026-10-21",
-      "status": "open"
+      "status": "dismissed",
+      "title": "CodeQL rust/hard-coded-cryptographic-value: Hard-coded cryptographic value",
+      "dismissed": "2026-10-21",
+      "reason": "used in tests — Test-only fixture: a dummy password in the vendored tiberius crate's #[cfg(test)] module.",
+      "by": "mpanichella"
     },
     {
       "id": "CQ-217",
       "source": "codeql",
       "severity": "CRITICAL",
       "kind": "Static analysis finding",
-      "component": "vendor",
+      "component": "vendor/tiberius/src/tds/codec/login.rs",
       "found": "2026-10-21",
-      "status": "open"
+      "status": "dismissed",
+      "title": "CodeQL rust/hard-coded-cryptographic-value: Hard-coded cryptographic value",
+      "dismissed": "2026-10-21",
+      "reason": "used in tests — Test-only fixture: a dummy password in the vendored tiberius crate's #[cfg(test)] module.",
+      "by": "mpanichella"
     },
     {
       "id": "CQ-218",
       "source": "codeql",
       "severity": "CRITICAL",
       "kind": "Static analysis finding",
-      "component": "vendor",
+      "component": "vendor/tiberius/src/tds/codec/login.rs",
       "found": "2026-10-21",
-      "status": "open"
+      "status": "dismissed",
+      "title": "CodeQL rust/hard-coded-cryptographic-value: Hard-coded cryptographic value",
+      "dismissed": "2026-10-21",
+      "reason": "used in tests — Test-only fixture: a dummy password in the vendored tiberius crate's #[cfg(test)] module.",
+      "by": "mpanichella"
     },
     {
       "id": "CQ-219",
@@ -1797,333 +2273,481 @@
       "source": "codeql",
       "severity": "HIGH",
       "kind": "Static analysis finding",
-      "component": "src-tauri",
+      "component": "src-tauri/src/secret_sources/zoho.rs",
       "found": "2026-10-21",
-      "status": "open"
+      "status": "dismissed",
+      "title": "CodeQL rust/weak-sensitive-data-hashing: Use of a broken or weak cryptographic hashing algorithm on sensitive data",
+      "dismissed": "2026-10-21",
+      "reason": "won't fix — For Zoho Vault's legacy 'SHA256' accounts the vault's master key is defined by Zoho as hex(SHA-256(passphrase)); DBine must compute it the same way to decrypt that account's secrets, only when the server reports LOGIN=SHA256, keeps it in memory and wipes it after use.",
+      "by": "mpanichella"
     },
     {
       "id": "CQ-269",
       "source": "codeql",
       "severity": "HIGH",
       "kind": "Static analysis finding",
-      "component": "src-tauri",
+      "component": "src-tauri/src/secret_sources/zoho.rs",
       "found": "2026-10-21",
-      "status": "open"
+      "status": "dismissed",
+      "title": "CodeQL rust/weak-sensitive-data-hashing: Use of a broken or weak cryptographic hashing algorithm on sensitive data",
+      "dismissed": "2026-10-21",
+      "reason": "won't fix — Zoho Vault's legacy 'SHA256' accounts define the passphrase check value as SHA-256(passphrase + salt), computed by Zoho's own client; DBine only recomputes it to compare with what Zoho's GET_LOGIN returns for that account, and takes this branch only when the server reports LOGIN=",
+      "by": "mpanichella"
     },
     {
       "id": "CQ-270",
       "source": "codeql",
       "severity": "HIGH",
       "kind": "Static analysis finding",
-      "component": "crates/dbine-sync",
+      "component": "crates/dbine-sync/src/engine.rs",
       "found": "2026-10-21",
-      "status": "open"
+      "status": "dismissed",
+      "title": "CodeQL rust/weak-sensitive-data-hashing: Use of a broken or weak cryptographic hashing algorithm on sensitive data",
+      "dismissed": "2026-10-21",
+      "reason": "false positive — The SHA-256 of the sync passphrase is only an in-memory fingerprint (CachedKey.pass, never serialized or written) used to tell whether the cached derived key matches the passphrase; the encryption key itself is derived with the policy-checked KDF in crypto::derive_with, and the s",
+      "by": "mpanichella"
     },
     {
       "id": "CQ-66",
       "source": "codeql",
       "severity": "HIGH",
       "kind": "Static analysis finding",
-      "component": "src-tauri",
+      "component": "src-tauri/src/secret_sources/testdata/zoho-vectors.mjs",
       "found": "2026-10-21",
-      "status": "open"
+      "status": "dismissed",
+      "title": "CodeQL js/insufficient-key-size: Use of a weak cryptographic key",
+      "dismissed": "2026-10-21",
+      "reason": "used in tests — src-tauri/src/secret_sources/testdata/zoho-vectors.mjs is a test-vector generator that reproduces Zoho Vault's RSA_1024 organization-key format with a throwaway key; it is not shipped.",
+      "by": "mpanichella"
     },
     {
       "id": "CQ-67",
       "source": "codeql",
       "severity": "HIGH",
       "kind": "Static analysis finding",
-      "component": "web",
+      "component": "web/src/composables/releaseNotes.ts",
       "found": "2026-10-21",
-      "status": "open"
+      "status": "dismissed",
+      "title": "CodeQL js/incomplete-multi-character-sanitization: Incomplete multi-character sanitization",
+      "dismissed": "2026-10-21",
+      "reason": "false positive — noteBlocks returns plain text that UpdateNotice.vue renders only with text interpolation ({{ b.text }}, never v-html), so any leftover '<script' is shown as literal text and cannot create an element.",
+      "by": "mpanichella"
     },
     {
       "id": "CQ-68",
       "source": "codeql",
       "severity": "HIGH",
       "kind": "Static analysis finding",
-      "component": "web",
+      "component": "web/src/components/GenerateDataDialog.vue",
       "found": "2026-10-21",
-      "status": "open"
+      "status": "dismissed",
+      "title": "CodeQL js/insecure-randomness: Insecure randomness",
+      "dismissed": "2026-10-21",
+      "reason": "false positive — Math.random here makes the data generator's run id (for progress events and cancel) and its reproducible fake-data seed; neither is a secret, token or key.",
+      "by": "mpanichella"
     },
     {
       "id": "CQ-69",
       "source": "codeql",
       "severity": "HIGH",
       "kind": "Static analysis finding",
-      "component": "web",
+      "component": "web/src/components/ResultsPane.vue",
       "found": "2026-10-21",
-      "status": "open"
+      "status": "dismissed",
+      "title": "CodeQL js/insecure-randomness: Insecure randomness",
+      "dismissed": "2026-10-21",
+      "reason": "false positive — Math.random builds the 'apply:<time>:<rand>' session id used only to cancel the app's own apply-edits task over local IPC; it is not a secret, token or key.",
+      "by": "mpanichella"
     },
     {
       "id": "CQ-70",
       "source": "codeql",
       "severity": "HIGH",
       "kind": "Static analysis finding",
-      "component": "web",
+      "component": "web/src/api/chart.ts",
       "found": "2026-10-21",
-      "status": "open"
+      "status": "dismissed",
+      "title": "CodeQL js/insecure-randomness: Insecure randomness",
+      "dismissed": "2026-10-21",
+      "reason": "false positive — The random value is a chart id used only to tag and cancel the app's own chart aggregation run (session_id 'chart:<id>'); it is not a secret, token or key.",
+      "by": "mpanichella"
     },
     {
       "id": "CQ-71",
       "source": "codeql",
       "severity": "HIGH",
       "kind": "Static analysis finding",
-      "component": "web",
+      "component": "web/src/api/dbDocs.ts",
       "found": "2026-10-21",
-      "status": "open"
+      "status": "dismissed",
+      "title": "CodeQL js/insecure-randomness: Insecure randomness",
+      "dismissed": "2026-10-21",
+      "reason": "false positive — The random value is part of a local run id used only to cancel the app's own documentation-generation task through the cancel_query IPC command; it is not a secret, token or key.",
+      "by": "mpanichella"
     },
     {
       "id": "CQ-72",
       "source": "codeql",
       "severity": "HIGH",
       "kind": "Static analysis finding",
-      "component": "web",
+      "component": "web/src/i18n/element.ts",
       "found": "2026-10-21",
-      "status": "open"
+      "status": "dismissed",
+      "title": "CodeQL js/unvalidated-dynamic-method-call: Unvalidated dynamic method call",
+      "dismissed": "2026-10-21",
+      "reason": "false positive — loadElementLocale receives only a Lang: setLanguage callers pass a value checked by isLang against the LANGUAGES list (or chosen from that list in Settings), so loaders[code] always resolves to one of the ten fixed import functions.",
+      "by": "mpanichella"
     },
     {
       "id": "CQ-73",
       "source": "codeql",
       "severity": "HIGH",
       "kind": "Static analysis finding",
-      "component": "web",
+      "component": "web/src/i18n/backend.ts",
       "found": "2026-10-21",
-      "status": "open"
+      "status": "dismissed",
+      "title": "CodeQL js/unvalidated-dynamic-method-call: Unvalidated dynamic method call",
+      "dismissed": "2026-10-21",
+      "reason": "false positive — loaders is the object from import.meta.glob('../locales/*/backend.json') and is indexed by a full path string ('../locales/<lang>/backend.json') that can never be a prototype property, the result is checked with if (!load) return, and lang is a Lang validated by isLang before use",
+      "by": "mpanichella"
     },
     {
       "id": "CQ-74",
       "source": "codeql",
       "severity": "HIGH",
       "kind": "Static analysis finding",
-      "component": "crates/drivers/bigquery",
+      "component": "crates/drivers/bigquery/src/gcp.rs",
       "found": "2026-10-21",
-      "status": "open"
+      "status": "dismissed",
+      "title": "CodeQL rust/non-https-url: Failure to use HTTPS URLs",
+      "dismissed": "2026-10-21",
+      "reason": "won't fix — http://metadata.google.internal is Google's GCE metadata server, which Application Default Credentials query over plain HTTP on the link-local network (the standard ADC fallback when neither GOOGLE_APPLICATION_CREDENTIALS nor gcloud's ADC file exists); the request carries no cred",
+      "by": "mpanichella"
     },
     {
       "id": "CQ-75",
       "source": "codeql",
       "severity": "HIGH",
       "kind": "Static analysis finding",
-      "component": "crates/drivers/cosmosdb",
+      "component": "crates/drivers/cosmosdb/tests/create_database.rs",
       "found": "2026-10-21",
-      "status": "open"
+      "status": "dismissed",
+      "title": "CodeQL rust/disabled-certificate-check: Disabled TLS certificate check",
+      "dismissed": "2026-10-21",
+      "reason": "used in tests — Integration test against the local Cosmos DB emulator (crates/drivers/cosmosdb/tests/), whose certificate is self-signed.",
+      "by": "mpanichella"
     },
     {
       "id": "CQ-76",
       "source": "codeql",
       "severity": "HIGH",
       "kind": "Static analysis finding",
-      "component": "crates/drivers/cosmosdb",
+      "component": "crates/drivers/cosmosdb/tests/integration.rs",
       "found": "2026-10-21",
-      "status": "open"
+      "status": "dismissed",
+      "title": "CodeQL rust/disabled-certificate-check: Disabled TLS certificate check",
+      "dismissed": "2026-10-21",
+      "reason": "used in tests — Integration test against the local Cosmos DB emulator (crates/drivers/cosmosdb/tests/), whose certificate is self-signed.",
+      "by": "mpanichella"
     },
     {
       "id": "CQ-77",
       "source": "codeql",
       "severity": "HIGH",
       "kind": "Static analysis finding",
-      "component": "crates/drivers/cosmosdb",
+      "component": "crates/drivers/cosmosdb/tests/sort.rs",
       "found": "2026-10-21",
-      "status": "open"
+      "status": "dismissed",
+      "title": "CodeQL rust/disabled-certificate-check: Disabled TLS certificate check",
+      "dismissed": "2026-10-21",
+      "reason": "used in tests — Integration test against the local Cosmos DB emulator (crates/drivers/cosmosdb/tests/), whose certificate is self-signed.",
+      "by": "mpanichella"
     },
     {
       "id": "CQ-78",
       "source": "codeql",
       "severity": "HIGH",
       "kind": "Static analysis finding",
-      "component": "crates/drivers/cosmosdb",
+      "component": "crates/drivers/cosmosdb/tests/transfer.rs",
       "found": "2026-10-21",
-      "status": "open"
+      "status": "dismissed",
+      "title": "CodeQL rust/disabled-certificate-check: Disabled TLS certificate check",
+      "dismissed": "2026-10-21",
+      "reason": "used in tests — Integration test against the local Cosmos DB emulator (crates/drivers/cosmosdb/tests/), whose certificate is self-signed.",
+      "by": "mpanichella"
     },
     {
       "id": "CQ-79",
       "source": "codeql",
       "severity": "HIGH",
       "kind": "Static analysis finding",
-      "component": "crates/drivers/cosmosdb",
+      "component": "crates/drivers/cosmosdb/tests/transfer.rs",
       "found": "2026-10-21",
-      "status": "open"
+      "status": "dismissed",
+      "title": "CodeQL rust/disabled-certificate-check: Disabled TLS certificate check",
+      "dismissed": "2026-10-21",
+      "reason": "used in tests — Integration test against the local Cosmos DB emulator (crates/drivers/cosmosdb/tests/), whose certificate is self-signed.",
+      "by": "mpanichella"
     },
     {
       "id": "CQ-80",
       "source": "codeql",
       "severity": "HIGH",
       "kind": "Static analysis finding",
-      "component": "crates/drivers/postgres",
+      "component": "crates/drivers/postgres/src/lib.rs",
       "found": "2026-10-21",
-      "status": "open"
+      "status": "dismissed",
+      "title": "CodeQL rust/disabled-certificate-check: Disabled TLS certificate check",
+      "dismissed": "2026-10-21",
+      "reason": "used in tests — Inside #[cfg(test)] mod tests of the Postgres driver, in an #[ignore] live test that builds an unchecked connector on purpose as the control case.",
+      "by": "mpanichella"
     },
     {
       "id": "CQ-81",
       "source": "codeql",
       "severity": "HIGH",
       "kind": "Static analysis finding",
-      "component": "crates/drivers/postgres",
+      "component": "crates/drivers/postgres/src/lib.rs",
       "found": "2026-10-21",
-      "status": "open"
+      "status": "dismissed",
+      "title": "CodeQL rust/disabled-certificate-check: Disabled TLS certificate check",
+      "dismissed": "2026-10-21",
+      "reason": "won't fix — danger_accept_invalid_certs is set only from the connection's 'Trust server certificate' option (ConnectionConfig.trust_server_certificate, default false), an explicit user choice like sslmode=require; the hostname check is otherwise dropped only for Cloud SQL/AlloyDB with the us",
+      "by": "mpanichella"
     },
     {
       "id": "CQ-82",
       "source": "codeql",
       "severity": "HIGH",
       "kind": "Static analysis finding",
-      "component": "crates/drivers/mongodb",
+      "component": "crates/drivers/mongodb/tests/security.rs",
       "found": "2026-10-21",
-      "status": "open"
+      "status": "dismissed",
+      "title": "CodeQL rust/cleartext-logging: Cleartext logging of sensitive information",
+      "dismissed": "2026-10-21",
+      "reason": "used in tests — The flagged assert! message at crates/drivers/mongodb/tests/security.rs:27 is in an integration test under a tests/ directory, which is not compiled into the app, and it only prints test fixture values (SQL text, error or fixture data) when that test fails.",
+      "by": "mpanichella"
     },
     {
       "id": "CQ-83",
       "source": "codeql",
       "severity": "HIGH",
       "kind": "Static analysis finding",
-      "component": "crates/drivers/mysql",
+      "component": "crates/drivers/mysql/tests/security.rs",
       "found": "2026-10-21",
-      "status": "open"
+      "status": "dismissed",
+      "title": "CodeQL rust/cleartext-logging: Cleartext logging of sensitive information",
+      "dismissed": "2026-10-21",
+      "reason": "used in tests — The flagged assert! message at crates/drivers/mysql/tests/security.rs:28 is in an integration test under a tests/ directory, which is not compiled into the app, and it only prints test fixture values (SQL text, error or fixture data) when that test fails.",
+      "by": "mpanichella"
     },
     {
       "id": "CQ-84",
       "source": "codeql",
       "severity": "HIGH",
       "kind": "Static analysis finding",
-      "component": "crates/drivers/neo4j",
+      "component": "crates/drivers/neo4j/tests/security.rs",
       "found": "2026-10-21",
-      "status": "open"
+      "status": "dismissed",
+      "title": "CodeQL rust/cleartext-logging: Cleartext logging of sensitive information",
+      "dismissed": "2026-10-21",
+      "reason": "used in tests — The flagged assert! message at crates/drivers/neo4j/tests/security.rs:25 is in an integration test under a tests/ directory, which is not compiled into the app, and it only prints test fixture values (SQL text, error or fixture data) when that test fails.",
+      "by": "mpanichella"
     },
     {
       "id": "CQ-85",
       "source": "codeql",
       "severity": "HIGH",
       "kind": "Static analysis finding",
-      "component": "crates/drivers/oracle",
+      "component": "crates/drivers/oracle/tests/security.rs",
       "found": "2026-10-21",
-      "status": "open"
+      "status": "dismissed",
+      "title": "CodeQL rust/cleartext-logging: Cleartext logging of sensitive information",
+      "dismissed": "2026-10-21",
+      "reason": "used in tests — The flagged assert! message at crates/drivers/oracle/tests/security.rs:35 is in an integration test under a tests/ directory, which is not compiled into the app, and it only prints test fixture values (SQL text, error or fixture data) when that test fails.",
+      "by": "mpanichella"
     },
     {
       "id": "CQ-86",
       "source": "codeql",
       "severity": "HIGH",
       "kind": "Static analysis finding",
-      "component": "crates/drivers/orientdb",
+      "component": "crates/drivers/orientdb/tests/transfer.rs",
       "found": "2026-10-21",
-      "status": "open"
+      "status": "dismissed",
+      "title": "CodeQL rust/cleartext-logging: Cleartext logging of sensitive information",
+      "dismissed": "2026-10-21",
+      "reason": "used in tests — The flagged assert! message at crates/drivers/orientdb/tests/transfer.rs:191 is in an integration test under a tests/ directory, which is not compiled into the app, and it only prints test fixture values (SQL text, error or fixture data) when that test fails.",
+      "by": "mpanichella"
     },
     {
       "id": "CQ-87",
       "source": "codeql",
       "severity": "HIGH",
       "kind": "Static analysis finding",
-      "component": "crates/drivers/postgres",
+      "component": "crates/drivers/postgres/src/security.rs",
       "found": "2026-10-21",
-      "status": "open"
+      "status": "dismissed",
+      "title": "CodeQL rust/cleartext-logging: Cleartext logging of sensitive information",
+      "dismissed": "2026-10-21",
+      "reason": "used in tests — The flagged assert! message at crates/drivers/postgres/src/security.rs:868 is inside the #[cfg(test)] mod tests at the end of the file, so it is not compiled into the shipped app and only prints hard-coded test fixtures (names, SQL text, dates or error kinds) when that unit test ",
+      "by": "mpanichella"
     },
     {
       "id": "CQ-88",
       "source": "codeql",
       "severity": "HIGH",
       "kind": "Static analysis finding",
-      "component": "crates/drivers/postgres",
+      "component": "crates/drivers/postgres/src/transfer.rs",
       "found": "2026-10-21",
-      "status": "open"
+      "status": "dismissed",
+      "title": "CodeQL rust/cleartext-logging: Cleartext logging of sensitive information",
+      "dismissed": "2026-10-21",
+      "reason": "used in tests — The flagged panic! message at crates/drivers/postgres/src/transfer.rs:1215 is inside the #[cfg(test)] mod tests at the end of the file, so it is not compiled into the shipped app and only prints hard-coded test fixtures (names, SQL text, dates or error kinds) when that unit test ",
+      "by": "mpanichella"
     },
     {
       "id": "CQ-89",
       "source": "codeql",
       "severity": "HIGH",
       "kind": "Static analysis finding",
-      "component": "crates/drivers/postgres",
+      "component": "crates/drivers/postgres/tests/create_schema.rs",
       "found": "2026-10-21",
-      "status": "open"
+      "status": "dismissed",
+      "title": "CodeQL rust/cleartext-logging: Cleartext logging of sensitive information",
+      "dismissed": "2026-10-21",
+      "reason": "used in tests — The flagged assert! message at crates/drivers/postgres/tests/create_schema.rs:46 is in an integration test under a tests/ directory, which is not compiled into the app, and it only prints test fixture values (SQL text, error or fixture data) when that test fails.",
+      "by": "mpanichella"
     },
     {
       "id": "CQ-90",
       "source": "codeql",
       "severity": "HIGH",
       "kind": "Static analysis finding",
-      "component": "crates/drivers/postgres",
+      "component": "crates/drivers/postgres/tests/security.rs",
       "found": "2026-10-21",
-      "status": "open"
+      "status": "dismissed",
+      "title": "CodeQL rust/cleartext-logging: Cleartext logging of sensitive information",
+      "dismissed": "2026-10-21",
+      "reason": "used in tests — The flagged assert! message at crates/drivers/postgres/tests/security.rs:43 is in an integration test under a tests/ directory, which is not compiled into the app, and it only prints test fixture values (SQL text, error or fixture data) when that test fails.",
+      "by": "mpanichella"
     },
     {
       "id": "CQ-91",
       "source": "codeql",
       "severity": "HIGH",
       "kind": "Static analysis finding",
-      "component": "crates/drivers/postgres",
+      "component": "crates/drivers/postgres/tests/transfer.rs",
       "found": "2026-10-21",
-      "status": "open"
+      "status": "dismissed",
+      "title": "CodeQL rust/cleartext-logging: Cleartext logging of sensitive information",
+      "dismissed": "2026-10-21",
+      "reason": "used in tests — The flagged assert! message at crates/drivers/postgres/tests/transfer.rs:44 is in an integration test under a tests/ directory, which is not compiled into the app, and it only prints test fixture values (SQL text, error or fixture data) when that test fails.",
+      "by": "mpanichella"
     },
     {
       "id": "CQ-92",
       "source": "codeql",
       "severity": "HIGH",
       "kind": "Static analysis finding",
-      "component": "crates/drivers/redis",
+      "component": "crates/drivers/redis/tests/security.rs",
       "found": "2026-10-21",
-      "status": "open"
+      "status": "dismissed",
+      "title": "CodeQL rust/cleartext-logging: Cleartext logging of sensitive information",
+      "dismissed": "2026-10-21",
+      "reason": "used in tests — The flagged assert! message at crates/drivers/redis/tests/security.rs:23 is in an integration test under a tests/ directory, which is not compiled into the app, and it only prints test fixture values (SQL text, error or fixture data) when that test fails.",
+      "by": "mpanichella"
     },
     {
       "id": "CQ-93",
       "source": "codeql",
       "severity": "HIGH",
       "kind": "Static analysis finding",
-      "component": "crates/drivers/snowflake",
+      "component": "crates/drivers/snowflake/src/security.rs",
       "found": "2026-10-21",
-      "status": "open"
+      "status": "dismissed",
+      "title": "CodeQL rust/cleartext-logging: Cleartext logging of sensitive information",
+      "dismissed": "2026-10-21",
+      "reason": "used in tests — The flagged assert! message at crates/drivers/snowflake/src/security.rs:532 is inside the #[cfg(test)] mod tests at the end of the file, so it is not compiled into the shipped app and only prints hard-coded test fixtures (names, SQL text, dates or error kinds) when that unit test",
+      "by": "mpanichella"
     },
     {
       "id": "CQ-94",
       "source": "codeql",
       "severity": "HIGH",
       "kind": "Static analysis finding",
-      "component": "crates/drivers/snowflake",
+      "component": "crates/drivers/snowflake/src/security.rs",
       "found": "2026-10-21",
-      "status": "open"
+      "status": "dismissed",
+      "title": "CodeQL rust/cleartext-logging: Cleartext logging of sensitive information",
+      "dismissed": "2026-10-21",
+      "reason": "used in tests — The flagged assert! message at crates/drivers/snowflake/src/security.rs:533 is inside the #[cfg(test)] mod tests at the end of the file, so it is not compiled into the shipped app and only prints hard-coded test fixtures (names, SQL text, dates or error kinds) when that unit test",
+      "by": "mpanichella"
     },
     {
       "id": "CQ-95",
       "source": "codeql",
       "severity": "HIGH",
       "kind": "Static analysis finding",
-      "component": "crates/drivers/snowflake",
+      "component": "crates/drivers/snowflake/src/security.rs",
       "found": "2026-10-21",
-      "status": "open"
+      "status": "dismissed",
+      "title": "CodeQL rust/cleartext-logging: Cleartext logging of sensitive information",
+      "dismissed": "2026-10-21",
+      "reason": "used in tests — The flagged assert! message at crates/drivers/snowflake/src/security.rs:534 is inside the #[cfg(test)] mod tests at the end of the file, so it is not compiled into the shipped app and only prints hard-coded test fixtures (names, SQL text, dates or error kinds) when that unit test",
+      "by": "mpanichella"
     },
     {
       "id": "CQ-96",
       "source": "codeql",
       "severity": "HIGH",
       "kind": "Static analysis finding",
-      "component": "crates/drivers/snowflake",
+      "component": "crates/drivers/snowflake/src/security.rs",
       "found": "2026-10-21",
-      "status": "open"
+      "status": "dismissed",
+      "title": "CodeQL rust/cleartext-logging: Cleartext logging of sensitive information",
+      "dismissed": "2026-10-21",
+      "reason": "used in tests — The flagged assert! message at crates/drivers/snowflake/src/security.rs:535 is inside the #[cfg(test)] mod tests at the end of the file, so it is not compiled into the shipped app and only prints hard-coded test fixtures (names, SQL text, dates or error kinds) when that unit test",
+      "by": "mpanichella"
     },
     {
       "id": "CQ-97",
       "source": "codeql",
       "severity": "HIGH",
       "kind": "Static analysis finding",
-      "component": "crates/drivers/snowflake",
+      "component": "crates/drivers/snowflake/src/security.rs",
       "found": "2026-10-21",
-      "status": "open"
+      "status": "dismissed",
+      "title": "CodeQL rust/cleartext-logging: Cleartext logging of sensitive information",
+      "dismissed": "2026-10-21",
+      "reason": "used in tests — The flagged assert! message at crates/drivers/snowflake/src/security.rs:581 is inside the #[cfg(test)] mod tests at the end of the file, so it is not compiled into the shipped app and only prints hard-coded test fixtures (names, SQL text, dates or error kinds) when that unit test",
+      "by": "mpanichella"
     },
     {
       "id": "CQ-98",
       "source": "codeql",
       "severity": "HIGH",
       "kind": "Static analysis finding",
-      "component": "crates/drivers/snowflake",
+      "component": "crates/drivers/snowflake/src/security.rs",
       "found": "2026-10-21",
-      "status": "open"
+      "status": "dismissed",
+      "title": "CodeQL rust/cleartext-logging: Cleartext logging of sensitive information",
+      "dismissed": "2026-10-21",
+      "reason": "used in tests — The flagged assert! message at crates/drivers/snowflake/src/security.rs:582 is inside the #[cfg(test)] mod tests at the end of the file, so it is not compiled into the shipped app and only prints hard-coded test fixtures (names, SQL text, dates or error kinds) when that unit test",
+      "by": "mpanichella"
     },
     {
       "id": "CQ-99",
       "source": "codeql",
       "severity": "HIGH",
       "kind": "Static analysis finding",
-      "component": "crates/drivers/snowflake",
+      "component": "crates/drivers/snowflake/src/lib.rs",
       "found": "2026-10-21",
-      "status": "open"
+      "status": "dismissed",
+      "title": "CodeQL rust/cleartext-logging: Cleartext logging of sensitive information",
+      "dismissed": "2026-10-21",
+      "reason": "used in tests — The flagged assert! message at crates/drivers/snowflake/src/lib.rs:1357 is inside the #[cfg(test)] mod tests at the end of the file, so it is not compiled into the shipped app and only prints hard-coded test fixtures (names, SQL text, dates or error kinds) when that unit test fai",
+      "by": "mpanichella"
     },
     {
       "id": "OSV-RUSTSEC-2023-0071-rsa-13ee4b",
