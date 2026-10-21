@@ -719,7 +719,9 @@ fn mysql(b: &mut B) {
     let nq: Vec<(&str, V)> = if tls { vec![("ssl", V::t(format!("{{\"rejectUnauthorized\":{}}}", !c.trust)))] } else { vec![] };
     b.push("node", "Node.js (mysql2)", format!("mysql://{}{}{}{}", userinfo(&c.user, pw.as_ref()), c.hp(), path, query(&nq)), notes.clone());
 
-    // go-sql-driver/mysql: the password is taken as it is (no escaping).
+    // go-sql-driver/mysql: the password is taken as it is (no escaping); the
+    // database name is percent-encoded (the driver path-unescapes it since
+    // 1.8), so `/`, `@`, `)` or `?` in it can't move the address.
     let creds = match (c.user.is_empty(), &pw) {
         (true, _) => String::new(),
         (false, None) => format!("{}@", c.user),
@@ -729,7 +731,7 @@ fn mysql(b: &mut B) {
     if tls {
         gq.insert(0, format!("tls={}", if c.trust { "skip-verify" } else { "true" }));
     }
-    b.push("go", "Go (go-sql-driver/mysql)", format!("{creds}tcp({})/{}?{}", c.hp(), c.database, gq.join("&")), notes);
+    b.push("go", "Go (go-sql-driver/mysql)", format!("{creds}tcp({})/{}?{}", c.hp(), pct(&c.database), gq.join("&")), notes);
 }
 
 // ---------------------------------------------------------------------------

@@ -246,6 +246,9 @@ fn samples() {
 
     let my = conn_of(&cfg("mysql", "h", 3306, "d", "u"));
     assert_eq!(text(&my, "go", ph), "u:${DB_PASSWORD}@tcp(h:3306)/d?parseTime=true");
+    // A database name can't redirect the DSN (and its password) to another address.
+    let evil = conn_of(&cfg("mysql", "h", 3306, "x)@tcp(evil:3306)/d?a", "u"));
+    assert_eq!(text(&evil, "go", ph), "u:${DB_PASSWORD}@tcp(h:3306)/x%29%40tcp%28evil%3A3306%29%2Fd%3Fa?parseTime=true");
     assert_eq!(text(&my, "adonet", ph), "Server=h;Port=3306;Database=d;User ID=u;Password=${DB_PASSWORD};");
 
     let ms = conn_of(&cfg("sqlserver", "h", 1433, "d", "sa"));
