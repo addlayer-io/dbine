@@ -9,25 +9,25 @@ _Updated 2026-10-21._
 | Source | Critical | High | Medium | Low |
 |---|---|---|---|---|
 | claude-security (source-code review) | 0 | 0 | 0 | 0 |
-| Trivy (dependencies, secrets, configuration) | 0 | 0 | 3 | 2 |
+| Trivy (dependencies, secrets, configuration) | 0 | 0 | 2 | 1 |
+| CodeQL (static analysis) | 0 | 0 | 0 | 0 |
 
-Findings from the source-code review show only their kind and component while they're open.
+Findings from the source-code review and CodeQL show only their kind and component while they're open.
 
 | ID | Severity | Source | Finding | Where | Fix |
 |---|---|---|---|---|---|
-| TV-CVE-2026-111061-russh | MEDIUM | trivy | russh 0.63.3: russh: russh: Denial of Service via resource exhaustion in SSH agent | `Cargo.lock` | upgrade to 0.64.1 |
-| TV-GHSA-wrw7-89jp-8q8g-glib | MEDIUM | trivy | glib 0.18.5: Unsoundness in `Iterator` and `DoubleEndedIterator` impls for `glib::VariantStrIter` | `Cargo.lock` | upgrade to 0.20.0 |
+| TV-GHSA-wrw7-89jp-8q8g-glib-13ee4b | MEDIUM | trivy | glib 0.18.5: Unsoundness in `Iterator` and `DoubleEndedIterator` impls for `glib::VariantStrIter` | `Cargo.lock` | upgrade to 0.20.0 |
 | TV-GHSA-wrw7-89jp-8q8g-glib-9761a8 | MEDIUM | trivy | glib 0.18.5: Unsoundness in `Iterator` and `DoubleEndedIterator` impls for `glib::VariantStrIter` | `mobile/src-tauri/Cargo.lock` | upgrade to 0.20.0 |
-| TV-CVE-2026-111062-russh | LOW | trivy | russh 0.63.3: A russh SSH server accepts a publickey authentication whose signature uses a different algorithm than the one named in the request | `Cargo.lock` | upgrade to 0.64.0 |
-| TV-GHSA-cq8v-f236-94qc-rand | LOW | trivy | rand 0.7.3: Rand is unsound with a custom logger using rand::rng() | `Cargo.lock` | upgrade to 0.9.3, 0.10.1, 0.8.6 |
+| TV-GHSA-cq8v-f236-94qc-rand-13ee4b | LOW | trivy | rand 0.7.3: Rand is unsound with a custom logger using rand::rng() | `Cargo.lock` | upgrade to 0.9.3, 0.10.1, 0.8.6 |
 
 ## What the last scans covered
 
 | Tool | Date | Covered | Result | Not covered yet |
 |---|---|---|---|---|
 | claude-security, release v1.0.0 | 2026-10-19 | v0.1.14..954fc5e3 (everything 1.0.0 added up to the macOS shortcut fixes) | 0 open | 954fc5e3..v1.0.0: one credential-scrub fix (9a94302f) and the five new languages; everything after v1.0.0 on main |
+| codeql | 2026-10-21 | Rust, TypeScript/Vue and workflows | 0 open | — |
 | scorecard | 2026-10-21 | repository settings and workflows at [`f18cb1c81`](https://github.com/addlayer-io/dbine/commit/f18cb1c813a0) | score 2.9/10 | — |
-| trivy | 2026-10-21 | whole repository at [`f18cb1c81`](https://github.com/addlayer-io/dbine/commit/f18cb1c813a0) | 5 open | — |
+| trivy | 2026-10-21 | whole repository at [`427645aa9`](https://github.com/addlayer-io/dbine/commit/427645aa9e0e) | 3 open | — |
 
 ## Not counted, and why
 
