@@ -1,0 +1,23 @@
+---
+# Codacy analyses DBine's own code. Left out: vendored crates, translations,
+# release notes, generated Android scaffolding, component-preview samples,
+# test data and tests (fixtures repeat on purpose).
+exclude_paths:
+  - "vendor/**"
+  - "web/src/locales/**"
+  - "web/src/preview/**"
+  - "web/public/**"
+  - "changelog/**"
+  - "CHANGELOG.md"
+  - "docs/**"
+  - "assets/**"
+  - "flatpak/screenshots/**"
+  - "src-tauri/icons/**"
+  - "mobile/src-tauri/icons/**"
+  - "mobile/src-tauri/gen/android/gradle/**"
+  - "mobile/src-tauri/gen/android/gradlew*"
+  - "**/testdata/**"
+  - "**/fixtures/**"
+  - "**/tests.rs"
+  - "**/*_tests.rs"
+  - "**/tests/**"
