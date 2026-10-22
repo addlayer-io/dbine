@@ -10516,7 +10516,7 @@
   "la clave «{0}» del secreto no es un texto": "ключ «{0}» секрета не является текстом",
   "la conexión «{0}» toma un secreto ({1}) de un origen que todavía no se confirmó en esta computadora: abrila en DBine para revisarlo": "подключение «{0}» берёт секрет ({1}) из источника, который ещё не подтверждён на этом компьютере: откройте его в DBine, чтобы проверить",
   "la cuenta de 1Password no es válida": "учётная запись 1Password недопустима",
-  "la dirección de Vault tiene que ser una URL http:// o https:// (https://vault.ejemplo.com:8200)": "адрес Vault должен быть URL http:// или https:// (https://vault.example.com:8200)",
+  "la dirección de Vault tiene que ser una URL https:// (https://vault.ejemplo.com:8200); http:// solo hacia esta computadora": "адрес Vault должен быть URL https:// (https://vault.example.com:8200); http:// только к этому компьютеру",
   "la referencia de 1Password tiene que empezar con op:// (op://bóveda/elemento/campo)": "ссылка 1Password должна начинаться с op:// (op://vault/item/field)",
   "la ruta del certificado de la CA no es válida": "путь к сертификату ЦС недопустим",
   "la salida del comando no es texto": "вывод команды не является текстом",

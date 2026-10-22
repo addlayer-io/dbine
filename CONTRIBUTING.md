@@ -38,6 +38,9 @@ cd web && npx vue-tsc --noEmit && npx vite build
 
 [`AGENTS.md`](AGENTS.md) has the full conventions.
 
+How decisions are made and who holds each role: [GOVERNANCE.md](GOVERNANCE.md).
+Everyone taking part follows the [Code of Conduct](CODE_OF_CONDUCT.md).
+
 ## Rules a pull request must follow
 
 - **Every feature works on every engine.** A new feature enters through the

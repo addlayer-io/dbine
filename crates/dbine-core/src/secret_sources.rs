@@ -1442,11 +1442,11 @@ fn is_token_auth(a: &VaultAuth) -> bool {
     *a == VaultAuth::Token
 }
 
+/// Vault's address: `https://`, or plain `http://` only to this computer (a
+/// dev server), like the other managers: the token travels in each request.
 fn check_vault_address(address: &str) -> Result<()> {
-    let a = address.trim();
-    let rest = a.strip_prefix("https://").or_else(|| a.strip_prefix("http://"));
-    if rest.is_none_or(|r| r.is_empty() || r.contains(['@', '?', '#']) || r.chars().any(char::is_control) || r.contains(char::is_whitespace)) {
-        return Err(bad("la dirección de Vault tiene que ser una URL http:// o https:// (https://vault.ejemplo.com:8200)"));
+    if service_url(address).is_none() {
+        return Err(bad("la dirección de Vault tiene que ser una URL https:// (https://vault.ejemplo.com:8200); http:// solo hacia esta computadora"));
     }
     Ok(())
 }
@@ -1635,6 +1635,11 @@ mod tests {
         assert!(vault("https://vault.example.com:8200").validate().is_ok());
         assert!(vault("ftp://vault").validate().is_err());
         assert!(vault("https://user:pw@vault").validate().is_err());
+        // Plain HTTP carries the token in clear: only to this computer.
+        assert!(vault("http://127.0.0.1:8200").validate().is_ok());
+        assert!(vault("http://localhost:8200").validate().is_ok());
+        assert!(vault("http://vault.example.com:8200").validate().is_err());
+        assert!(vault("http://10.0.0.5:8200").validate().is_err());
     }
 
     fn keepass(file: &str, master: MasterSource) -> SecretSource {

@@ -10516,7 +10516,7 @@
   "la clave «{0}» del secreto no es un texto": "Der Schlüssel «{0}» des Secrets ist kein Text",
   "la conexión «{0}» toma un secreto ({1}) de un origen que todavía no se confirmó en esta computadora: abrila en DBine para revisarlo": "Die Verbindung «{0}» bezieht ein Secret ({1}) aus einer Quelle, die auf diesem Computer noch nicht bestätigt wurde: Öffnen Sie sie in DBine, um es zu prüfen",
   "la cuenta de 1Password no es válida": "Das 1Password-Konto ist ungültig",
-  "la dirección de Vault tiene que ser una URL http:// o https:// (https://vault.ejemplo.com:8200)": "Die Vault-Adresse muss eine URL mit http:// oder https:// sein (https://vault.beispiel.com:8200)",
+  "la dirección de Vault tiene que ser una URL https:// (https://vault.ejemplo.com:8200); http:// solo hacia esta computadora": "Die Vault-Adresse muss eine https://-URL sein (https://vault.beispiel.com:8200); http:// nur zu diesem Computer",
   "la referencia de 1Password tiene que empezar con op:// (op://bóveda/elemento/campo)": "Die Referenz von 1Password muss mit op:// beginnen (op://tresor/element/feld)",
   "la ruta del certificado de la CA no es válida": "Der Pfad des CA-Zertifikats ist ungültig",
   "la salida del comando no es texto": "Die Ausgabe des Befehls ist kein Text",

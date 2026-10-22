@@ -29181,7 +29181,7 @@
  "la descarga quedó incompleta ({0} de {1} bytes): reintentá para retomarla": [
   "crates/dbine-ai/src/embedded.rs"
  ],
- "la dirección de Vault tiene que ser una URL http:// o https:// (https://vault.ejemplo.com:8200)": [
+ "la dirección de Vault tiene que ser una URL https:// (https://vault.ejemplo.com:8200); http:// solo hacia esta computadora": [
   "crates/dbine-core/src/secret_sources.rs"
  ],
  "la ejecución terminó sin respuesta": [

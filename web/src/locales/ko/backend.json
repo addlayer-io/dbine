@@ -10516,7 +10516,7 @@
   "la clave «{0}» del secreto no es un texto": "시크릿의 키 「{0}」이(가) 텍스트가 아닙니다",
   "la conexión «{0}» toma un secreto ({1}) de un origen que todavía no se confirmó en esta computadora: abrila en DBine para revisarlo": "연결 「{0}」은(는) 이 컴퓨터에서 아직 확인하지 않은 출처의 시크릿({1})을 사용합니다. DBine에서 열어 검토하세요",
   "la cuenta de 1Password no es válida": "1Password 계정이 올바르지 않습니다",
-  "la dirección de Vault tiene que ser una URL http:// o https:// (https://vault.ejemplo.com:8200)": "Vault 주소는 http:// 또는 https:// URL이어야 합니다(https://vault.ejemplo.com:8200)",
+  "la dirección de Vault tiene que ser una URL https:// (https://vault.ejemplo.com:8200); http:// solo hacia esta computadora": "Vault 주소는 https:// URL이어야 합니다(https://vault.example.com:8200). http://는 이 컴퓨터로만 사용할 수 있습니다",
   "la referencia de 1Password tiene que empezar con op:// (op://bóveda/elemento/campo)": "1Password 참조는 op://로 시작해야 합니다(op://볼트/항목/필드)",
   "la ruta del certificado de la CA no es válida": "CA 인증서 경로가 올바르지 않습니다",
   "la salida del comando no es texto": "명령의 출력이 텍스트가 아닙니다",

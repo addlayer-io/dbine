@@ -10516,7 +10516,7 @@
   "la clave «{0}» del secreto no es un texto": "密钥的键“{0}”不是文本",
   "la conexión «{0}» toma un secreto ({1}) de un origen que todavía no se confirmó en esta computadora: abrila en DBine para revisarlo": "连接“{0}”从尚未在这台电脑上确认的来源获取密钥（{1}）：请在 DBine 中打开它进行检查",
   "la cuenta de 1Password no es válida": "1Password 账户无效",
-  "la dirección de Vault tiene que ser una URL http:// o https:// (https://vault.ejemplo.com:8200)": "Vault 地址必须是 http:// 或 https:// URL（https://vault.example.com:8200）",
+  "la dirección de Vault tiene que ser una URL https:// (https://vault.ejemplo.com:8200); http:// solo hacia esta computadora": "Vault 地址必须是 https:// URL（https://vault.example.com:8200）；http:// 仅限这台电脑",
   "la referencia de 1Password tiene que empezar con op:// (op://bóveda/elemento/campo)": "1Password 引用必须以 op:// 开头（op://vault/item/field）",
   "la ruta del certificado de la CA no es válida": "CA 证书路径无效",
   "la salida del comando no es texto": "命令输出不是文本",

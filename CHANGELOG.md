@@ -2,6 +2,9 @@
 
 ## [Unreleased]
 
+### Fixes
+- **HashiCorp Vault, security:** a password source's Vault address must be `https://`; plain `http://` is accepted only for a Vault on this computer, as for the other secret managers, so the Vault token never travels in clear over the network.
+
 ## [1.1.0] - 2026-10-21
 
 ### New

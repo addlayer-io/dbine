@@ -10516,7 +10516,7 @@
   "la clave «{0}» del secreto no es un texto": "シークレットのキー「{0}」がテキストではありません",
   "la conexión «{0}» toma un secreto ({1}) de un origen que todavía no se confirmó en esta computadora: abrila en DBine para revisarlo": "接続「{0}」は、このコンピューターでまだ確認されていない取得元からシークレット({1})を取得します。DBine で開いて確認してください",
   "la cuenta de 1Password no es válida": "1Password のアカウントが無効です",
-  "la dirección de Vault tiene que ser una URL http:// o https:// (https://vault.ejemplo.com:8200)": "Vault のアドレスは http:// または https:// の URL である必要があります(https://vault.example.com:8200)",
+  "la dirección de Vault tiene que ser una URL https:// (https://vault.ejemplo.com:8200); http:// solo hacia esta computadora": "Vault のアドレスは https:// の URL である必要があります(https://vault.example.com:8200)。http:// はこのコンピューター宛てのみです",
   "la referencia de 1Password tiene que empezar con op:// (op://bóveda/elemento/campo)": "1Password の参照は op:// で始まる必要があります(op://vault/item/field)",
   "la ruta del certificado de la CA no es válida": "CA 証明書のパスが無効です",
   "la salida del comando no es texto": "コマンドの出力がテキストではありません",
