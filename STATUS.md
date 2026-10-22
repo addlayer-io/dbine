@@ -109,9 +109,9 @@ Findings from the source-code review and CodeQL show only their kind and compone
 |---|---|---|---|---|
 | claude-security, release v1.1.0 | 2026-10-21 | 954fc5e3..9aec57c1 (everything 1.1.0 adds, and the 1.0.0 commits not scanned before) | 0 open | the commits after 9aec57c1 up to the release, adb92492: the fixes for this scan's three findings and the move of RSA private-key operations to AWS-LC |
 | codeql | 2026-10-22 | Rust, TypeScript/Vue and workflows | 85 open | — |
-| osv | 2026-10-22 | every lockfile (Cargo, npm) at [`e8b7fa414`](https://github.com/addlayer-io/dbine/commit/e8b7fa414e03) | 0 open | — |
+| osv | 2026-10-22 | every lockfile (Cargo, npm) at [`6a5e88253`](https://github.com/addlayer-io/dbine/commit/6a5e882534c3) | 0 open | — |
 | scorecard | 2026-10-22 | repository settings and workflows at [`e8b7fa414`](https://github.com/addlayer-io/dbine/commit/e8b7fa414e03) | score 5.9/10 | — |
-| trivy | 2026-10-22 | whole repository at [`e8b7fa414`](https://github.com/addlayer-io/dbine/commit/e8b7fa414e03) | 0 open | — |
+| trivy | 2026-10-22 | whole repository at [`6a5e88253`](https://github.com/addlayer-io/dbine/commit/6a5e882534c3) | 0 open | — |
 
 ## Not counted, and why
 
