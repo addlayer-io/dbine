@@ -23,9 +23,9 @@ _None._
 |---|---|---|---|---|
 | claude-security, release v1.1.0 | 2026-10-21 | 954fc5e3..9aec57c1 (everything 1.1.0 adds, and the 1.0.0 commits not scanned before) | 0 open | the commits after 9aec57c1 up to the release, adb92492: the fixes for this scan's three findings and the move of RSA private-key operations to AWS-LC |
 | codeql | 2026-10-22 | Rust, TypeScript/Vue and workflows | 0 open | — |
-| osv | 2026-10-22 | every lockfile (Cargo, npm) at [`08bf83dea`](https://github.com/addlayer-io/dbine/commit/08bf83deae8c) | 0 open | — |
-| scorecard | 2026-10-22 | repository settings and workflows at [`11892b2b3`](https://github.com/addlayer-io/dbine/commit/11892b2b3004) | score 5.8/10 | — |
-| trivy | 2026-10-22 | whole repository at [`08bf83dea`](https://github.com/addlayer-io/dbine/commit/08bf83deae8c) | 0 open | — |
+| osv | 2026-10-22 | every lockfile (Cargo, npm) at [`bbd24794b`](https://github.com/addlayer-io/dbine/commit/bbd24794b6e2) | 0 open | — |
+| scorecard | 2026-10-22 | repository settings and workflows at [`08bf83dea`](https://github.com/addlayer-io/dbine/commit/08bf83deae8c) | score 5.9/10 | — |
+| trivy | 2026-10-22 | whole repository at [`bbd24794b`](https://github.com/addlayer-io/dbine/commit/bbd24794b6e2) | 0 open | — |
 
 ## Not counted, and why
 
@@ -257,7 +257,7 @@ _None._
 
 ## Repository practices
 
-OpenSSF Scorecard: **5.8/10** (2026-10-22). The checks below 10, with Scorecard's own risk level. They describe how the repository is run, not a vulnerability in DBine, and aren't counted in the badge.
+OpenSSF Scorecard: **5.9/10** (2026-10-22). The checks below 10, with Scorecard's own risk level. They describe how the repository is run, not a vulnerability in DBine, and aren't counted in the badge.
 
 | Check | Risk | Docs |
 |---|---|---|
@@ -270,5 +270,5 @@ OpenSSF Scorecard: **5.8/10** (2026-10-22). The checks below 10, with Scorecard'
 | Fuzzing: 0/10 — project is not fuzzed | MEDIUM | [link](https://github.com/ossf/scorecard/blob/61e84743356275f6ffca23b1b2f2cb945e19eb96/docs/checks.md#fuzzing) |
 | Pinned-Dependencies: 9/10 — dependency not pinned by hash detected -- score normalized to 9 | MEDIUM | [link](https://github.com/ossf/scorecard/blob/61e84743356275f6ffca23b1b2f2cb945e19eb96/docs/checks.md#pinned-dependencies) |
 | Security-Policy: 4/10 — security policy file detected | MEDIUM | [link](https://github.com/ossf/scorecard/blob/61e84743356275f6ffca23b1b2f2cb945e19eb96/docs/checks.md#security-policy) |
-| CII-Best-Practices: 2/10 — badge detected: InProgress | LOW | [link](https://github.com/ossf/scorecard/blob/61e84743356275f6ffca23b1b2f2cb945e19eb96/docs/checks.md#cii-best-practices) |
+| CII-Best-Practices: 5/10 — badge detected: Passing | LOW | [link](https://github.com/ossf/scorecard/blob/61e84743356275f6ffca23b1b2f2cb945e19eb96/docs/checks.md#cii-best-practices) |
 | Contributors: 0/10 — project has 0 contributing companies or organizations -- score normalized to 0 | LOW | [link](https://github.com/ossf/scorecard/blob/61e84743356275f6ffca23b1b2f2cb945e19eb96/docs/checks.md#contributors) |

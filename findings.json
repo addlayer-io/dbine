@@ -13,7 +13,7 @@
     {
       "source": "osv",
       "date": "2026-10-22",
-      "revision": "08bf83deae8c",
+      "revision": "bbd24794b6e2",
       "kind": "full",
       "scope": "every lockfile (Cargo, npm)",
       "found": 0
@@ -21,7 +21,7 @@
     {
       "source": "trivy",
       "date": "2026-10-22",
-      "revision": "08bf83deae8c",
+      "revision": "bbd24794b6e2",
       "kind": "full",
       "scope": "whole repository",
       "found": 0
@@ -37,10 +37,10 @@
     {
       "source": "scorecard",
       "date": "2026-10-22",
-      "revision": "11892b2b3004",
+      "revision": "08bf83deae8c",
       "kind": "full",
       "scope": "repository settings and workflows",
-      "score": 5.8
+      "score": 5.9
     }
   ],
   "findings": [
@@ -2736,7 +2736,7 @@
       "source": "scorecard",
       "severity": "LOW",
       "kind": "Repository practice",
-      "title": "CII-Best-Practices: 2/10 — badge detected: InProgress",
+      "title": "CII-Best-Practices: 5/10 — badge detected: Passing",
       "component": "repository",
       "advisory": "https://github.com/ossf/scorecard/blob/61e84743356275f6ffca23b1b2f2cb945e19eb96/docs/checks.md#cii-best-practices",
       "found": "2026-10-21",
