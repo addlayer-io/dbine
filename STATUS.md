@@ -9,107 +9,24 @@ _Updated 2026-10-22._
 | Source | Critical | High | Medium | Low |
 |---|---|---|---|---|
 | claude-security (source-code review) | 0 | 0 | 0 | 0 |
-| OSV-Scanner (dependency advisories) | 0 | 0 | 0 | 0 |
+| OSV-Scanner (dependency advisories) | 0 | 0 | 2 | 0 |
 | Trivy (secrets, configuration) | 0 | 0 | 0 | 0 |
-| CodeQL (static analysis) | 31 | 54 | 0 | 0 |
+| CodeQL (static analysis) | 0 | 0 | 0 | 0 |
 
 Findings from the source-code review and CodeQL show only their kind and component while they're open.
 
 | ID | Severity | Source | Finding | Where | Fix |
 |---|---|---|---|---|---|
-| CQ-324 | CRITICAL | codeql | Static analysis finding | `src-tauri` | pending |
-| CQ-325 | CRITICAL | codeql | Static analysis finding | `src-tauri` | pending |
-| CQ-326 | CRITICAL | codeql | Static analysis finding | `src-tauri` | pending |
-| CQ-327 | CRITICAL | codeql | Static analysis finding | `src-tauri` | pending |
-| CQ-328 | CRITICAL | codeql | Static analysis finding | `src-tauri` | pending |
-| CQ-329 | CRITICAL | codeql | Static analysis finding | `src-tauri` | pending |
-| CQ-330 | CRITICAL | codeql | Static analysis finding | `src-tauri` | pending |
-| CQ-331 | CRITICAL | codeql | Static analysis finding | `src-tauri` | pending |
-| CQ-332 | CRITICAL | codeql | Static analysis finding | `src-tauri` | pending |
-| CQ-333 | CRITICAL | codeql | Static analysis finding | `src-tauri` | pending |
-| CQ-334 | CRITICAL | codeql | Static analysis finding | `src-tauri` | pending |
-| CQ-335 | CRITICAL | codeql | Static analysis finding | `src-tauri` | pending |
-| CQ-336 | CRITICAL | codeql | Static analysis finding | `src-tauri` | pending |
-| CQ-337 | CRITICAL | codeql | Static analysis finding | `src-tauri` | pending |
-| CQ-338 | CRITICAL | codeql | Static analysis finding | `src-tauri` | pending |
-| CQ-339 | CRITICAL | codeql | Static analysis finding | `src-tauri` | pending |
-| CQ-340 | CRITICAL | codeql | Static analysis finding | `src-tauri` | pending |
-| CQ-341 | CRITICAL | codeql | Static analysis finding | `src-tauri` | pending |
-| CQ-342 | CRITICAL | codeql | Static analysis finding | `src-tauri` | pending |
-| CQ-343 | CRITICAL | codeql | Static analysis finding | `src-tauri` | pending |
-| CQ-344 | CRITICAL | codeql | Static analysis finding | `src-tauri` | pending |
-| CQ-345 | CRITICAL | codeql | Static analysis finding | `src-tauri` | pending |
-| CQ-346 | CRITICAL | codeql | Static analysis finding | `crates/drivers/sqlserver` | pending |
-| CQ-347 | CRITICAL | codeql | Static analysis finding | `crates/drivers/sqlserver` | pending |
-| CQ-348 | CRITICAL | codeql | Static analysis finding | `src-tauri` | pending |
-| CQ-349 | CRITICAL | codeql | Static analysis finding | `src-tauri` | pending |
-| CQ-350 | CRITICAL | codeql | Static analysis finding | `src-tauri` | pending |
-| CQ-351 | CRITICAL | codeql | Static analysis finding | `src-tauri` | pending |
-| CQ-352 | CRITICAL | codeql | Static analysis finding | `src-tauri` | pending |
-| CQ-353 | CRITICAL | codeql | Static analysis finding | `crates/dbine-core` | pending |
-| CQ-354 | CRITICAL | codeql | Static analysis finding | `crates/dbine-core` | pending |
-| CQ-271 | HIGH | codeql | Static analysis finding | `crates/drivers/bigquery` | pending |
-| CQ-272 | HIGH | codeql | Static analysis finding | `src-tauri` | pending |
-| CQ-273 | HIGH | codeql | Static analysis finding | `crates/drivers/trino` | pending |
-| CQ-274 | HIGH | codeql | Static analysis finding | `crates/drivers/trino` | pending |
-| CQ-275 | HIGH | codeql | Static analysis finding | `src-tauri` | pending |
-| CQ-276 | HIGH | codeql | Static analysis finding | `src-tauri` | pending |
-| CQ-277 | HIGH | codeql | Static analysis finding | `src-tauri` | pending |
-| CQ-278 | HIGH | codeql | Static analysis finding | `src-tauri` | pending |
-| CQ-279 | HIGH | codeql | Static analysis finding | `src-tauri` | pending |
-| CQ-280 | HIGH | codeql | Static analysis finding | `src-tauri` | pending |
-| CQ-281 | HIGH | codeql | Static analysis finding | `src-tauri` | pending |
-| CQ-282 | HIGH | codeql | Static analysis finding | `src-tauri` | pending |
-| CQ-283 | HIGH | codeql | Static analysis finding | `src-tauri` | pending |
-| CQ-284 | HIGH | codeql | Static analysis finding | `src-tauri` | pending |
-| CQ-285 | HIGH | codeql | Static analysis finding | `src-tauri` | pending |
-| CQ-286 | HIGH | codeql | Static analysis finding | `src-tauri` | pending |
-| CQ-287 | HIGH | codeql | Static analysis finding | `src-tauri` | pending |
-| CQ-288 | HIGH | codeql | Static analysis finding | `src-tauri` | pending |
-| CQ-289 | HIGH | codeql | Static analysis finding | `crates/dbine-plugin` | pending |
-| CQ-290 | HIGH | codeql | Static analysis finding | `crates/dbine-plugin` | pending |
-| CQ-291 | HIGH | codeql | Static analysis finding | `crates/dbine-plugin` | pending |
-| CQ-292 | HIGH | codeql | Static analysis finding | `crates/drivers/cassandra` | pending |
-| CQ-293 | HIGH | codeql | Static analysis finding | `crates/drivers/cassandra` | pending |
-| CQ-294 | HIGH | codeql | Static analysis finding | `crates/drivers/databricks` | pending |
-| CQ-295 | HIGH | codeql | Static analysis finding | `crates/drivers/dynamodb` | pending |
-| CQ-296 | HIGH | codeql | Static analysis finding | `crates/drivers/snowflake` | pending |
-| CQ-297 | HIGH | codeql | Static analysis finding | `crates/drivers/snowflake` | pending |
-| CQ-298 | HIGH | codeql | Static analysis finding | `crates/drivers/snowflake` | pending |
-| CQ-299 | HIGH | codeql | Static analysis finding | `crates/drivers/snowflake` | pending |
-| CQ-300 | HIGH | codeql | Static analysis finding | `crates/drivers/snowflake` | pending |
-| CQ-301 | HIGH | codeql | Static analysis finding | `crates/drivers/snowflake` | pending |
-| CQ-302 | HIGH | codeql | Static analysis finding | `crates/drivers/snowflake` | pending |
-| CQ-303 | HIGH | codeql | Static analysis finding | `crates/drivers/sqlserver` | pending |
-| CQ-304 | HIGH | codeql | Static analysis finding | `crates/drivers/postgres` | pending |
-| CQ-305 | HIGH | codeql | Static analysis finding | `src-tauri` | pending |
-| CQ-306 | HIGH | codeql | Static analysis finding | `crates/drivers/cassandra` | pending |
-| CQ-307 | HIGH | codeql | Static analysis finding | `crates/drivers/cassandra` | pending |
-| CQ-308 | HIGH | codeql | Static analysis finding | `crates/drivers/couchbase` | pending |
-| CQ-309 | HIGH | codeql | Static analysis finding | `crates/drivers/databricks` | pending |
-| CQ-310 | HIGH | codeql | Static analysis finding | `crates/drivers/dremio` | pending |
-| CQ-311 | HIGH | codeql | Static analysis finding | `crates/drivers/dsql` | pending |
-| CQ-312 | HIGH | codeql | Static analysis finding | `crates/drivers/elasticsearch` | pending |
-| CQ-313 | HIGH | codeql | Static analysis finding | `crates/drivers/odbc` | pending |
-| CQ-314 | HIGH | codeql | Static analysis finding | `crates/drivers/phoenix` | pending |
-| CQ-315 | HIGH | codeql | Static analysis finding | `crates/drivers/postgres` | pending |
-| CQ-316 | HIGH | codeql | Static analysis finding | `crates/drivers/snowflake` | pending |
-| CQ-317 | HIGH | codeql | Static analysis finding | `crates/drivers/spanner` | pending |
-| CQ-318 | HIGH | codeql | Static analysis finding | `crates/drivers/sqlserver` | pending |
-| CQ-319 | HIGH | codeql | Static analysis finding | `crates/drivers/trino` | pending |
-| CQ-320 | HIGH | codeql | Static analysis finding | `src-tauri` | pending |
-| CQ-321 | HIGH | codeql | Static analysis finding | `src-tauri` | pending |
-| CQ-322 | HIGH | codeql | Static analysis finding | `src-tauri` | pending |
-| CQ-323 | HIGH | codeql | Static analysis finding | `src-tauri` | pending |
-| CQ-355 | HIGH | codeql | Static analysis finding | `src-tauri` | pending |
+| OSV-RUSTSEC-2026-0384-tokio-13ee4b | MEDIUM | osv | tokio 1.54.0: Race condition in `tokio::time::Interval` on Tokio v1.54.0 | `Cargo.lock` | upgrade to 1.54.1 |
+| OSV-RUSTSEC-2026-0384-tokio-9761a8 | MEDIUM | osv | tokio 1.54.0: Race condition in `tokio::time::Interval` on Tokio v1.54.0 | `mobile/src-tauri/Cargo.lock` | upgrade to 1.54.1 |
 
 ## What the last scans covered
 
 | Tool | Date | Covered | Result | Not covered yet |
 |---|---|---|---|---|
 | claude-security, release v1.1.0 | 2026-10-21 | 954fc5e3..9aec57c1 (everything 1.1.0 adds, and the 1.0.0 commits not scanned before) | 0 open | the commits after 9aec57c1 up to the release, adb92492: the fixes for this scan's three findings and the move of RSA private-key operations to AWS-LC |
-| codeql | 2026-10-22 | Rust, TypeScript/Vue and workflows | 85 open | — |
-| osv | 2026-10-22 | every lockfile (Cargo, npm) at [`293696438`](https://github.com/addlayer-io/dbine/commit/2936964383c5) | 0 open | — |
+| codeql | 2026-10-22 | Rust, TypeScript/Vue and workflows | 0 open | — |
+| osv | 2026-10-22 | every lockfile (Cargo, npm) at [`293696438`](https://github.com/addlayer-io/dbine/commit/2936964383c5) | 2 open | — |
 | scorecard | 2026-10-22 | repository settings and workflows at [`293696438`](https://github.com/addlayer-io/dbine/commit/2936964383c5) | score 5.9/10 | — |
 | trivy | 2026-10-22 | whole repository at [`293696438`](https://github.com/addlayer-io/dbine/commit/2936964383c5) | 0 open | — |
 
@@ -290,6 +207,91 @@ Findings reviewed and found not to affect DBine. Each one says why and who decid
 | CodeQL rust/weak-sensitive-data-hashing: Use of a broken or weak cryptographic hashing algorithm on sensitive data | `src-tauri/src/secret_sources/zoho.rs` | won't fix — For Zoho Vault's legacy 'SHA256' accounts the vault's master key is defined by Zoho as hex(SHA-256(passphrase)); DBine must compute it the same way to decrypt that account's secrets, only when the server reports LOGIN=SHA256, keeps it in memory and wipes it after use. | mpanichella |
 | CodeQL rust/weak-sensitive-data-hashing: Use of a broken or weak cryptographic hashing algorithm on sensitive data | `src-tauri/src/secret_sources/zoho.rs` | won't fix — Zoho Vault's legacy 'SHA256' accounts define the passphrase check value as SHA-256(passphrase + salt), computed by Zoho's own client; DBine only recomputes it to compare with what Zoho's GET_LOGIN returns for that account, and takes this branch only when the server reports LOGIN= | mpanichella |
 | CodeQL rust/weak-sensitive-data-hashing: Use of a broken or weak cryptographic hashing algorithm on sensitive data | `crates/dbine-sync/src/engine.rs` | false positive — The SHA-256 of the sync passphrase is only an in-memory fingerprint (CachedKey.pass, never serialized or written) used to tell whether the cached derived key matches the passphrase; the encryption key itself is derived with the policy-checked KDF in crypto::derive_with, and the s | mpanichella |
+| CodeQL rust/non-https-url: Failure to use HTTPS URLs | `crates/drivers/bigquery/src/gcp.rs` | won't fix — http://metadata.google.internal is Google's GCE metadata server, which Application Default Credentials query over plain HTTP on the link-local network (the standard ADC fallback when neither GOOGLE_APPLICATION_CREDENTIALS nor gcloud's ADC file exists); the request carries no cred | mpanichella |
+| CodeQL rust/cleartext-logging: Cleartext logging of sensitive information | `src-tauri/src/secret_sources/gcp.rs` | false positive — The flagged line inserts a gcloud account e-mail and an active flag into the list returned to the connection wizard (from 'gcloud config list'/'gcloud auth list'); no token or secret is read there and nothing is logged. | mpanichella |
+| CodeQL rust/cleartext-logging: Cleartext logging of sensitive information | `crates/drivers/trino/src/transfer.rs` | used in tests — Assertion message in the #[cfg(test)] mod tests of trino/transfer.rs that prints the literal() result for a fixed timestamp string, only in test output. | mpanichella |
+| CodeQL rust/cleartext-logging: Cleartext logging of sensitive information | `crates/drivers/trino/src/transfer.rs` | used in tests — Assertion message in the #[cfg(test)] mod tests of trino/transfer.rs that prints the literal() result for a fixed timestamp string, only in test output. | mpanichella |
+| CodeQL rust/cleartext-logging: Cleartext logging of sensitive information | `src-tauri/src/commands/connections.rs` | used in tests — Assertion message in the #[cfg(test)] mod tests of commands/connections.rs that prints a generated test connection id, only in test output. | mpanichella |
+| CodeQL rust/cleartext-logging: Cleartext logging of sensitive information | `src-tauri/src/secret_sources/aws.rs` | used in tests — Assertion message in the #[cfg(test)] mod tests of secret_sources/aws.rs; it prints a mock-server error string for a missing secret, only in test runs. | mpanichella |
+| CodeQL rust/cleartext-logging: Cleartext logging of sensitive information | `src-tauri/src/secret_sources/accounts.rs` | used in tests — Assertion message in the #[cfg(test)] mod tests of secret_sources/accounts.rs; the values are fixtures (dummy passphrases and API-key tokens) and are printed only on test failure. | mpanichella |
+| CodeQL rust/cleartext-logging: Cleartext logging of sensitive information | `src-tauri/src/secret_sources/accounts.rs` | used in tests — Assertion message in the #[cfg(test)] mod tests of secret_sources/accounts.rs; the values are fixtures (dummy passphrases and API-key tokens) and are printed only on test failure. | mpanichella |
+| CodeQL rust/cleartext-logging: Cleartext logging of sensitive information | `src-tauri/src/secret_sources/accounts.rs` | used in tests — Assertion message in the #[cfg(test)] mod tests of secret_sources/accounts.rs; the values are fixtures (dummy passphrases and API-key tokens) and are printed only on test failure. | mpanichella |
+| CodeQL rust/cleartext-logging: Cleartext logging of sensitive information | `src-tauri/src/secret_sources/accounts.rs` | used in tests — Assertion message in the #[cfg(test)] mod tests of secret_sources/accounts.rs; the values are fixtures (dummy passphrases and API-key tokens) and are printed only on test failure. | mpanichella |
+| CodeQL rust/cleartext-logging: Cleartext logging of sensitive information | `src-tauri/src/secret_sources/bitwarden.rs` | used in tests — Assertion message in the #[cfg(test)] mod tests of secret_sources/bitwarden.rs against a mock server with dummy credentials, printed only on test failure. | mpanichella |
+| CodeQL rust/cleartext-logging: Cleartext logging of sensitive information | `src-tauri/src/secret_sources/bitwarden.rs` | used in tests — Assertion message in the #[cfg(test)] mod tests of secret_sources/bitwarden.rs against a mock server with dummy credentials, printed only on test failure. | mpanichella |
+| CodeQL rust/cleartext-logging: Cleartext logging of sensitive information | `src-tauri/src/secret_sources/bitwarden.rs` | used in tests — Assertion message in the #[cfg(test)] mod tests of secret_sources/bitwarden.rs against a mock server with dummy credentials, printed only on test failure. | mpanichella |
+| CodeQL rust/cleartext-logging: Cleartext logging of sensitive information | `src-tauri/src/secret_sources/mod.rs` | used in tests — Located in the #[cfg(test)] pub(crate) mod tests of secret_sources/mod.rs (lines 659-1424); values are test fixtures printed only in test runs. | mpanichella |
+| CodeQL rust/cleartext-logging: Cleartext logging of sensitive information | `src-tauri/src/secret_sources/zoho.rs` | used in tests — Located in the #[cfg(test)] mod tests of secret_sources/zoho.rs (mock server, dummy refresh token and test vectors); output only in test runs, and the asserts check secrets are absent. | mpanichella |
+| CodeQL rust/cleartext-logging: Cleartext logging of sensitive information | `src-tauri/src/secret_sources/zoho.rs` | used in tests — Located in the #[cfg(test)] mod tests of secret_sources/zoho.rs (mock server, dummy refresh token and test vectors); output only in test runs, and the asserts check secrets are absent. | mpanichella |
+| CodeQL rust/cleartext-logging: Cleartext logging of sensitive information | `src-tauri/src/secret_sources/zoho.rs` | used in tests — Located in the #[cfg(test)] mod tests of secret_sources/zoho.rs (mock server, dummy refresh token and test vectors); output only in test runs, and the asserts check secrets are absent. | mpanichella |
+| CodeQL rust/cleartext-logging: Cleartext logging of sensitive information | `src-tauri/src/secret_sources/zoho.rs` | used in tests — Located in the #[cfg(test)] mod tests of secret_sources/zoho.rs (mock server, dummy refresh token and test vectors); output only in test runs, and the asserts check secrets are absent. | mpanichella |
+| CodeQL rust/cleartext-logging: Cleartext logging of sensitive information | `crates/dbine-plugin/src/proto.rs` | used in tests — The flagged panic! message at crates/dbine-plugin/src/proto.rs:937 is inside the #[cfg(test)] mod tests at the end of the file, so it is not compiled into the shipped app and only prints hard-coded test fixtures (names, SQL text, dates or error kinds) when that unit test fails. | mpanichella |
+| CodeQL rust/cleartext-logging: Cleartext logging of sensitive information | `crates/dbine-plugin/src/proto.rs` | used in tests — The flagged panic! message at crates/dbine-plugin/src/proto.rs:937 is inside the #[cfg(test)] mod tests at the end of the file, so it is not compiled into the shipped app and only prints hard-coded test fixtures (names, SQL text, dates or error kinds) when that unit test fails. | mpanichella |
+| CodeQL rust/cleartext-logging: Cleartext logging of sensitive information | `crates/dbine-plugin/src/proto.rs` | used in tests — The flagged panic! message at crates/dbine-plugin/src/proto.rs:937 is inside the #[cfg(test)] mod tests at the end of the file, so it is not compiled into the shipped app and only prints hard-coded test fixtures (names, SQL text, dates or error kinds) when that unit test fails. | mpanichella |
+| CodeQL rust/cleartext-logging: Cleartext logging of sensitive information | `crates/drivers/cassandra/src/transfer.rs` | used in tests — The flagged assert_eq! message at crates/drivers/cassandra/src/transfer.rs:1240 is inside the #[cfg(test)] mod tests at the end of the file, so it is not compiled into the shipped app and only prints hard-coded test fixtures (names, SQL text, dates or error kinds) when that unit  | mpanichella |
+| CodeQL rust/cleartext-logging: Cleartext logging of sensitive information | `crates/drivers/cassandra/src/transfer.rs` | used in tests — The flagged assert_eq! message at crates/drivers/cassandra/src/transfer.rs:1240 is inside the #[cfg(test)] mod tests at the end of the file, so it is not compiled into the shipped app and only prints hard-coded test fixtures (names, SQL text, dates or error kinds) when that unit  | mpanichella |
+| CodeQL rust/cleartext-logging: Cleartext logging of sensitive information | `crates/drivers/databricks/src/lib.rs` | used in tests — The flagged assert_eq! message at crates/drivers/databricks/src/lib.rs:1087 is inside the #[cfg(test)] mod tests at the end of the file, so it is not compiled into the shipped app and only prints hard-coded test fixtures (names, SQL text, dates or error kinds) when that unit test | mpanichella |
+| CodeQL rust/cleartext-logging: Cleartext logging of sensitive information | `crates/drivers/dynamodb/src/transfer.rs` | used in tests — The flagged assert! message at crates/drivers/dynamodb/src/transfer.rs:1324 is inside the #[cfg(test)] mod tests at the end of the file, so it is not compiled into the shipped app and only prints hard-coded test fixtures (names, SQL text, dates or error kinds) when that unit test | mpanichella |
+| CodeQL rust/cleartext-logging: Cleartext logging of sensitive information | `crates/drivers/snowflake/src/security.rs` | used in tests — The flagged assert! message at crates/drivers/snowflake/src/security.rs:582 is inside the #[cfg(test)] mod tests at the end of the file, so it is not compiled into the shipped app and only prints hard-coded test fixtures (names, SQL text, dates or error kinds) when that unit test | mpanichella |
+| CodeQL rust/cleartext-logging: Cleartext logging of sensitive information | `crates/drivers/snowflake/src/security.rs` | used in tests — The flagged assert! message at crates/drivers/snowflake/src/security.rs:582 is inside the #[cfg(test)] mod tests at the end of the file, so it is not compiled into the shipped app and only prints hard-coded test fixtures (names, SQL text, dates or error kinds) when that unit test | mpanichella |
+| CodeQL rust/cleartext-logging: Cleartext logging of sensitive information | `crates/drivers/snowflake/src/security.rs` | used in tests — The flagged assert! message at crates/drivers/snowflake/src/security.rs:582 is inside the #[cfg(test)] mod tests at the end of the file, so it is not compiled into the shipped app and only prints hard-coded test fixtures (names, SQL text, dates or error kinds) when that unit test | mpanichella |
+| CodeQL rust/cleartext-logging: Cleartext logging of sensitive information | `crates/drivers/snowflake/src/security.rs` | used in tests — The flagged assert! message at crates/drivers/snowflake/src/security.rs:582 is inside the #[cfg(test)] mod tests at the end of the file, so it is not compiled into the shipped app and only prints hard-coded test fixtures (names, SQL text, dates or error kinds) when that unit test | mpanichella |
+| CodeQL rust/cleartext-logging: Cleartext logging of sensitive information | `crates/drivers/snowflake/src/security.rs` | used in tests — The flagged assert! message at crates/drivers/snowflake/src/security.rs:582 is inside the #[cfg(test)] mod tests at the end of the file, so it is not compiled into the shipped app and only prints hard-coded test fixtures (names, SQL text, dates or error kinds) when that unit test | mpanichella |
+| CodeQL rust/cleartext-logging: Cleartext logging of sensitive information | `crates/drivers/snowflake/src/security.rs` | used in tests — The flagged assert! message at crates/drivers/snowflake/src/security.rs:582 is inside the #[cfg(test)] mod tests at the end of the file, so it is not compiled into the shipped app and only prints hard-coded test fixtures (names, SQL text, dates or error kinds) when that unit test | mpanichella |
+| CodeQL rust/cleartext-logging: Cleartext logging of sensitive information | `crates/drivers/snowflake/src/lib.rs` | used in tests — The flagged assert_eq! message at crates/drivers/snowflake/src/lib.rs:1342 is inside the #[cfg(test)] mod tests at the end of the file, so it is not compiled into the shipped app and only prints hard-coded test fixtures (names, SQL text, dates or error kinds) when that unit test  | mpanichella |
+| CodeQL rust/cleartext-logging: Cleartext logging of sensitive information | `crates/drivers/sqlserver/src/variant.rs` | used in tests — Assertion message in the #[cfg(test)] mod tests of variant.rs that prints the list of form field names shown for Entra MFA, not any field value. | mpanichella |
+| CodeQL rust/cleartext-logging: Cleartext logging of sensitive information | `crates/drivers/postgres/src/cloud_auth.rs` | used in tests — The flagged assert! message at crates/drivers/postgres/src/cloud_auth.rs:1349 is inside the #[cfg(test)] mod tests at the end of the file, so it is not compiled into the shipped app and only prints hard-coded test fixtures (names, SQL text, dates or error kinds) when that unit te | mpanichella |
+| CodeQL rust/cleartext-logging: Cleartext logging of sensitive information | `src-tauri/src/secret_sources/accounts.rs` | used in tests — Assertion message in the #[cfg(test)] mod tests of secret_sources/accounts.rs; the values are fixtures (dummy passphrases and API-key tokens) and are printed only on test failure. | mpanichella |
+| CodeQL rust/cleartext-logging: Cleartext logging of sensitive information | `crates/drivers/cassandra/src/transfer.rs` | used in tests — The flagged assert_eq! message at crates/drivers/cassandra/src/transfer.rs:1240 is inside the #[cfg(test)] mod tests at the end of the file, so it is not compiled into the shipped app and only prints hard-coded test fixtures (names, SQL text, dates or error kinds) when that unit  | mpanichella |
+| CodeQL rust/cleartext-logging: Cleartext logging of sensitive information | `crates/drivers/cassandra/src/transfer.rs` | used in tests — The flagged assert_eq! message at crates/drivers/cassandra/src/transfer.rs:1240 is inside the #[cfg(test)] mod tests at the end of the file, so it is not compiled into the shipped app and only prints hard-coded test fixtures (names, SQL text, dates or error kinds) when that unit  | mpanichella |
+| CodeQL rust/cleartext-logging: Cleartext logging of sensitive information | `crates/drivers/couchbase/src/lib.rs` | used in tests — The flagged assert_eq! message at crates/drivers/couchbase/src/lib.rs:1342 is inside the #[cfg(test)] mod tests at the end of the file, so it is not compiled into the shipped app and only prints hard-coded test fixtures (names, SQL text, dates or error kinds) when that unit test  | mpanichella |
+| CodeQL rust/cleartext-logging: Cleartext logging of sensitive information | `crates/drivers/databricks/src/lib.rs` | used in tests — The flagged assert_eq! message at crates/drivers/databricks/src/lib.rs:1087 is inside the #[cfg(test)] mod tests at the end of the file, so it is not compiled into the shipped app and only prints hard-coded test fixtures (names, SQL text, dates or error kinds) when that unit test | mpanichella |
+| CodeQL rust/cleartext-logging: Cleartext logging of sensitive information | `crates/drivers/dremio/src/lib.rs` | used in tests — The flagged assert_eq! message at crates/drivers/dremio/src/lib.rs:1026 is inside the #[cfg(test)] mod tests at the end of the file, so it is not compiled into the shipped app and only prints hard-coded test fixtures (names, SQL text, dates or error kinds) when that unit test fai | mpanichella |
+| CodeQL rust/cleartext-logging: Cleartext logging of sensitive information | `crates/drivers/dsql/src/lib.rs` | used in tests — The flagged assert_eq! message at crates/drivers/dsql/src/lib.rs:1050 is inside the #[cfg(test)] mod tests at the end of the file, so it is not compiled into the shipped app and only prints hard-coded test fixtures (names, SQL text, dates or error kinds) when that unit test fails | mpanichella |
+| CodeQL rust/cleartext-logging: Cleartext logging of sensitive information | `crates/drivers/elasticsearch/src/security.rs` | used in tests — The flagged assert_eq! message at crates/drivers/elasticsearch/src/security.rs:497 is inside the #[cfg(test)] mod tests at the end of the file, so it is not compiled into the shipped app and only prints hard-coded test fixtures (names, SQL text, dates or error kinds) when that un | mpanichella |
+| CodeQL rust/cleartext-logging: Cleartext logging of sensitive information | `crates/drivers/odbc/src/lib.rs` | used in tests — The flagged assert_eq! message at crates/drivers/odbc/src/lib.rs:1747 is inside the #[cfg(test)] mod tests at the end of the file, so it is not compiled into the shipped app and only prints hard-coded test fixtures (names, SQL text, dates or error kinds) when that unit test fails | mpanichella |
+| CodeQL rust/cleartext-logging: Cleartext logging of sensitive information | `crates/drivers/phoenix/src/lib.rs` | used in tests — The flagged assert_eq! message at crates/drivers/phoenix/src/lib.rs:1130 is inside the #[cfg(test)] mod tests at the end of the file, so it is not compiled into the shipped app and only prints hard-coded test fixtures (names, SQL text, dates or error kinds) when that unit test fa | mpanichella |
+| CodeQL rust/cleartext-logging: Cleartext logging of sensitive information | `crates/drivers/postgres/src/lib.rs` | used in tests — The flagged assert_eq! message at crates/drivers/postgres/src/lib.rs:941 is inside the #[cfg(test)] mod tests at the end of the file, so it is not compiled into the shipped app and only prints hard-coded test fixtures (names, SQL text, dates or error kinds) when that unit test fa | mpanichella |
+| CodeQL rust/cleartext-logging: Cleartext logging of sensitive information | `crates/drivers/snowflake/src/lib.rs` | used in tests — The flagged assert_eq! message at crates/drivers/snowflake/src/lib.rs:1342 is inside the #[cfg(test)] mod tests at the end of the file, so it is not compiled into the shipped app and only prints hard-coded test fixtures (names, SQL text, dates or error kinds) when that unit test  | mpanichella |
+| CodeQL rust/cleartext-logging: Cleartext logging of sensitive information | `crates/drivers/spanner/src/lib.rs` | used in tests — Assertion message inside the #[cfg(test)] mod tests of the Spanner driver; it formats a driver id and a GRANT script result for the fixed role 'ana', only in test output. | mpanichella |
+| CodeQL rust/cleartext-logging: Cleartext logging of sensitive information | `crates/drivers/sqlserver/src/lib.rs` | used in tests — Assertion message inside the #[cfg(test)] mod tests of the SQL Server driver; it formats a driver id and a GRANT script result for the fixed role 'ana', only in test output. | mpanichella |
+| CodeQL rust/cleartext-logging: Cleartext logging of sensitive information | `crates/drivers/trino/src/lib.rs` | used in tests — Assertion message inside the #[cfg(test)] mod tests of the Trino driver; it formats a driver id and a GRANT script result for the fixed role 'ana', only in test output. | mpanichella |
+| CodeQL rust/cleartext-logging: Cleartext logging of sensitive information | `src-tauri/src/secret_sources/accounts.rs` | used in tests — Assertion message in the #[cfg(test)] mod tests of secret_sources/accounts.rs; the values are fixtures (dummy passphrases and API-key tokens) and are printed only on test failure. | mpanichella |
+| CodeQL rust/cleartext-logging: Cleartext logging of sensitive information | `src-tauri/src/secret_sources/accounts.rs` | used in tests — Assertion message in the #[cfg(test)] mod tests of secret_sources/accounts.rs; the values are fixtures (dummy passphrases and API-key tokens) and are printed only on test failure. | mpanichella |
+| CodeQL rust/cleartext-logging: Cleartext logging of sensitive information | `src-tauri/src/secret_sources/accounts.rs` | used in tests — Assertion message in the #[cfg(test)] mod tests of secret_sources/accounts.rs; the values are fixtures (dummy passphrases and API-key tokens) and are printed only on test failure. | mpanichella |
+| CodeQL rust/cleartext-transmission: Cleartext transmission of sensitive information | `src-tauri/src/secret_sources/zoho.rs` | false positive — ep.accounts comes from Endpoints::of, which always builds https:// URLs from Zoho's fixed data-centre hosts, and every production client for these calls is built with https_only(true) and no redirects; http:// endpoints appear only in the in-test mock server. | mpanichella |
+| CodeQL rust/hard-coded-cryptographic-value: Hard-coded cryptographic value | `src-tauri/src/commands/security.rs` | used in tests — Test-only fixture: a dummy password used to check that scripts hide it, in the #[cfg(test)] module. | mpanichella |
+| CodeQL rust/hard-coded-cryptographic-value: Hard-coded cryptographic value | `src-tauri/src/secret_sources/bitwarden.rs` | used in tests — Test-only fixture: dummy passwords and API secrets against a mock Bitwarden server in the #[cfg(test)] module. | mpanichella |
+| CodeQL rust/hard-coded-cryptographic-value: Hard-coded cryptographic value | `src-tauri/src/secret_sources/bitwarden.rs` | used in tests — Test-only fixture: dummy passwords and API secrets against a mock Bitwarden server in the #[cfg(test)] module. | mpanichella |
+| CodeQL rust/hard-coded-cryptographic-value: Hard-coded cryptographic value | `src-tauri/src/secret_sources/bitwarden.rs` | used in tests — Test-only fixture: dummy passwords and API secrets against a mock Bitwarden server in the #[cfg(test)] module. | mpanichella |
+| CodeQL rust/hard-coded-cryptographic-value: Hard-coded cryptographic value | `src-tauri/src/secret_sources/bitwarden.rs` | used in tests — Test-only fixture: dummy passwords and API secrets against a mock Bitwarden server in the #[cfg(test)] module. | mpanichella |
+| CodeQL rust/hard-coded-cryptographic-value: Hard-coded cryptographic value | `src-tauri/src/secret_sources/bitwarden.rs` | used in tests — Test-only fixture: dummy passwords and API secrets against a mock Bitwarden server in the #[cfg(test)] module. | mpanichella |
+| CodeQL rust/hard-coded-cryptographic-value: Hard-coded cryptographic value | `src-tauri/src/secret_sources/bitwarden.rs` | used in tests — Test-only fixture: dummy passwords and API secrets against a mock Bitwarden server in the #[cfg(test)] module. | mpanichella |
+| CodeQL rust/hard-coded-cryptographic-value: Hard-coded cryptographic value | `src-tauri/src/secret_sources/bitwarden.rs` | used in tests — Test-only fixture: dummy passwords and API secrets against a mock Bitwarden server in the #[cfg(test)] module. | mpanichella |
+| CodeQL rust/hard-coded-cryptographic-value: Hard-coded cryptographic value | `src-tauri/src/secret_sources/delinea.rs` | used in tests — Test-only fixture: dummy credentials against a mock Delinea server in the #[cfg(test)] module. | mpanichella |
+| CodeQL rust/hard-coded-cryptographic-value: Hard-coded cryptographic value | `src-tauri/src/secret_sources/delinea.rs` | used in tests — Test-only fixture: dummy credentials against a mock Delinea server in the #[cfg(test)] module. | mpanichella |
+| CodeQL rust/hard-coded-cryptographic-value: Hard-coded cryptographic value | `src-tauri/src/secret_sources/delinea.rs` | used in tests — Test-only fixture: dummy credentials against a mock Delinea server in the #[cfg(test)] module. | mpanichella |
+| CodeQL rust/hard-coded-cryptographic-value: Hard-coded cryptographic value | `src-tauri/src/secret_sources/delinea.rs` | used in tests — Test-only fixture: dummy credentials against a mock Delinea server in the #[cfg(test)] module. | mpanichella |
+| CodeQL rust/hard-coded-cryptographic-value: Hard-coded cryptographic value | `src-tauri/src/secret_sources/delinea.rs` | used in tests — Test-only fixture: dummy credentials against a mock Delinea server in the #[cfg(test)] module. | mpanichella |
+| CodeQL rust/hard-coded-cryptographic-value: Hard-coded cryptographic value | `src-tauri/src/secret_sources/delinea.rs` | used in tests — Test-only fixture: dummy credentials against a mock Delinea server in the #[cfg(test)] module. | mpanichella |
+| CodeQL rust/hard-coded-cryptographic-value: Hard-coded cryptographic value | `src-tauri/src/secret_sources/delinea.rs` | used in tests — Test-only fixture: dummy credentials against a mock Delinea server in the #[cfg(test)] module. | mpanichella |
+| CodeQL rust/hard-coded-cryptographic-value: Hard-coded cryptographic value | `src-tauri/src/secret_sources/delinea.rs` | used in tests — Test-only fixture: dummy credentials against a mock Delinea server in the #[cfg(test)] module. | mpanichella |
+| CodeQL rust/hard-coded-cryptographic-value: Hard-coded cryptographic value | `src-tauri/src/secret_sources/delinea.rs` | used in tests — Test-only fixture: dummy credentials against a mock Delinea server in the #[cfg(test)] module. | mpanichella |
+| CodeQL rust/hard-coded-cryptographic-value: Hard-coded cryptographic value | `src-tauri/src/secret_sources/delinea.rs` | used in tests — Test-only fixture: dummy credentials against a mock Delinea server in the #[cfg(test)] module. | mpanichella |
+| CodeQL rust/hard-coded-cryptographic-value: Hard-coded cryptographic value | `src-tauri/src/secret_sources/delinea.rs` | used in tests — Test-only fixture: dummy credentials against a mock Delinea server in the #[cfg(test)] module. | mpanichella |
+| CodeQL rust/hard-coded-cryptographic-value: Hard-coded cryptographic value | `src-tauri/src/secret_sources/delinea.rs` | used in tests — Test-only fixture: dummy credentials against a mock Delinea server in the #[cfg(test)] module. | mpanichella |
+| CodeQL rust/hard-coded-cryptographic-value: Hard-coded cryptographic value | `src-tauri/src/secret_sources/zoho.rs` | false positive — Not a constant salt: an empty fallback when Zoho's GET_LOGIN omits SALT, and the PBKDF2 path rejects an empty salt before deriving any key. | mpanichella |
+| CodeQL rust/hard-coded-cryptographic-value: Hard-coded cryptographic value | `src-tauri/src/secret_sources/zoho.rs` | used in tests — Test-only fixture: dummy keys passed to decrypt() in the #[cfg(test)] module to check that wrong keys and malformed input fail. | mpanichella |
+| CodeQL rust/hard-coded-cryptographic-value: Hard-coded cryptographic value | `crates/drivers/sqlserver/src/lib.rs` | used in tests — Test-only fixture: a dummy password used to check auth-method parsing in the #[cfg(test)] module. | mpanichella |
+| CodeQL rust/hard-coded-cryptographic-value: Hard-coded cryptographic value | `crates/drivers/sqlserver/src/lib.rs` | used in tests — Test-only fixture: a dummy password used to check auth-method parsing in the #[cfg(test)] module. | mpanichella |
+| CodeQL rust/hard-coded-cryptographic-value: Hard-coded cryptographic value | `src-tauri/src/secret_sources/zoho.rs` | used in tests — Test-only fixture: a constant nonce passed to the #[cfg(test)]-only encrypt() helper that builds a mock Zoho Vault account. | mpanichella |
+| CodeQL rust/hard-coded-cryptographic-value: Hard-coded cryptographic value | `src-tauri/src/secret_sources/zoho.rs` | used in tests — Test-only fixture: a constant nonce passed to the #[cfg(test)]-only encrypt() helper that builds a mock Zoho Vault account. | mpanichella |
+| CodeQL rust/hard-coded-cryptographic-value: Hard-coded cryptographic value | `src-tauri/src/secret_sources/zoho.rs` | used in tests — Test-only fixture: a constant nonce passed to the #[cfg(test)]-only encrypt() helper that builds a mock Zoho Vault account. | mpanichella |
+| CodeQL rust/hard-coded-cryptographic-value: Hard-coded cryptographic value | `src-tauri/src/secret_sources/zoho.rs` | used in tests — Test-only fixture: a constant nonce passed to the #[cfg(test)]-only encrypt() helper that builds a mock Zoho Vault account. | mpanichella |
+| CodeQL rust/hard-coded-cryptographic-value: Hard-coded cryptographic value | `src-tauri/src/secret_sources/zoho.rs` | used in tests — Test-only fixture: a constant nonce passed to the #[cfg(test)]-only encrypt() helper that builds a mock Zoho Vault account. | mpanichella |
+| CodeQL rust/hard-coded-cryptographic-value: Hard-coded cryptographic value | `crates/dbine-core/src/secrets.rs` | used in tests — Test-only: a fixed key used to check that each vault write gets a new nonce, inside the #[cfg(test)] module of secrets.rs. | mpanichella |
+| CodeQL rust/hard-coded-cryptographic-value: Hard-coded cryptographic value | `crates/dbine-core/src/secrets.rs` | used in tests — Test-only: a fixed key used to check that each vault write gets a new nonce, inside the #[cfg(test)] module of secrets.rs. | mpanichella |
+| CodeQL rust/weak-sensitive-data-hashing: Use of a broken or weak cryptographic hashing algorithm on sensitive data | `src-tauri/src/secret_sources/zoho.rs` | won't fix — Zoho Vault's legacy 'SHA256' accounts define the passphrase check value as SHA-256(passphrase + salt), computed by Zoho's own client; DBine only recomputes it to compare with what Zoho's GET_LOGIN returns for that account, and takes this branch only when the server reports LOGIN= | mpanichella |
 | CodeQL js/insufficient-key-size: Use of a weak cryptographic key | `src-tauri/src/secret_sources/testdata/zoho-vectors.mjs` | used in tests — src-tauri/src/secret_sources/testdata/zoho-vectors.mjs is a test-vector generator that reproduces Zoho Vault's RSA_1024 organization-key format with a throwaway key; it is not shipped. | mpanichella |
 | CodeQL js/incomplete-multi-character-sanitization: Incomplete multi-character sanitization | `web/src/composables/releaseNotes.ts` | false positive — noteBlocks returns plain text that UpdateNotice.vue renders only with text interpolation ({{ b.text }}, never v-html), so any leftover '<script' is shown as literal text and cannot create an element. | mpanichella |
 | CodeQL js/insecure-randomness: Insecure randomness | `web/src/components/GenerateDataDialog.vue` | false positive — Math.random here makes the data generator's run id (for progress events and cancel) and its reproducible fake-data seed; neither is a secret, token or key. | mpanichella |
