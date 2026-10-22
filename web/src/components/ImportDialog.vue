@@ -1,6 +1,5 @@
 <script setup lang="ts">
 import { computed, markRaw, onBeforeUnmount, reactive, ref, watch } from 'vue';
-import { ElMessage } from 'element-plus';
 import { invoke } from '@tauri-apps/api/core';
 import { open } from '@tauri-apps/plugin-dialog';
 import { useTranslation } from 'i18next-vue';

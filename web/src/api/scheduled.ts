@@ -17,11 +17,16 @@ export type StepKind = 'run_script' | 'export' | 'compare_schemas' | 'backup' | 
 export type StepWhen = 'always' | 'alert' | 'errors';
 export type RunStatus = 'running' | 'ok' | 'partial' | 'failed';
 
+/** A step's settings: free-form JSON whose shape depends on the step's
+ *  kind (each step editor reads and writes its own fields). */
+// eslint-disable-next-line @typescript-eslint/no-explicit-any -- shape varies per step kind
+export type StepConfig = Record<string, any>;
+
 export interface Step {
   id: string;
   kind: StepKind | string;
   name: string;
-  config: Record<string, any>;
+  config: StepConfig;
   on_error: OnError;
 }
 
@@ -160,7 +165,7 @@ export function newTask(): ScheduledTask {
 }
 
 export function newStep(kind: StepKind): Step {
-  const config: Record<string, any> = {
+  const config: StepConfig = {
     run_script: { connection_id: '', database: '', sql: '' },
     export: { connection_id: '', database: '', sql: '', folder: '', file_name: '{task}-{datetime}', options: { format: 'csv', header: true } },
     compare_schemas: {

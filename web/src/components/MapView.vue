@@ -1,4 +1,5 @@
 <script setup lang="ts">
+/* eslint-disable @typescript-eslint/no-explicit-any -- Leaflet is loaded without types (see shims.d.ts) */
 import { computed, onBeforeUnmount, onMounted, ref, shallowRef, watch } from 'vue';
 import { useTranslation } from 'i18next-vue';
 import * as L from 'leaflet';
@@ -31,7 +32,7 @@ const props = defineProps<{
 const emit = defineEmits<{ 'update:settings': [settings: MapSettings] }>();
 
 const { t } = useTranslation();
-const settings = useSettingsStore();
+const settingsStore = useSettingsStore();
 const ui = useUiStore();
 
 const found = computed(() => props.detected ?? detectSpatial(props.columns, props.rows));
@@ -109,7 +110,7 @@ function palette() {
   };
 }
 
-const tiles = computed<TileSettings>(() => ({ ...DEFAULT_TILES, ...settings.get<Partial<TileSettings>>(TILE_SETTINGS, {}) }));
+const tiles = computed<TileSettings>(() => ({ ...DEFAULT_TILES, ...settingsStore.get<Partial<TileSettings>>(TILE_SETTINGS, {}) }));
 const tileSpec = computed(() => tileLayerSpec(tiles.value, dark.value));
 const online = computed(() => !!tileSpec.value);
 

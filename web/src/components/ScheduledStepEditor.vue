@@ -2,8 +2,8 @@
 import { computed } from 'vue';
 import { open as openDialog } from '@tauri-apps/plugin-dialog';
 import { useTranslation } from 'i18next-vue';
-import type { Step } from '../api/scheduled';
-import type { ProjectTarget } from '../api/types';
+import type { Step, StepConfig } from '../api/scheduled';
+import type { Language, ProjectTarget } from '../api/types';
 import { tb } from '../i18n/backend';
 import { useConnectionsStore } from '../stores/connections';
 import CodeEditor from './CodeEditor.vue';
@@ -28,14 +28,14 @@ const FORMATS = ['csv', 'csv_semicolon', 'csv_excel', 'tsv', 'xlsx', 'json', 'js
 function targetOf(o: { connection_id: string; database: string }): ProjectTarget | null {
   return o.connection_id ? { connection_id: o.connection_id, database: o.database } : null;
 }
-function setTarget(o: Record<string, any>, v: ProjectTarget | null) {
+function setTarget(o: StepConfig, v: ProjectTarget | null) {
   o.connection_id = v?.connection_id ?? '';
   o.database = v?.database ?? '';
   emit('change');
 }
 
 const driver = computed(() => (c.value.connection_id ? conns.driverOf(c.value.connection_id) : undefined));
-const language = computed(() => (driver.value?.language === 'sql' || !driver.value ? 'sql' : driver.value.language) as any);
+const language = computed(() => (driver.value?.language === 'sql' || !driver.value ? 'sql' : driver.value.language) as Language);
 const backupSpec = computed(() => driver.value?.backup ?? null);
 const nativeBackup = computed(() => c.value.mode === 'native' && !!backupSpec.value);
 

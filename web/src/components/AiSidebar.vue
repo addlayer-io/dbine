@@ -341,6 +341,7 @@ const phaseText = computed(() => ({
               <pre class="nm-selectable">{{ thinkingOf(m) }}</pre>
             </details>
             <template v-for="(p, i) in parts(visible(m))" :key="i">
+              <!-- eslint-disable-next-line vue/no-v-html -- escaped first by composables/markdown.ts: no raw HTML -->
               <div v-if="p.kind === 'text'" class="ai-md nm-selectable" @click="onAnswerClick" v-html="p.html" />
               <div v-else class="ai-code">
                 <div class="ai-code-bar">

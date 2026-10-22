@@ -194,6 +194,7 @@ const STATE: Record<string, { label: string; cls: string }> = {
         <p class="lg-help">
           {{ $t('library:git.help') }}
           <i18next :translation="$t('library:git.helpFiles')">
+            <!-- eslint-disable-next-line vue/require-v-for-key -- generates named slots, not elements -->
             <template v-for="x in EXTS" #[x]><code>.{{ x }}</code></template>
           </i18next>
         </p>

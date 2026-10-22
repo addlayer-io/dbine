@@ -27,6 +27,7 @@ export function esc(s: string): string {
 export function safeHref(url: string): string | null {
   const u = url.trim();
   // No control characters or spaces hidden in the scheme ("java\tscript:").
+  // eslint-disable-next-line no-control-regex -- control characters are exactly what this rejects
   if (/[\u0000-\u001f\u007f\s]/.test(u)) return null;
   return /^(https?:\/\/|mailto:)/i.test(u) ? u : null;
 }

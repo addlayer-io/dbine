@@ -148,7 +148,7 @@ function togglePick(key: string) {
 }
 function pickAll(on: boolean) {
   const s = new Set(picked.value);
-  for (const t of shownTables.value) (on ? s.add(t.key) : s.delete(t.key));
+  for (const t of shownTables.value) if (on) s.add(t.key); else s.delete(t.key);
   picked.value = s;
 }
 

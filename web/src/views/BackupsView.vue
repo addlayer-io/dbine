@@ -81,7 +81,7 @@ const num = (n: number) => n.toLocaleString(locale());
 // this component lives.
 const tasks = useTasksStore();
 let alive = true;
-const owned = new Set<TaskHandle<any>>();
+const owned = new Set<TaskHandle<unknown>>();
 onBeforeUnmount(() => {
   alive = false;
   // The dialogs are gone: "Ver detalle" falls back to the panel's own detail,
@@ -97,17 +97,17 @@ const where = () => {
   const name = conns.byId(props.tab.connectionId)?.name ?? '';
   return props.tab.database ? `${name} / ${props.tab.database}` : name;
 };
-const isBackground = (h: TaskHandle<any> | null) => !!h && !!tasks.byId(h.id)?.background;
-const isRunning = (h: TaskHandle<any> | null) => !!h && tasks.byId(h.id)?.state === 'running';
+const isBackground = (h: TaskHandle<unknown> | null) => !!h && !!tasks.byId(h.id)?.background;
+const isRunning = (h: TaskHandle<unknown> | null) => !!h && tasks.byId(h.id)?.state === 'running';
 /** "Seguir en segundo plano", or the dialog closed (Esc) while its run goes on. */
-function sendToBackground(h: TaskHandle<any> | null, close?: () => void) {
+function sendToBackground(h: TaskHandle<unknown> | null, close?: () => void) {
   if (isRunning(h)) h!.background();
   close?.();
 }
 
 // -- DBine copy ----------------------------------------------------------------
 const copy = reactive({ open: false, path: '', data: true, running: false, cancelling: false, done: 0, total: 0, current: '' });
-let copyTask: TaskHandle<any> | null = null;
+let copyTask: TaskHandle<unknown> | null = null;
 
 async function openCopy() {
   if (copy.running) { copy.open = true; return; }
@@ -136,7 +136,7 @@ async function runCopy() {
   const data = copy.data;
   // The task exists from the first click, so Cancelar and "Seguir en segundo
   // plano" work while the object list loads too.
-  const task: TaskHandle<any> = startTask({
+  const task: TaskHandle<unknown> = startTask({
     kind: 'backup-copy', title: t('tasks:backups.copy', { where: where() }), connectionId, database,
     cancel: () => { copy.cancelling = true; return api.cancelQuery(`script:${id}`); },
     reopen: () => { copy.open = true; },
@@ -189,7 +189,7 @@ function cancelCopy() {
 
 // -- restore a DBine copy (run its script) ------------------------------------
 const restoreCopy = reactive({ open: false, copy: null as BackupCopy | null, database: '', continueOnError: false, running: false, cancelling: false, bytes: 0, total: 0, errors: [] as string[] });
-let restoreTask: TaskHandle<any> | null = null;
+let restoreTask: TaskHandle<unknown> | null = null;
 function openRestoreCopy(c: BackupCopy) {
   if (restoreCopy.running) { restoreCopy.open = true; return; }
   Object.assign(restoreCopy, { open: true, copy: c, database: c.database, continueOnError: false, running: false, cancelling: false, bytes: 0, total: c.size, errors: [] });
@@ -322,7 +322,7 @@ async function pickFile(f: Field) {
 }
 
 const review = reactive({ open: false, action: null as BackupAction | null, script: '', shown: '', error: null as string | null, running: false });
-let reviewTask: TaskHandle<any> | null = null;
+let reviewTask: TaskHandle<unknown> | null = null;
 async function propose(action: BackupAction) {
   if (review.running) { review.open = true; return; }
   try {
@@ -460,7 +460,7 @@ const rowsOf = (o: QueryOutcome): Row[] => {
  * own session. Returns the function that stops it (and closes that session).
  */
 async function watchProgress(
-  task: TaskHandle<any>, action: string, session: string, connectionId: string, database: string,
+  task: TaskHandle<unknown>, action: string, session: string, connectionId: string, database: string,
 ): Promise<() => void> {
   // Autonomous Database runs the same Data Pump jobs as Oracle.
   const id = driver.value?.id ?? '';

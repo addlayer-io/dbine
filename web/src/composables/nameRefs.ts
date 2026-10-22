@@ -36,7 +36,7 @@ const CHAIN = new RegExp(String.raw`${ID}(?:\s*\.\s*${ID})*`, 'gu');
 const PART = new RegExp(ID, 'gu');
 
 function unquote(id: string): string {
-  return /^[[\"`]/.test(id) ? id.slice(1, -1) : id;
+  return /^[["`]/.test(id) ? id.slice(1, -1) : id;
 }
 
 const eq = (a: string | null | undefined, b: string) => (a ?? '').toLowerCase() === b.toLowerCase();

@@ -328,7 +328,7 @@ const pz = usePanZoom({
   maxFitK: 1,
   noPan: '.dd-card, .dd-zoom, .dd-mini, .dd-banner',
 });
-const { vp, view, size, panning, zoomBy, actualSize, fit, centerOn, onWheel, onPointerDown, mini, miniView, onMiniDown } = pz;
+const { vp, view, panning, zoomBy, actualSize, fit, centerOn, onWheel, onPointerDown, mini, miniView, onMiniDown } = pz;
 /** Far out, rows are unreadable: hide their contents (cheaper to paint). */
 const lod = computed(() => view.k < 0.32);
 const showMini = ref(true);
@@ -743,6 +743,7 @@ const fmtRules = (f: ForeignKeyDef) =>
             :height="bounds.height + 200"
             :viewBox="`${bounds.x - 100} ${bounds.y - 100} ${bounds.width + 200} ${bounds.height + 200}`"
           >
+            <!-- eslint-disable-next-line vue/no-v-html -- SVG markers built here from theme colours, no user input -->
             <defs v-html="markerDefs('dd', ink.edge, ink.canvas) + markerDefs('ddh', ink.hot, ink.canvas)" />
             <g
               v-for="e in edges"

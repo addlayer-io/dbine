@@ -86,7 +86,7 @@ async function pickMaxRows() {
 }
 /** A whole number of rows, 1 or more ("10.000", "10,000" and "10 000" too). */
 function parseRows(v: string): number | null {
-  const s = v.trim().replace(/[.,\s  ']/g, '');
+  const s = v.trim().replace(/[.,\s\u00a0\u202f']/g, '');
   if (!/^\d+$/.test(s)) return null;
   const n = Number(s);
   return n >= 1 ? Math.min(n, ALL_ROWS) : null;

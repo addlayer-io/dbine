@@ -1,4 +1,4 @@
-import { createApp } from 'vue';
+import { createApp, type Component } from 'vue';
 import { createPinia } from 'pinia';
 import ElementPlus from 'element-plus';
 import * as Icons from '@element-plus/icons-vue';
@@ -26,14 +26,14 @@ app.use(ElementPlus, { size: 'small' });
 app.use(I18NextVue, { i18next });
 loadBackendCatalog();
 for (const [name, comp] of Object.entries(Icons)) {
-  app.component(`Ei${name}`, comp as any);
+  app.component(`Ei${name}`, comp as Component);
 }
 installNativeBehavior();
 // The startup language's texts first, so no raw key is ever rendered.
 i18nReady.then(() => app.mount('#app'));
 // Dev test harness (src-tauri/src/devtools.rs): a PNG of the page.
 if (import.meta.env.DEV) {
-  (window as any).__dbineSnap = async () => (await import('html-to-image')).toPng(document.body, {
+  (window as unknown as { __dbineSnap?: () => Promise<string> }).__dbineSnap = async () => (await import('html-to-image')).toPng(document.body, {
     pixelRatio: 1,
     // CodeMirror's src-less <img> widget buffers can't be captured.
     filter: (n) => !(n instanceof HTMLImageElement && !n.getAttribute('src')),
