@@ -1217,9 +1217,7 @@ impl Session for TdSession {
         let dbs = self.records("SELECT name, vgroups, ntables, replica, `precision`, status FROM information_schema.ins_databases").await.unwrap_or_default();
         let storage: Option<f64> = usage.as_ref().map(|u| {
             u.iter()
-                .filter_map(|r| {
-                    Some(num(r.get("data")).unwrap_or(0.0) + num(r.get("wal")).unwrap_or(0.0))
-                })
+                .map(|r| num(r.get("data")).unwrap_or(0.0) + num(r.get("wal")).unwrap_or(0.0))
                 .sum::<f64>()
                 * 1024.0
         });
@@ -1541,7 +1539,7 @@ impl Session for TdSession {
                 snap.info.push((label.into(), v));
             }
         }
-        if keeper.len() > 0 && dnodes.len() > keeper.len() {
+        if !keeper.is_empty() && dnodes.len() > keeper.len() {
             snap.notes
                 .push("Algunos dnodes todavía no reportaron a taosKeeper.".into());
         }

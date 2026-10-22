@@ -672,6 +672,10 @@ pub async fn target_info(
     })
 }
 
+/// The statements, the table as created and each DataFrame column's
+/// `(name, source type, target type)`.
+type CreatePlan = (Vec<String>, ObjectRef, Vec<(String, String, String)>);
+
 /// The table "crear tabla nueva" makes: the DataFrame's columns in the
 /// target's types (dbine-schema's conversion from DuckDB), the keys as its
 /// primary key. Returns the statements, the table as created and each
@@ -681,7 +685,7 @@ fn create_plan(
     target: &WriteTarget,
     cols: &[(String, String)],
     keys: &[String],
-) -> CommandResult<(Vec<String>, ObjectRef, Vec<(String, String, String)>)> {
+) -> CommandResult<CreatePlan> {
     let t = table_ref(target);
     let table = TableSchema {
         kind: "table".into(),
@@ -774,7 +778,7 @@ pub async fn prepare(
         return Err(CommandError::BadRequest(if modes.is_empty() {
             format!("{} no escribe datos desde un notebook", driver.info().name)
         } else {
-            mode_refused(&driver.info().name, a.mode)
+            mode_refused(driver.info().name, a.mode)
         }));
     }
     if a.target.table.trim().is_empty() {
@@ -837,7 +841,7 @@ pub async fn prepare(
     let mut warnings = Vec::new();
     let r = {
         let mut s = entry.session.lock().await;
-        snapshot_and_check(&mut **s, state, a, &driver, &conn, &snapshot, &mut warnings).await
+        snapshot_and_check(&mut **s, state, a, driver, &conn, &snapshot, &mut warnings).await
     };
     let (plan_pending, preview, unmatched_source, unmatched_target) = match r {
         Ok(x) => x,
@@ -1149,9 +1153,11 @@ async fn finish(
         .filter(|n| !pairs.iter().any(|p| p.target == **n))
         .cloned()
         .collect();
-    let db = (!a.target.database.is_empty())
-        .then(|| format!(" › {}", a.target.database))
-        .unwrap_or_default();
+    let db = if a.target.database.is_empty() {
+        String::new()
+    } else {
+        format!(" › {}", a.target.database)
+    };
     let label = format!("{}{db} › {}", conn.name, qualified(&table));
     let p = Pending {
         tab: a.tab_id.clone(),
@@ -1232,7 +1238,7 @@ async fn write(
     let modes = modes_of(driver.as_ref());
     if !modes.contains(&a.mode) {
         return Err(CommandError::BadRequest(mode_refused(
-            &driver.info().name,
+            driver.info().name,
             a.mode,
         )));
     }

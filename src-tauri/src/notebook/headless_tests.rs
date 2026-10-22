@@ -281,7 +281,7 @@ async fn notebook_headless_never_reads_a_file_without_permitir_siempre() {
         .is_none());
 
     // A blocked folder stays blocked even with a grant.
-    let blocked = Policy::new(None, &[w.dir.clone()], &[], vec![]);
+    let blocked = Policy::new(None, std::slice::from_ref(&w.dir), &[], vec![]);
     let pl = super::plan(&w.state, &opts(&path), blocked.clone()).unwrap();
     assert_eq!(pl.blocked.len(), 1, "{pl:?}");
     let ran = run(&w.state, "t:files3", &opts(&path), blocked)

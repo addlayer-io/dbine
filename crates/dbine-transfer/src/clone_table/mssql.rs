@@ -824,7 +824,7 @@ pub(super) async fn verify_primary_key(
         return Err(Error::State(format!(
             "el clon no quedó igual al original: su clave primaria es «{}» y la del original «{}»; no se clona",
             if have.is_some() { key_clause(&c) } else { "ninguna".into() },
-            key_clause(&o)
+            key_clause(o)
         )));
     }
     Ok(())

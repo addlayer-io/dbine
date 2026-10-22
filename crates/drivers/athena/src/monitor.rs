@@ -1,7 +1,7 @@
 //! `Session::monitor` for Athena. Serverless: no CPU, memory or
 //! connections. What the API reports, without running (and paying for)
 //! any query: the workgroup's latest query executions (`ListQueryExecutions`
-//! + `BatchGetQueryExecution`: state, data scanned, queue and engine time),
+//! and `BatchGetQueryExecution`: state, data scanned, queue and engine time),
 //! the workgroups, and provisioned capacity reservations (DPUs).
 
 use crate::{err, AthenaSession};

@@ -95,9 +95,13 @@ pub fn neo4j(statement: &str, summary: &Value) -> Option<Plan> {
     })
 }
 
+/// One row of Memgraph's drawn plan: the operator text and, for PROFILE,
+/// `(hits, relative %, absolute ms)`.
+pub type MemgraphRow = (String, Option<(f64, f64, f64)>);
+
 /// Memgraph's drawn plan. Each row: the operator text (` * Expand (a)-[r]->(b)`
 /// or `|\`) plus, for PROFILE, `(hits, relative %, absolute ms)`.
-pub fn memgraph(statement: &str, rows: &[(String, Option<(f64, f64, f64)>)], actual: bool) -> Plan {
+pub fn memgraph(statement: &str, rows: &[MemgraphRow], actual: bool) -> Plan {
     // Arena of nodes; `last[col]` is the latest node drawn at that column.
     let mut nodes: Vec<(PlanNode, Option<usize>)> = Vec::new();
     let mut last: Vec<(usize, usize)> = Vec::new();
@@ -173,7 +177,7 @@ pub fn memgraph(statement: &str, rows: &[(String, Option<(f64, f64, f64)>)], act
 
 /// `"  3.48 %"` / `" 0.002 ms"` → number.
 pub fn leading_number(s: &str) -> Option<f64> {
-    s.trim().split_whitespace().next()?.parse().ok()
+    s.split_whitespace().next()?.parse().ok()
 }
 
 /// Neptune's `explain` text (static or dynamic).
@@ -378,7 +382,7 @@ mod tests {
 
     #[test]
     fn memgraph_branches() {
-        let rows: Vec<(String, Option<(f64, f64, f64)>)> = [
+        let rows: Vec<MemgraphRow> = [
             " * Produce {a, b}",
             " * Cartesian {a : b}",
             " |\\ ",

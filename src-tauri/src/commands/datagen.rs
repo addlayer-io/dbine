@@ -583,7 +583,7 @@ fn value(g: &mut Gen, rng: &mut Rng, row: u64, len: Option<usize>) -> Value {
             let f = 10f64.powi(*scale as i32);
             json!((v * f).round() / f)
         }
-        Gen::Bool => json!(rng.next() % 2 == 0),
+        Gen::Bool => json!(rng.next().is_multiple_of(2)),
         Gen::Date { from, days, time } => {
             let d = *from + Days::days(rng.range(0, *days));
             if *time {

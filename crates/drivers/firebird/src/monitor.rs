@@ -170,12 +170,12 @@ const TOP_TABLE_COLS: &[&str] = &[
     "Limpieza de versiones",
 ];
 
+/// One query's rows, or why it couldn't be read.
+pub(crate) type QueryRows = Result<Vec<Vec<Column>>, String>;
+
 /// Rows of each query, all from one monitoring snapshot (one read-only
 /// transaction).
-pub(crate) fn in_snapshot(
-    c: &mut Conn,
-    queries: &[&str],
-) -> Result<Vec<Result<Vec<Vec<Column>>, String>>, FbError> {
+pub(crate) fn in_snapshot(c: &mut Conn, queries: &[&str]) -> Result<Vec<QueryRows>, FbError> {
     let conf = TransactionConfiguration {
         data_access: TrDataAccessMode::ReadOnly,
         isolation: TrIsolationLevel::Concurrency,

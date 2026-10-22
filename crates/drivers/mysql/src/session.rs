@@ -712,7 +712,7 @@ pub(crate) fn column_default(
         Some(i) => Some(format!(
             "{} ON UPDATE {}",
             d.as_deref().unwrap_or("NULL"),
-            &extra[i + "on update ".len()..].trim()
+            extra[i + "on update ".len()..].trim()
         )),
         None => d,
     }

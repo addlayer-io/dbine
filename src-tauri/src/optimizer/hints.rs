@@ -354,7 +354,7 @@ fn sql_columns(
 fn predicate(sql: &Sql, c: &R, mine: &dyn Fn(&ColRef) -> bool) -> Option<(ColRef, bool)> {
     let base = sql.depth[c.start];
     let at = |pred: &dyn Fn(usize) -> bool| c.clone().find(|&i| sql.depth[i] == base && pred(i));
-    let other_side_free = |r: R| !sql.col_refs(r).iter().any(|x| mine(x));
+    let other_side_free = |r: R| !sql.col_refs(r).iter().any(mine);
     if let Some(op) =
         at(&|i| sql.is(i, Kind::Op) && matches!(sql.text(i), "=" | "<" | ">" | "<=" | ">="))
     {

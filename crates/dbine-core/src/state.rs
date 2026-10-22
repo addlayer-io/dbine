@@ -968,7 +968,7 @@ impl StateStore {
     }
 
     pub fn get_query(&self, id: &str) -> Result<Option<SavedQuery>> {
-        Ok(self
+        self
             .lock()?
             .query_row(
                 "SELECT id, connection_id, database, name, sql, updated_at, last_run_at FROM queries WHERE id = ?1",
@@ -976,7 +976,7 @@ impl StateStore {
                 row_to_query,
             )
             .optional()
-            .map_err(db_err)?)
+            .map_err(db_err)
     }
 
     pub fn save_query(&self, q: &SavedQuery) -> Result<SavedQuery> {
@@ -1501,7 +1501,7 @@ impl StateStore {
             .iter()
             .filter_map(|j| serde_json::from_str(j).ok())
             .collect();
-        tasks.sort_by(|a, b| a.name.to_lowercase().cmp(&b.name.to_lowercase()));
+        tasks.sort_by_key(|a| a.name.to_lowercase());
         Ok(tasks)
     }
 
@@ -2720,7 +2720,7 @@ mod tests {
                 true
             )
         );
-        assert!(t1.config.options.get("auth_token").is_none());
+        assert!(!t1.config.options.contains_key("auth_token"));
         // Its token couldn't be kept: untouched, tried again next time.
         assert_eq!(
             s.get_connection("t2").unwrap().unwrap().config.host,

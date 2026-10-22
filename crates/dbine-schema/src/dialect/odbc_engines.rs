@@ -2601,7 +2601,7 @@ mod monetdb {
             "hugeint" => L::int(16),
             "decimal" | "numeric" | "dec" => L::Decimal {
                 precision: p(0).or(Some(18)),
-                scale: p(1).or(Some(3).filter(|_| p(0).is_none())).or(Some(0)),
+                scale: p(1).or(p(0).is_none().then_some(3)).or(Some(0)),
             },
             "real" | "float4" => L::Float { bytes: 4 },
             "float" => L::Float {

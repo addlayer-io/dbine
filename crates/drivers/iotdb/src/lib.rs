@@ -1034,48 +1034,50 @@ impl Session for IotDbSession {
             columns: t.columns.into_iter().map(|c| c.name).collect(),
             rows: t.rows,
         };
-        let mut i = monitor::Inputs::default();
-        // The first one proves the connection; the rest may be refused.
-        i.version = Some(answer(self.query("SHOW VERSION", 10).await?));
-        i.variables = self.query("SHOW VARIABLES", 1000).await.ok().map(answer);
-        i.cluster = self
-            .query("SHOW CLUSTER", monitor_rows())
-            .await
-            .ok()
-            .map(answer);
-        i.regions = self
-            .query("SHOW REGIONS", monitor_rows())
-            .await
-            .ok()
-            .map(answer);
-        i.queries = self
-            .query("SHOW QUERIES", monitor_rows())
-            .await
-            .ok()
-            .map(answer);
-        i.databases = self
-            .query("SHOW DATABASES DETAILS", monitor_rows())
-            .await
-            .ok()
-            .map(answer);
-        i.series = self
-            .query(
-                "COUNT TIMESERIES root.** GROUP BY LEVEL = 1",
-                monitor_rows(),
-            )
-            .await
-            .ok()
-            .map(answer);
-        i.devices = self
-            .query("COUNT DEVICES root.**", 1)
-            .await
-            .ok()
-            .and_then(|t| {
-                t.rows
-                    .first()
-                    .and_then(|r| r.first())
-                    .and_then(|v| v.as_f64())
-            });
+        let mut i = monitor::Inputs {
+            // The first one proves the connection; the rest may be refused.
+            version: Some(answer(self.query("SHOW VERSION", 10).await?)),
+            variables: self.query("SHOW VARIABLES", 1000).await.ok().map(answer),
+            cluster: self
+                .query("SHOW CLUSTER", monitor_rows())
+                .await
+                .ok()
+                .map(answer),
+            regions: self
+                .query("SHOW REGIONS", monitor_rows())
+                .await
+                .ok()
+                .map(answer),
+            queries: self
+                .query("SHOW QUERIES", monitor_rows())
+                .await
+                .ok()
+                .map(answer),
+            databases: self
+                .query("SHOW DATABASES DETAILS", monitor_rows())
+                .await
+                .ok()
+                .map(answer),
+            series: self
+                .query(
+                    "COUNT TIMESERIES root.** GROUP BY LEVEL = 1",
+                    monitor_rows(),
+                )
+                .await
+                .ok()
+                .map(answer),
+            devices: self
+                .query("COUNT DEVICES root.**", 1)
+                .await
+                .ok()
+                .and_then(|t| {
+                    t.rows
+                        .first()
+                        .and_then(|r| r.first())
+                        .and_then(|v| v.as_f64())
+                }),
+            ..Default::default()
+        };
         if !self.metrics.dead {
             let resp = self
                 .http

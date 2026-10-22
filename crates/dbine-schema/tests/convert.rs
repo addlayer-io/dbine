@@ -512,7 +512,13 @@ fn source_only_engines_refuse_as_target() {
         "netsuite",
         "duckdb_files",
     ] {
-        let e = convert(&[t.clone()], "postgres", id, &Options::default()).unwrap_err();
+        let e = convert(
+            std::slice::from_ref(&t),
+            "postgres",
+            id,
+            &Options::default(),
+        )
+        .unwrap_err();
         assert!(
             matches!(e, dbine_schema::Error::SourceOnly { .. }),
             "{id}: {e}"

@@ -229,7 +229,7 @@ const RETRY_MINUTES: &[u64] = &[1, 2, 3, 5, 8, 13, 21];
 /// server asking to slow down. Anything else (a bad key or event) won't
 /// change by waiting.
 fn retryable(status: Option<reqwest::StatusCode>) -> bool {
-    status.map_or(true, |s| {
+    status.is_none_or(|s| {
         s.is_server_error()
             || s == reqwest::StatusCode::TOO_MANY_REQUESTS
             || s == reqwest::StatusCode::REQUEST_TIMEOUT

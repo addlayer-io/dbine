@@ -386,12 +386,9 @@ fn hidden_write(stmt: &str, first: &str, dialect: &ScriptDialect) -> Option<Stri
     let lower = |i: usize| toks[i].text.to_ascii_lowercase();
     if first == "pragma" {
         // `PRAGMA [schema.]x = y` and `PRAGMA x(y)` set x, except the reads.
-        let Some(mut i) = toks
+        let mut i = toks
             .iter()
-            .position(|t| t.kind == TokenKind::Name && !t.text.eq_ignore_ascii_case("pragma"))
-        else {
-            return None;
-        };
+            .position(|t| t.kind == TokenKind::Name && !t.text.eq_ignore_ascii_case("pragma"))?;
         if toks.get(i + 1).is_some_and(|t| t.text == ".")
             && toks.get(i + 2).is_some_and(|t| t.kind == TokenKind::Name)
         {
@@ -421,12 +418,11 @@ fn hidden_write(stmt: &str, first: &str, dialect: &ScriptDialect) -> Option<Stri
             && toks
                 .get(i + 1)
                 .is_some_and(|t| t.text == "&" && t.start == toks[i].end)
-        {
-            if toks.get(i + 2).is_some_and(|t| {
+            && toks.get(i + 2).is_some_and(|t| {
                 t.start == toks[i + 1].end && matches!(bytes[t.start], b'"' | b'\'')
-            }) {
-                return Some("U&".into());
-            }
+            })
+        {
+            return Some("U&".into());
         }
         if bare(i) {
             if let Some((_, next)) = WRITE_PAIRS.iter().find(|(word, _)| *word == w) {

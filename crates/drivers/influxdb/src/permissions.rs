@@ -256,11 +256,11 @@ mod tests {
             ],
         );
         assert_eq!(
-            v2_decide(&[org.clone()], "dbine", None).create_database,
+            v2_decide(std::slice::from_ref(&org), "dbine", None).create_database,
             Access::Allowed
         );
         assert_eq!(
-            v2_decide(&[org.clone()], "0a1", None).create_database,
+            v2_decide(std::slice::from_ref(&org), "0a1", None).create_database,
             Access::Allowed
         );
         assert!(denied(
@@ -277,11 +277,11 @@ mod tests {
                 json!({ "action": "write", "resource": { "type": "buckets", "id": "b1", "name": "test", "orgID": "0a1" } }),
             ],
         );
-        let p = v2_decide(&[one.clone()], "0a1", Some("test"));
+        let p = v2_decide(std::slice::from_ref(&one), "0a1", Some("test"));
         assert!(denied(&p.create_database, "write:buckets"));
         assert_eq!(p.drop_database, Access::Allowed);
         assert!(denied(
-            &v2_decide(&[one.clone()], "0a1", Some("other")).drop_database,
+            &v2_decide(std::slice::from_ref(&one), "0a1", Some("other")).drop_database,
             "write:buckets"
         ));
         // Two candidates that disagree: can't tell which is ours.

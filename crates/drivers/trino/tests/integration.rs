@@ -84,7 +84,7 @@ async fn trino() {
 
     let q = s.browse_query(&obj(kinds::TABLE, "t"), 10);
     let mut out = QueryOutcome::default();
-    s.execute(&format!("{q}"), 4, &mut out).await.unwrap();
+    s.execute(&q.to_string(), 4, &mut out).await.unwrap();
     let r = &out.results[0];
     assert_eq!((r.rows.len(), r.total_rows, r.truncated), (4, 10, true));
     let row = &r.rows[0];

@@ -303,7 +303,6 @@ impl Driver for GraphDriver {
             // Neo4j (changes on Enterprise) and Memgraph (facts); Neptune
             // keeps its settings in the cluster (see properties.rs).
             database_properties: dbs,
-            ..Default::default()
         }
     }
 
@@ -1478,7 +1477,7 @@ pub fn infer_columns(samples: &[Value]) -> Vec<ColumnInfo> {
                     None => types.push((t, 1)),
                 }
             }
-            types.sort_by(|a, b| b.1.cmp(&a.1));
+            types.sort_by_key(|t| std::cmp::Reverse(t.1));
             ColumnInfo {
                 data_type: if types.is_empty() {
                     "NULL".into()
@@ -2011,7 +2010,7 @@ impl Session for GraphSession {
                     let q = format!("{} {body}", if profile { "PROFILE" } else { "EXPLAIN" });
                     match self.query(&q).await {
                         Ok((_, rows)) => {
-                            let lines: Vec<(String, Option<(f64, f64, f64)>)> = rows
+                            let lines: Vec<plan::MemgraphRow> = rows
                                 .iter()
                                 .map(|r| {
                                     let op = r.first().map(as_text).unwrap_or_default();

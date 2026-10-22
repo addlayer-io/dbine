@@ -171,7 +171,6 @@ fn statement(q: &Json, start: i64) -> Option<ProfiledStatement> {
         cpu_ms: num(metrics, "task_total_time_ms"),
         reads: num(metrics, "read_bytes").map(|b| b as u64),
         writes: num(metrics, "write_remote_bytes").map(|b| b as u64),
-        ..Default::default()
     })
 }
 

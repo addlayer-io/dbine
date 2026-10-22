@@ -15,6 +15,9 @@ use crate::Result;
 use serde::{Deserialize, Serialize};
 
 /// One table's change.
+// A serde contract type matched across crates; boxing `Alter` would change
+// every construction and match site for no measurable gain.
+#[allow(clippy::large_enum_variant)]
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(tag = "op", rename_all = "snake_case")]
 pub enum TableChange {
@@ -563,17 +566,16 @@ fn alter_table(
     }
 
     // Primary key.
-    if pk_changed {
-        if old
+    if pk_changed
+        && old
             .primary_key
             .as_ref()
             .is_some_and(|k| !k.columns.is_empty())
-        {
-            match (old.primary_key.as_ref().and_then(|k| k.name.as_deref()).filter(|n| !n.is_empty()), st.drop_pk_keyword) {
-                (_, true) => p.pre.push(format!("ALTER TABLE {name} DROP PRIMARY KEY;")),
-                (Some(n), false) => p.pre.push(format!("ALTER TABLE {name} DROP CONSTRAINT {};", q(n))),
-                (None, false) => p.warnings.push(format!("La clave primaria de {tname} no tiene nombre: borrala a mano antes de sincronizar.")),
-            }
+    {
+        match (old.primary_key.as_ref().and_then(|k| k.name.as_deref()).filter(|n| !n.is_empty()), st.drop_pk_keyword) {
+            (_, true) => p.pre.push(format!("ALTER TABLE {name} DROP PRIMARY KEY;")),
+            (Some(n), false) => p.pre.push(format!("ALTER TABLE {name} DROP CONSTRAINT {};", q(n))),
+            (None, false) => p.warnings.push(format!("La clave primaria de {tname} no tiene nombre: borrala a mano antes de sincronizar.")),
         }
     }
 
@@ -804,9 +806,9 @@ fn sqlserver_drop_default(t: &TableSchema, column: &str, quote: Quote) -> String
         &t.name,
     );
     format!(
-        "DECLARE @df sysname = (SELECT d.name FROM sys.default_constraints d JOIN sys.columns c ON c.object_id = d.parent_object_id AND c.column_id = d.parent_column_id WHERE d.parent_object_id = OBJECT_ID({}) AND c.name = {});\nIF @df IS NOT NULL BEGIN DECLARE @sql nvarchar(max) = N'ALTER TABLE {} DROP CONSTRAINT ' + QUOTENAME(@df); EXEC sp_executesql @sql; END",
-        format!("N{}", lit(&obj)),
-        format!("N{}", lit(column)),
+        "DECLARE @df sysname = (SELECT d.name FROM sys.default_constraints d JOIN sys.columns c ON c.object_id = d.parent_object_id AND c.column_id = d.parent_column_id WHERE d.parent_object_id = OBJECT_ID(N{}) AND c.name = N{});\nIF @df IS NOT NULL BEGIN DECLARE @sql nvarchar(max) = N'ALTER TABLE {} DROP CONSTRAINT ' + QUOTENAME(@df); EXEC sp_executesql @sql; END",
+        lit(&obj),
+        lit(column),
         obj.replace('\'', "''"),
     )
 }

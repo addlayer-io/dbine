@@ -374,10 +374,10 @@ pub fn db2zos_tree(rows: &[ZRow]) -> PlanNode {
             n
         };
         let step = access(r);
-        let prev = match blocks.iter().position(|(b, _)| *b == r.qblock) {
-            Some(i) => Some(blocks.remove(i).1),
-            None => None,
-        };
+        let prev = blocks
+            .iter()
+            .position(|(b, _)| *b == r.qblock)
+            .map(|i| blocks.remove(i).1);
         let node = match (prev, r.method.trim()) {
             (None, _) => step,
             (Some(p), "3") => PlanNode {

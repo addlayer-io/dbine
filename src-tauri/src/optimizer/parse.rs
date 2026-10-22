@@ -331,7 +331,7 @@ impl<'a> Sql<'a> {
     pub fn col_ref(&self, r: R) -> Option<ColRef> {
         let (parts, end) = self.dotted(r.start)?;
         (end == r.end && !self.is(end, Kind::LParen) && !self.is(end, Kind::Str))
-            .then(|| ColRef { parts, range: r })
+            .then_some(ColRef { parts, range: r })
     }
 
     /// Every column reference in `r` outside nested SELECTs.
@@ -648,6 +648,8 @@ impl<'a> Sql<'a> {
 
     /// The FROM items of a block, or `None` when the FROM has something the
     /// rules don't read (APPLY, PIVOT, table functions, USING…).
+    // Reads a block's FROM clause; not a constructor.
+    #[allow(clippy::wrong_self_convention)]
     pub fn from_items(&self, b: &Block) -> Option<Vec<FromItem>> {
         let r = b.from.clone()?;
         let mut out: Vec<FromItem> = Vec::new();

@@ -49,7 +49,7 @@ impl ParamValue {
         // `get`: byte 10 may fall inside a character (`2026-10-1é…`). Past
         // the ASCII date and its ASCII separator, every slice below is
         // after ASCII bytes checked first.
-        let Some(date) = s.get(..10) else { return None };
+        let date = s.get(..10)?;
         if s.len() < 16 || !is_date(date) || !matches!(s.as_bytes()[10], b'T' | b' ') {
             return None;
         }

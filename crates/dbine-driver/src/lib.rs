@@ -974,7 +974,7 @@ pub trait Session: Send {
                 kind: o.kind,
                 schema: o.schema,
                 name: o.name,
-                primary_key: (!pk.is_empty()).then(|| KeyDef {
+                primary_key: (!pk.is_empty()).then_some(KeyDef {
                     name: None,
                     columns: pk,
                 }),

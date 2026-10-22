@@ -124,7 +124,7 @@ fn assemble(mut nodes: BTreeMap<i64, (Vec<i64>, PlanNode)>) -> Vec<PlanNode> {
 }
 
 fn sort_children(n: &mut PlanNode) {
-    n.children.sort_by_key(|c| op_id(c));
+    n.children.sort_by_key(op_id);
     for c in &mut n.children {
         sort_children(c);
     }

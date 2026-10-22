@@ -378,7 +378,7 @@ fn flight_error(e: impl std::fmt::Display) -> Error {
 /// "Parser"…).
 fn engine_class(msg: &str) -> Option<(usize, String)> {
     msg.match_indices(" Error: ")
-        .chain(msg.starts_with("Error: ").then_some((0, "")).into_iter())
+        .chain(msg.starts_with("Error: ").then_some((0, "")))
         .find_map(|(i, _)| {
             let before = &msg[..i];
             let start = before

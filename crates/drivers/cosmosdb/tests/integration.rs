@@ -35,6 +35,8 @@ fn cfg(url: &str, key: &str, db: &str) -> ConnectionConfig {
 }
 
 /// A raw signed REST call, to create what the (read-only) driver can't.
+// Test helper: each argument is one part of the REST call.
+#[allow(clippy::too_many_arguments)]
 async fn rest(
     url: &str,
     key: &str,

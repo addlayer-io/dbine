@@ -268,7 +268,8 @@ fn json_node(v: &Value) -> PlanNode {
 pub(crate) fn analyze_text(statement: &str, raw: &str) -> Plan {
     let mut preamble = Vec::new();
     // Fragment id → (header props, items).
-    let mut fragments: Vec<(String, Vec<(String, String)>, Vec<(usize, PlanNode)>)> = Vec::new();
+    type Fragment = (String, Vec<(String, String)>, Vec<(usize, PlanNode)>);
+    let mut fragments: Vec<Fragment> = Vec::new();
     for line in raw.lines() {
         if line.trim().is_empty() {
             continue;

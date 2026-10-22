@@ -216,9 +216,9 @@ pub fn render(doc: &Doc, l: &Labels) -> String {
             let _ = write!(out, "<dt>{}</dt><dd>{}</dd>", esc(l.get(k)), esc(v));
         }
     }
-    let _ = write!(
+    let _ = writeln!(
         out,
-        "</dl><div class=\"tools\"><button id=\"theme\" type=\"button\">{}</button><button id=\"print\" type=\"button\">{}</button></div></header>\n",
+        "</dl><div class=\"tools\"><button id=\"theme\" type=\"button\">{}</button><button id=\"print\" type=\"button\">{}</button></div></header>",
         esc(l.get("theme")),
         esc(l.get("print"))
     );
@@ -297,13 +297,16 @@ pub fn render(doc: &Doc, l: &Labels) -> String {
             }
         }
     }
-    let _ = write!(out, "</main><script>{SCRIPT}</script></body></html>\n");
+    let _ = writeln!(out, "</main><script>{SCRIPT}</script></body></html>");
     out
 }
 
+/// One diagram: its schema (`None`: the whole database) and its tables.
+type DiagramSet<'a> = (Option<String>, Vec<&'a TableSchema>);
+
 /// Diagrams to draw (`None` name: the whole database; else per schema),
 /// and the table counts of what's too big to draw.
-fn diagram_sets(doc: &Doc) -> (Vec<(Option<String>, Vec<&TableSchema>)>, Vec<usize>) {
+fn diagram_sets(doc: &Doc) -> (Vec<DiagramSet<'_>>, Vec<usize>) {
     let all: Vec<&TableSchema> = doc
         .schemas
         .iter()

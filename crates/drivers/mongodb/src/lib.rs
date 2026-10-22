@@ -466,7 +466,6 @@ impl Driver for MongoDriver {
             processes: true,
             cancel_query: locks,
             database_properties: true,
-            ..Default::default()
         }
     }
 
@@ -1151,7 +1150,7 @@ impl Session for MongoSession {
                 })
             })
             .collect();
-        v.sort_by(|a, b| a.name.to_lowercase().cmp(&b.name.to_lowercase()));
+        v.sort_by_key(|a| a.name.to_lowercase());
         Ok(v)
     }
 
@@ -1346,7 +1345,7 @@ impl Session for MongoSession {
             };
             out.push(ddl::table_schema(&info, columns, &indexes));
         }
-        out.sort_by(|a, b| a.name.to_lowercase().cmp(&b.name.to_lowercase()));
+        out.sort_by_key(|a| a.name.to_lowercase());
         Ok(out)
     }
 

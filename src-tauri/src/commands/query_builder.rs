@@ -865,9 +865,8 @@ pub fn generate(
     if spec.limit.is_some() && !f.limit {
         warn.push("este motor no limita las filas en la consulta".into());
     }
-    match (d.limit, limit) {
-        (RowLimit::First, Some(n)) => head.push_str(&format!(" FIRST {n}")),
-        _ => {}
+    if let (RowLimit::First, Some(n)) = (d.limit, limit) {
+        head.push_str(&format!(" FIRST {n}"));
     }
     if distinct {
         head.push_str(" DISTINCT");

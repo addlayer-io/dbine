@@ -337,8 +337,8 @@ pub(super) fn blocks(t: &[Tok]) -> Vec<Block> {
 pub(super) fn items(t: &[Tok], a: usize, b: usize, d: u32) -> Vec<(usize, usize)> {
     let mut out = Vec::new();
     let mut s = a;
-    for j in a..b {
-        if t[j].depth == d && t[j].p(',') {
+    for (j, tok) in (a..b).zip(&t[a..b]) {
+        if tok.depth == d && tok.p(',') {
             out.push((s, j));
             s = j + 1;
         }

@@ -1547,7 +1547,7 @@ async fn read_schema(
         kind: obj.kind.clone(),
         schema: obj.schema.clone(),
         name: obj.name.clone(),
-        primary_key: (!pk.is_empty()).then(|| KeyDef {
+        primary_key: (!pk.is_empty()).then_some(KeyDef {
             name: None,
             columns: pk,
         }),
@@ -2109,7 +2109,7 @@ pub async fn clone_table(
         )));
     }
     if let Some(p) = &pg_t {
-        if p.taken.iter().any(|t| *t == new_name) {
+        if p.taken.contains(&new_name) {
             return Err(Error::State(format!(
                 "ya existe en el esquema otro objeto llamado «{new_name}» (índice, secuencia o tipo); elegí otro nombre"
             )));

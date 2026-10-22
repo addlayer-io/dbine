@@ -174,7 +174,13 @@ fn mysql_to_doris_and_decimal_keys() {
         ],
         &["nro"],
     );
-    let r = convert(&[t.clone()], "mysql", "doris", &Options::default()).unwrap();
+    let r = convert(
+        std::slice::from_ref(&t),
+        "mysql",
+        "doris",
+        &Options::default(),
+    )
+    .unwrap();
     let d = &r.tables[0];
     assert_eq!(
         d.options.get("key_model").map(String::as_str),

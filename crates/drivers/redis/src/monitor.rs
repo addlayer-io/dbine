@@ -564,7 +564,7 @@ pub(crate) fn slowlog(v: &Value) -> MonitorTable {
             _ => None,
         };
         let when = int(1)
-            .and_then(|ts| chrono_like(ts))
+            .and_then(chrono_like)
             .map(J::String)
             .unwrap_or(J::Null);
         let cmd = match f.get(3) {

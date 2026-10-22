@@ -826,7 +826,7 @@ mod os_live {
 
         assert_eq!(
             migrate_old_labels(std::slice::from_ref(&task)),
-            [task.id.clone()]
+            std::slice::from_ref(&task.id)
         );
         assert!(!old.exists());
         assert!(is_registered(&task.id));

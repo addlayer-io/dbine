@@ -112,7 +112,7 @@ fn rows(c: &Connection, table: &str) -> Vec<Vec<Value>> {
     .unwrap()
 }
 
-fn endpoints(p: &PathBuf) -> Arc<ConfigEndpoints> {
+fn endpoints(p: &std::path::Path) -> Arc<ConfigEndpoints> {
     let driver = dbine_driver_sqlite::drivers()
         .into_iter()
         .find(|d| d.info().id == "sqlite")

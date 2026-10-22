@@ -185,9 +185,11 @@ impl Masker {
     /// words folded together).
     fn rng(&self, rule: &MaskRule, v: &Value) -> Rng {
         let d = self.digest(rule, v);
-        let seed = d.chunks_exact(8).fold(0u64, |acc, w| {
-            acc ^ u64::from_le_bytes(w.try_into().unwrap_or_default())
-        });
+        let seed = d
+            .as_chunks::<8>()
+            .0
+            .iter()
+            .fold(0u64, |acc, w| acc ^ u64::from_le_bytes(*w));
         Rng::new(Some(seed))
     }
 
@@ -306,7 +308,7 @@ fn shift_date(rng: &mut Rng, v: &Value, days: i64) -> Value {
     };
     let mut by = rng.range(-days, days);
     if by == 0 && days > 0 {
-        by = if rng.next() % 2 == 0 { 1 } else { -1 };
+        by = if rng.next().is_multiple_of(2) { 1 } else { -1 };
     }
     match d.checked_add_signed(Days::days(by)) {
         Some(n) => Value::String(format!("{}{}", n.format("%Y-%m-%d"), &s[10..])),
@@ -438,7 +440,7 @@ pub fn suggest(name: &str, data_type: &str) -> Option<MaskRule> {
         "nrocuenta",
         "numerocuenta",
     ]) {
-        return (text || numeric).then(|| MaskRule::Fake {
+        return (text || numeric).then_some(MaskRule::Fake {
             kind: FakeKind::Document,
         });
     }

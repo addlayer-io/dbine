@@ -920,7 +920,7 @@ pub fn parse_date(s: &str) -> Option<i64> {
 }
 
 fn decode_hex(h: &str) -> Option<Vec<u8>> {
-    if h.len() % 2 != 0 {
+    if !h.len().is_multiple_of(2) {
         return None;
     }
     (0..h.len())

@@ -615,7 +615,9 @@ async fn clone_on_a_live_server() {
                         .iter()
                         .map(|i| (names[*i].clone(), r[*i].to_json()))
                         .collect();
-                    let delete = driver.delete_script(&clone, &[key.clone()]).unwrap();
+                    let delete = driver
+                        .delete_script(&clone, std::slice::from_ref(&key))
+                        .unwrap();
                     let from_original = driver.delete_script(&source, &[key]).unwrap();
                     let (src_name, filter) = from_original
                         .trim()

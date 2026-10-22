@@ -1349,7 +1349,7 @@ async fn there_and_back(a: E, b: E) {
         issues_of(&r1.conversion.issues, col)
             .into_iter()
             .chain(issues_of(&r2.conversion.issues, col))
-            .any(|i| pred(i))
+            .any(pred)
     };
     eprintln!("== {a:?} → {b:?} → {a:?}: diferencias con el original");
     for ot in &orig {

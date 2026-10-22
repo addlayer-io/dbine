@@ -238,7 +238,8 @@ impl TrinoSession {
         }
 
         // JMX: every node's OS and heap, the query manager's totals.
-        let mut node_os: HashMap<String, (Option<f64>, Option<f64>, Option<f64>)> = HashMap::new();
+        type Triple = (Option<f64>, Option<f64>, Option<f64>);
+        let mut node_os: HashMap<String, Triple> = HashMap::new();
         match self.jmx_tables().await {
             Ok(t) => {
                 let os = self

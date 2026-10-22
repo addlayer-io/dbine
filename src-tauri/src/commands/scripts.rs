@@ -426,7 +426,7 @@ pub(crate) async fn generate(
                 }
             }
             let mut m = HashMap::new();
-            for (src, dst) in sel.iter().zip(conv.tables.into_iter()) {
+            for (src, dst) in sel.iter().zip(conv.tables) {
                 let key = (src.schema.clone(), src.name.clone());
                 let qualified = src
                     .schema
