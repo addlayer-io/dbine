@@ -221,7 +221,7 @@ test('the selector: local kinds first, then the managers by their name in the la
 });
 
 test('browsing fills the item and its field; the user comes from the source', async () => {
-  const { applyBrowse, missingForBrowse, userFromSource, emptyDraft } = await import('./secretSources.ts');
+  const { applyBrowse, missingForBrowse, userFromSource } = await import('./secretSources.ts');
   const kp = inlineDraft('keepass');
   assert.deepEqual(missingForBrowse(kp, true), ['file'], 'the entry is what browsing chooses');
   kp.file = '~/db.kdbx';
@@ -260,7 +260,7 @@ test('browsing fills the item and its field; the user comes from the source', as
 });
 
 test('entries give the user: fields, 1Password references, older definitions', async () => {
-  const { draftFrom, sourceFrom, userFromSource, passwordField, setPasswordField, fieldsQuery, emptyDraft } = await import('./secretSources.ts');
+  const { draftFrom, sourceFrom, userFromSource, passwordField, setPasswordField, fieldsQuery } = await import('./secretSources.ts');
   // An older KeePass definition without the user keeps the connection's user field.
   const old = draftFrom({ kind: 'keepass', file: '~/db.kdbx', entry: 'pg' });
   assert.equal(userFromSource(old), false);

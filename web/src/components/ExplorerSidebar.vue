@@ -1080,6 +1080,7 @@ function onTreeOver(e: MouseEvent) {
 }
 onBeforeUnmount(() => clearTimeout(tipTimer));
 
+// eslint-disable-next-line @typescript-eslint/no-explicit-any -- also calls the tree's internal expand/collapse methods, outside its typed API
 const tree = ref<any>(null);
 const filter = ref('');
 // el-tree-v2's filter opens every node it keeps (all of them for an empty

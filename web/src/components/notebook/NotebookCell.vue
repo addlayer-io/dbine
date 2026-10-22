@@ -279,6 +279,7 @@ function endRename(save: boolean) {
           @blur="emit('edit', false)"
         />
         <!-- Escaped first (composables/markdown.ts): no raw HTML. -->
+        <!-- eslint-disable-next-line vue/no-v-html -->
         <div v-else-if="cell.source.trim()" class="nc-md nm-selectable" :title="$t('notebook:cell.dblClickEdit')" @dblclick="emit('edit', true)" @click="onMarkdownClick" v-html="html" />
         <div v-else class="nc-md empty" @dblclick="emit('edit', true)">{{ $t('notebook:cell.emptyText') }}</div>
       </template>

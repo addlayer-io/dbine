@@ -678,7 +678,6 @@ function everyPosition(g: Geometry, f: (p: Position) => boolean): boolean {
 }
 
 const lonLat = ([x, y]: Position) => Math.abs(x) <= 180 && Math.abs(y) <= 90;
-const inMercator = ([x, y]: Position) => Math.abs(x) <= 20037508.35 && Math.abs(y) <= 20048966.11;
 
 /** The geometry in longitude / latitude, or why it can't be drawn: `srid`
  *  (an SRID the map doesn't reproject) or `range` (no SRID and coordinates

@@ -53,6 +53,9 @@ Everyone taking part follows the [Code of Conduct](CODE_OF_CONDUCT.md).
   must pass.
 - **Secrets never go to disk, logs or telemetry.** Passwords and tokens live
   in the system keychain or in memory only.
+- **Style guides:** Rust follows rustfmt's default style (`cargo fmt`) and
+  Clippy; TypeScript and Vue follow the ESLint config in
+  [`web/eslint.config.js`](web/eslint.config.js) (`npm run lint` in `web/`).
 - **Commits** start with `feat:`, `fix:` or `perf:`, in English.
 - **User-visible changes** add a line to `CHANGELOG.md` under
   `## [Unreleased]`.

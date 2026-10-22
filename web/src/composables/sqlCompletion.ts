@@ -71,7 +71,7 @@ const NOT_ALIAS = new Set(
 );
 
 function unquote(id: string): string {
-  return /^[[\"`]/.test(id) ? id.slice(1, -1) : id;
+  return /^[["`]/.test(id) ? id.slice(1, -1) : id;
 }
 
 /** The `a.b.` at the end of `text`, as `['a', 'b']`. */

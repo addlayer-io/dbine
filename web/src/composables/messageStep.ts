@@ -3,6 +3,8 @@
 // (src-tauri/src/tasks/message.rs), said before the user saves. The
 // backend stays the authority (it also checks the addresses a name resolves to).
 
+import type { StepConfig } from '../api/scheduled';
+
 export type MessageChannel = 'teams' | 'slack' | 'telegram' | 'ntfy';
 export const MESSAGE_CHANNELS: MessageChannel[] = ['teams', 'slack', 'telegram', 'ntfy'];
 
@@ -58,7 +60,7 @@ function urlProblem(channel: MessageChannel, url: string): MessageProblem | null
  * saved secrets were typed for (null: nothing saved); an empty secret field
  * on that channel means "unchanged".
  */
-export function messageProblems(config: Record<string, any>, keptChannel: string | null): MessageProblem[] {
+export function messageProblems(config: StepConfig, keptChannel: string | null): MessageProblem[] {
   const channel = (config.channel ?? 'teams') as MessageChannel;
   const kept = keptChannel === channel;
   const url = String(config.url ?? '').trim();
@@ -77,6 +79,7 @@ export function messageProblems(config: Record<string, any>, keptChannel: string
     const p = urlProblem(channel, url);
     if (p) out.push(p);
   }
+  // eslint-disable-next-line no-control-regex -- control characters are exactly what this rejects
   if (channel === 'ntfy' && token && /[\s\x00-\x1f]/.test(token)) out.push('badToken');
   return out;
 }

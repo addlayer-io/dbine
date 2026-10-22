@@ -26,7 +26,7 @@ export const useScheduledStore = defineStore('scheduled', {
         this.items = await scheduledApi.list();
         this.error = null;
       } catch (e) {
-        this.error = String((e as any)?.message ?? e);
+        this.error = String((e as { message?: unknown } | null)?.message ?? e);
       } finally {
         this.loading = false;
         this.loaded = true;

@@ -7,7 +7,6 @@ import { useTranslation } from 'i18next-vue';
 import { errorMessage } from '../api/client';
 import { tb } from '../i18n/backend';
 import { newQuery } from '../composables/actions';
-import { useConnectionsStore } from '../stores/connections';
 import type { HealthTab } from '../stores/tabs';
 
 // "Chequeo de salud" of a database (docs/health-check.md): findings by
@@ -20,7 +19,6 @@ interface Report { checks: Check[]; checked_at: string; skipped: string[] }
 
 const props = defineProps<{ tab: HealthTab }>();
 const { t } = useTranslation();
-const conns = useConnectionsStore();
 // Connects first: <ConnectionState> shows "Conectando…", or the error with
 // "Ver qué pasa…" and "Reintentar", instead of an empty view.
 const { blocked: connBlocked, ensure: ensureConnection } = useConnectionGate(() => props.tab.connectionId);

@@ -317,12 +317,12 @@ async function openInQuery() {
 const tasks = useTasksStore();
 /** Every task this view started: when it unmounts, their "Ver detalle"
  *  falls back to the panel's own and the running ones notify at the end. */
-const started = new Set<TaskHandle<any>>();
+const started = new Set<TaskHandle<unknown>>();
 function track<R>(task: TaskHandle<R>): TaskHandle<R> {
-  started.add(task as TaskHandle<any>);
+  started.add(task as TaskHandle<unknown>);
   return task;
 }
-const isRunning = (task: TaskHandle<any> | null) => !!task && tasks.byId(task.id)?.state === 'running';
+const isRunning = (task: TaskHandle<unknown> | null) => !!task && tasks.byId(task.id)?.state === 'running';
 let runTaskHandle: TaskHandle | null = null;
 /** The run's task id, reactive (for the footer's "Cancelando…"). */
 const runTaskId = ref<string | null>(null);

@@ -227,6 +227,7 @@ export const useTasksStore = defineStore('tasks', {
         this.notifyEnd(x);
         this.pruneFinished();
       };
+      // eslint-disable-next-line @typescript-eslint/no-this-alias -- the handle's methods below have their own `this`
       const store = this;
       return {
         id,

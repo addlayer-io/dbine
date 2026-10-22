@@ -1,12 +1,13 @@
 <script setup lang="ts">
 import { computed } from 'vue';
 import type { DocOptions } from '../api/dbDocs';
+import type { StepConfig } from '../api/scheduled';
 
 // The "Documentar la base" step of a scheduled task: format, schemas and
 // what to include, as the dialog has them (DbDocsDialog.vue). Parts the
 // database lacks just come out empty. Edits `config.options` in place.
 
-const props = defineProps<{ config: Record<string, any> }>();
+const props = defineProps<{ config: StepConfig }>();
 const emit = defineEmits<{ change: [] }>();
 
 const o = computed(() => props.config.options as DocOptions);

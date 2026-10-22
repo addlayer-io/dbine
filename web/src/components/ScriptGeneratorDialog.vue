@@ -103,7 +103,7 @@ function groupState(g: { items: ScriptObject[] }) {
   return { all: n > 0 && n === g.items.length, some: n > 0 && n < g.items.length };
 }
 function setGroup(items: ScriptObject[], on: boolean) {
-  for (const o of items) (on ? selected.add(key(o)) : selected.delete(key(o)));
+  for (const o of items) if (on) selected.add(key(o)); else selected.delete(key(o));
 }
 function setAll(on: boolean) {
   for (const g of groups.value) setGroup(g.items, on);
@@ -151,7 +151,7 @@ const dataItems = computed(() => {
 const dataPickedCount = computed(() => selectedTables.value.filter((o) => dataPicked.has(key(o))).length);
 const dataListDisabled = computed(() => running.value || !opts.data || !props.supportsData || !hasTables.value);
 function setDataAll(on: boolean) {
-  for (const o of dataItems.value) (on ? dataPicked.add(key(o)) : dataPicked.delete(key(o)));
+  for (const o of dataItems.value) if (on) dataPicked.add(key(o)); else dataPicked.delete(key(o));
 }
 function toggleData(o: ScriptObject) {
   const k = key(o);

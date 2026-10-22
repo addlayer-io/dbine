@@ -3,14 +3,14 @@ import { onMounted, ref } from 'vue';
 import { open as openDialog } from '@tauri-apps/plugin-dialog';
 import { useTranslation } from 'i18next-vue';
 import { mailApi } from '../api/mail';
-import type { StepWhen } from '../api/scheduled';
+import type { StepConfig, StepWhen } from '../api/scheduled';
 import { useUiStore } from '../stores/ui';
 
 // The "Enviar un mail" step of a scheduled task: recipients, subject, body,
 // attachments and "Solo si…". Edits `config` in place; the server is
 // Configuración › Correo.
 
-const props = defineProps<{ config: Record<string, any> }>();
+const props = defineProps<{ config: StepConfig }>();
 const emit = defineEmits<{ change: [] }>();
 const { t } = useTranslation();
 const ui = useUiStore();

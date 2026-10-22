@@ -3,7 +3,7 @@ import { computed, onBeforeUnmount, ref, watch } from 'vue';
 import { open as openDialog } from '@tauri-apps/plugin-dialog';
 import { useTranslation } from 'i18next-vue';
 import { errorMessage } from '../api/client';
-import { scheduledApi, type NotebookPlan, type NotebookResolved } from '../api/scheduled';
+import { scheduledApi, type NotebookPlan, type NotebookResolved, type StepConfig } from '../api/scheduled';
 import { isCredentialParam } from '../composables/notebookParams';
 import { openPaths } from '../composables/openFiles';
 import { tb } from '../i18n/backend';
@@ -16,7 +16,7 @@ import { useConnectionsStore } from '../stores/connections';
 // backend reads the notebook and says what it needs (`notebookPlan`); it
 // runs nothing. Edits `config` in place.
 
-const props = defineProps<{ config: Record<string, any> }>();
+const props = defineProps<{ config: StepConfig }>();
 const emit = defineEmits<{ change: [] }>();
 const { t } = useTranslation();
 const conns = useConnectionsStore();
@@ -63,7 +63,7 @@ async function pickNotebook() {
   } catch { return; }
   if (typeof picked === 'string') { c.path = picked; changed(); }
 }
-async function pickFolder(o: Record<string, any>) {
+async function pickFolder(o: StepConfig) {
   let picked: string | string[] | null = null;
   try { picked = await openDialog({ directory: true, title: t('scheduled:step.pickFolder') }); } catch { return; }
   if (typeof picked === 'string') { o.folder = picked; changed(); }
@@ -90,9 +90,9 @@ function bind(name: string, id: string) {
 
 // -- "Permitir ejecutar en … sin confirmar" ------------------------------------------------
 const same = (u: { connection_id: string; database: string }, r: NotebookResolved) => u.connection_id === r.connection_id && u.database === r.database;
-const allowed = (r: NotebookResolved) => c.unconfirmed.some((u: any) => same(u, r));
+const allowed = (r: NotebookResolved) => c.unconfirmed.some((u: { connection_id: string; database: string }) => same(u, r));
 function allow(r: NotebookResolved, on: boolean) {
-  c.unconfirmed = c.unconfirmed.filter((u: any) => !same(u, r));
+  c.unconfirmed = c.unconfirmed.filter((u: { connection_id: string; database: string }) => !same(u, r));
   if (on) c.unconfirmed.push({ connection_id: r.connection_id, database: r.database });
   changed();
 }
@@ -100,9 +100,9 @@ const why = (r: NotebookResolved) => (r.confirm_run && r.environment ? t('schedu
 
 // -- write cells ---------------------------------------------------------------------------
 type WriteCellPlan = NotebookPlan['write_cells'][number];
-const authorized = (w: WriteCellPlan) => c.write_cells.some((a: any) => a.cell_id === w.cell_id && a.target === w.target && a.mode === w.mode);
+const authorized = (w: WriteCellPlan) => c.write_cells.some((a: Pick<WriteCellPlan, 'cell_id' | 'target' | 'mode'>) => a.cell_id === w.cell_id && a.target === w.target && a.mode === w.mode);
 function authorize(w: WriteCellPlan, on: boolean) {
-  c.write_cells = c.write_cells.filter((a: any) => a.cell_id !== w.cell_id);
+  c.write_cells = c.write_cells.filter((a: Pick<WriteCellPlan, 'cell_id' | 'target' | 'mode'>) => a.cell_id !== w.cell_id);
   if (on) c.write_cells.push({ cell_id: w.cell_id, target: w.target, mode: w.mode });
   changed();
 }
