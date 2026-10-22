@@ -67,5 +67,7 @@ jobs:
       - name: Rust tests
         run: cargo test --workspace
 
+      # Warnings are errors (CONTRIBUTING.md): fix them, or allow one on its
+      # item with the reason.
       - name: Clippy
-        run: cargo clippy --workspace
+        run: cargo clippy --workspace --all-targets -- -D warnings
