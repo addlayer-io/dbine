@@ -53,6 +53,10 @@ jobs:
           npm ci --prefix web
           npm run build --prefix web
 
+      # The TypeScript/Vue style guide (web/eslint.config.js).
+      - name: Frontend lint
+        run: npm run lint --prefix web
+
       # rustfmt's default style (CONTRIBUTING.md): run `cargo fmt` before committing.
       - name: Format
         run: |
