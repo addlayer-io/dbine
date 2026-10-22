@@ -23,9 +23,9 @@ _None._
 |---|---|---|---|---|
 | claude-security, release v1.1.0 | 2026-10-21 | 954fc5e3..9aec57c1 (everything 1.1.0 adds, and the 1.0.0 commits not scanned before) | 0 open | the commits after 9aec57c1 up to the release, adb92492: the fixes for this scan's three findings and the move of RSA private-key operations to AWS-LC |
 | codeql | 2026-10-22 | Rust, TypeScript/Vue and workflows | 0 open | — |
-| osv | 2026-10-22 | every lockfile (Cargo, npm) at [`82df3021b`](https://github.com/addlayer-io/dbine/commit/82df3021b4bb) | 0 open | — |
-| scorecard | 2026-10-21 | repository settings and workflows at [`adb92492c`](https://github.com/addlayer-io/dbine/commit/adb92492c9d0) | score 5.8/10 | — |
-| trivy | 2026-10-22 | whole repository at [`82df3021b`](https://github.com/addlayer-io/dbine/commit/82df3021b4bb) | 0 open | — |
+| osv | 2026-10-22 | every lockfile (Cargo, npm) at [`11892b2b3`](https://github.com/addlayer-io/dbine/commit/11892b2b3004) | 0 open | — |
+| scorecard | 2026-10-22 | repository settings and workflows at [`82df3021b`](https://github.com/addlayer-io/dbine/commit/82df3021b4bb) | score 5.8/10 | — |
+| trivy | 2026-10-22 | whole repository at [`11892b2b3`](https://github.com/addlayer-io/dbine/commit/11892b2b3004) | 0 open | — |
 
 ## Not counted, and why
 
@@ -257,7 +257,7 @@ _None._
 
 ## Repository practices
 
-OpenSSF Scorecard: **5.8/10** (2026-10-21). The checks below 10, with Scorecard's own risk level. They describe how the repository is run, not a vulnerability in DBine, and aren't counted in the badge.
+OpenSSF Scorecard: **5.8/10** (2026-10-22). The checks below 10, with Scorecard's own risk level. They describe how the repository is run, not a vulnerability in DBine, and aren't counted in the badge.
 
 | Check | Risk | Docs |
 |---|---|---|
