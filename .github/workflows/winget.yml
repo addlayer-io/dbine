@@ -170,7 +170,8 @@ jobs:
           VERSION: ${{ steps.tag.outputs.version }}
         run: |
           for f in "$DIR"/*.yaml; do
-            kind=$(sed -n 's/^ManifestType: *//p' "$f")
+            # komac update writes CRLF manifests, so drop the \r.
+            kind=$(sed -n 's/^ManifestType: *//p' "$f" | tr -d '\r')
             echo "$(basename "$f"): $kind"
             check-jsonschema --schemafile "$RUNNER_TEMP/schemas/$kind.json" "$f"
           done
