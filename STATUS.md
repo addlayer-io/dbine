@@ -11,21 +11,107 @@ _Updated 2026-10-22._
 | claude-security (source-code review) | 0 | 0 | 0 | 0 |
 | OSV-Scanner (dependency advisories) | 0 | 0 | 0 | 0 |
 | Trivy (secrets, configuration) | 0 | 0 | 0 | 0 |
-| CodeQL (static analysis) | 0 | 0 | 0 | 0 |
+| CodeQL (static analysis) | 31 | 54 | 0 | 0 |
 
 Findings from the source-code review and CodeQL show only their kind and component while they're open.
 
-_None._
+| ID | Severity | Source | Finding | Where | Fix |
+|---|---|---|---|---|---|
+| CQ-324 | CRITICAL | codeql | Static analysis finding | `src-tauri` | pending |
+| CQ-325 | CRITICAL | codeql | Static analysis finding | `src-tauri` | pending |
+| CQ-326 | CRITICAL | codeql | Static analysis finding | `src-tauri` | pending |
+| CQ-327 | CRITICAL | codeql | Static analysis finding | `src-tauri` | pending |
+| CQ-328 | CRITICAL | codeql | Static analysis finding | `src-tauri` | pending |
+| CQ-329 | CRITICAL | codeql | Static analysis finding | `src-tauri` | pending |
+| CQ-330 | CRITICAL | codeql | Static analysis finding | `src-tauri` | pending |
+| CQ-331 | CRITICAL | codeql | Static analysis finding | `src-tauri` | pending |
+| CQ-332 | CRITICAL | codeql | Static analysis finding | `src-tauri` | pending |
+| CQ-333 | CRITICAL | codeql | Static analysis finding | `src-tauri` | pending |
+| CQ-334 | CRITICAL | codeql | Static analysis finding | `src-tauri` | pending |
+| CQ-335 | CRITICAL | codeql | Static analysis finding | `src-tauri` | pending |
+| CQ-336 | CRITICAL | codeql | Static analysis finding | `src-tauri` | pending |
+| CQ-337 | CRITICAL | codeql | Static analysis finding | `src-tauri` | pending |
+| CQ-338 | CRITICAL | codeql | Static analysis finding | `src-tauri` | pending |
+| CQ-339 | CRITICAL | codeql | Static analysis finding | `src-tauri` | pending |
+| CQ-340 | CRITICAL | codeql | Static analysis finding | `src-tauri` | pending |
+| CQ-341 | CRITICAL | codeql | Static analysis finding | `src-tauri` | pending |
+| CQ-342 | CRITICAL | codeql | Static analysis finding | `src-tauri` | pending |
+| CQ-343 | CRITICAL | codeql | Static analysis finding | `src-tauri` | pending |
+| CQ-344 | CRITICAL | codeql | Static analysis finding | `src-tauri` | pending |
+| CQ-345 | CRITICAL | codeql | Static analysis finding | `src-tauri` | pending |
+| CQ-346 | CRITICAL | codeql | Static analysis finding | `crates/drivers/sqlserver` | pending |
+| CQ-347 | CRITICAL | codeql | Static analysis finding | `crates/drivers/sqlserver` | pending |
+| CQ-348 | CRITICAL | codeql | Static analysis finding | `src-tauri` | pending |
+| CQ-349 | CRITICAL | codeql | Static analysis finding | `src-tauri` | pending |
+| CQ-350 | CRITICAL | codeql | Static analysis finding | `src-tauri` | pending |
+| CQ-351 | CRITICAL | codeql | Static analysis finding | `src-tauri` | pending |
+| CQ-352 | CRITICAL | codeql | Static analysis finding | `src-tauri` | pending |
+| CQ-353 | CRITICAL | codeql | Static analysis finding | `crates/dbine-core` | pending |
+| CQ-354 | CRITICAL | codeql | Static analysis finding | `crates/dbine-core` | pending |
+| CQ-271 | HIGH | codeql | Static analysis finding | `crates/drivers/bigquery` | pending |
+| CQ-272 | HIGH | codeql | Static analysis finding | `src-tauri` | pending |
+| CQ-273 | HIGH | codeql | Static analysis finding | `crates/drivers/trino` | pending |
+| CQ-274 | HIGH | codeql | Static analysis finding | `crates/drivers/trino` | pending |
+| CQ-275 | HIGH | codeql | Static analysis finding | `src-tauri` | pending |
+| CQ-276 | HIGH | codeql | Static analysis finding | `src-tauri` | pending |
+| CQ-277 | HIGH | codeql | Static analysis finding | `src-tauri` | pending |
+| CQ-278 | HIGH | codeql | Static analysis finding | `src-tauri` | pending |
+| CQ-279 | HIGH | codeql | Static analysis finding | `src-tauri` | pending |
+| CQ-280 | HIGH | codeql | Static analysis finding | `src-tauri` | pending |
+| CQ-281 | HIGH | codeql | Static analysis finding | `src-tauri` | pending |
+| CQ-282 | HIGH | codeql | Static analysis finding | `src-tauri` | pending |
+| CQ-283 | HIGH | codeql | Static analysis finding | `src-tauri` | pending |
+| CQ-284 | HIGH | codeql | Static analysis finding | `src-tauri` | pending |
+| CQ-285 | HIGH | codeql | Static analysis finding | `src-tauri` | pending |
+| CQ-286 | HIGH | codeql | Static analysis finding | `src-tauri` | pending |
+| CQ-287 | HIGH | codeql | Static analysis finding | `src-tauri` | pending |
+| CQ-288 | HIGH | codeql | Static analysis finding | `src-tauri` | pending |
+| CQ-289 | HIGH | codeql | Static analysis finding | `crates/dbine-plugin` | pending |
+| CQ-290 | HIGH | codeql | Static analysis finding | `crates/dbine-plugin` | pending |
+| CQ-291 | HIGH | codeql | Static analysis finding | `crates/dbine-plugin` | pending |
+| CQ-292 | HIGH | codeql | Static analysis finding | `crates/drivers/cassandra` | pending |
+| CQ-293 | HIGH | codeql | Static analysis finding | `crates/drivers/cassandra` | pending |
+| CQ-294 | HIGH | codeql | Static analysis finding | `crates/drivers/databricks` | pending |
+| CQ-295 | HIGH | codeql | Static analysis finding | `crates/drivers/dynamodb` | pending |
+| CQ-296 | HIGH | codeql | Static analysis finding | `crates/drivers/snowflake` | pending |
+| CQ-297 | HIGH | codeql | Static analysis finding | `crates/drivers/snowflake` | pending |
+| CQ-298 | HIGH | codeql | Static analysis finding | `crates/drivers/snowflake` | pending |
+| CQ-299 | HIGH | codeql | Static analysis finding | `crates/drivers/snowflake` | pending |
+| CQ-300 | HIGH | codeql | Static analysis finding | `crates/drivers/snowflake` | pending |
+| CQ-301 | HIGH | codeql | Static analysis finding | `crates/drivers/snowflake` | pending |
+| CQ-302 | HIGH | codeql | Static analysis finding | `crates/drivers/snowflake` | pending |
+| CQ-303 | HIGH | codeql | Static analysis finding | `crates/drivers/sqlserver` | pending |
+| CQ-304 | HIGH | codeql | Static analysis finding | `crates/drivers/postgres` | pending |
+| CQ-305 | HIGH | codeql | Static analysis finding | `src-tauri` | pending |
+| CQ-306 | HIGH | codeql | Static analysis finding | `crates/drivers/cassandra` | pending |
+| CQ-307 | HIGH | codeql | Static analysis finding | `crates/drivers/cassandra` | pending |
+| CQ-308 | HIGH | codeql | Static analysis finding | `crates/drivers/couchbase` | pending |
+| CQ-309 | HIGH | codeql | Static analysis finding | `crates/drivers/databricks` | pending |
+| CQ-310 | HIGH | codeql | Static analysis finding | `crates/drivers/dremio` | pending |
+| CQ-311 | HIGH | codeql | Static analysis finding | `crates/drivers/dsql` | pending |
+| CQ-312 | HIGH | codeql | Static analysis finding | `crates/drivers/elasticsearch` | pending |
+| CQ-313 | HIGH | codeql | Static analysis finding | `crates/drivers/odbc` | pending |
+| CQ-314 | HIGH | codeql | Static analysis finding | `crates/drivers/phoenix` | pending |
+| CQ-315 | HIGH | codeql | Static analysis finding | `crates/drivers/postgres` | pending |
+| CQ-316 | HIGH | codeql | Static analysis finding | `crates/drivers/snowflake` | pending |
+| CQ-317 | HIGH | codeql | Static analysis finding | `crates/drivers/spanner` | pending |
+| CQ-318 | HIGH | codeql | Static analysis finding | `crates/drivers/sqlserver` | pending |
+| CQ-319 | HIGH | codeql | Static analysis finding | `crates/drivers/trino` | pending |
+| CQ-320 | HIGH | codeql | Static analysis finding | `src-tauri` | pending |
+| CQ-321 | HIGH | codeql | Static analysis finding | `src-tauri` | pending |
+| CQ-322 | HIGH | codeql | Static analysis finding | `src-tauri` | pending |
+| CQ-323 | HIGH | codeql | Static analysis finding | `src-tauri` | pending |
+| CQ-355 | HIGH | codeql | Static analysis finding | `src-tauri` | pending |
 
 ## What the last scans covered
 
 | Tool | Date | Covered | Result | Not covered yet |
 |---|---|---|---|---|
 | claude-security, release v1.1.0 | 2026-10-21 | 954fc5e3..9aec57c1 (everything 1.1.0 adds, and the 1.0.0 commits not scanned before) | 0 open | the commits after 9aec57c1 up to the release, adb92492: the fixes for this scan's three findings and the move of RSA private-key operations to AWS-LC |
-| codeql | 2026-10-22 | Rust, TypeScript/Vue and workflows | 0 open | — |
-| osv | 2026-10-22 | every lockfile (Cargo, npm) at [`3431d163c`](https://github.com/addlayer-io/dbine/commit/3431d163cd56) | 0 open | — |
-| scorecard | 2026-10-22 | repository settings and workflows at [`bbd24794b`](https://github.com/addlayer-io/dbine/commit/bbd24794b6e2) | score 5.9/10 | — |
-| trivy | 2026-10-22 | whole repository at [`3431d163c`](https://github.com/addlayer-io/dbine/commit/3431d163cd56) | 0 open | — |
+| codeql | 2026-10-22 | Rust, TypeScript/Vue and workflows | 85 open | — |
+| osv | 2026-10-22 | every lockfile (Cargo, npm) at [`624a8d83f`](https://github.com/addlayer-io/dbine/commit/624a8d83f84d) | 0 open | — |
+| scorecard | 2026-10-22 | repository settings and workflows at [`3431d163c`](https://github.com/addlayer-io/dbine/commit/3431d163cd56) | score 5.9/10 | — |
+| trivy | 2026-10-22 | whole repository at [`624a8d83f`](https://github.com/addlayer-io/dbine/commit/624a8d83f84d) | 0 open | — |
 
 ## Not counted, and why
 

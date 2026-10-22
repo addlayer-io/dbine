@@ -13,7 +13,7 @@
     {
       "source": "osv",
       "date": "2026-10-22",
-      "revision": "3431d163cd56",
+      "revision": "624a8d83f84d",
       "kind": "full",
       "scope": "every lockfile (Cargo, npm)",
       "found": 0
@@ -21,7 +21,7 @@
     {
       "source": "trivy",
       "date": "2026-10-22",
-      "revision": "3431d163cd56",
+      "revision": "624a8d83f84d",
       "kind": "full",
       "scope": "whole repository",
       "found": 0
@@ -32,12 +32,12 @@
       "revision": "",
       "kind": "full",
       "scope": "Rust, TypeScript/Vue and workflows",
-      "found": 0
+      "found": 85
     },
     {
       "source": "scorecard",
       "date": "2026-10-22",
-      "revision": "bbd24794b6e2",
+      "revision": "3431d163cd56",
       "kind": "full",
       "scope": "repository settings and workflows",
       "score": 5.9
@@ -2266,6 +2266,771 @@
       "dismissed": "2026-10-21",
       "reason": "false positive — The SHA-256 of the sync passphrase is only an in-memory fingerprint (CachedKey.pass, never serialized or written) used to tell whether the cached derived key matches the passphrase; the encryption key itself is derived with the policy-checked KDF in crypto::derive_with, and the s",
       "by": "mpanichella"
+    },
+    {
+      "id": "CQ-271",
+      "source": "codeql",
+      "severity": "HIGH",
+      "kind": "Static analysis finding",
+      "component": "crates/drivers/bigquery",
+      "found": "2026-10-22",
+      "status": "open"
+    },
+    {
+      "id": "CQ-272",
+      "source": "codeql",
+      "severity": "HIGH",
+      "kind": "Static analysis finding",
+      "component": "src-tauri",
+      "found": "2026-10-22",
+      "status": "open"
+    },
+    {
+      "id": "CQ-273",
+      "source": "codeql",
+      "severity": "HIGH",
+      "kind": "Static analysis finding",
+      "component": "crates/drivers/trino",
+      "found": "2026-10-22",
+      "status": "open"
+    },
+    {
+      "id": "CQ-274",
+      "source": "codeql",
+      "severity": "HIGH",
+      "kind": "Static analysis finding",
+      "component": "crates/drivers/trino",
+      "found": "2026-10-22",
+      "status": "open"
+    },
+    {
+      "id": "CQ-275",
+      "source": "codeql",
+      "severity": "HIGH",
+      "kind": "Static analysis finding",
+      "component": "src-tauri",
+      "found": "2026-10-22",
+      "status": "open"
+    },
+    {
+      "id": "CQ-276",
+      "source": "codeql",
+      "severity": "HIGH",
+      "kind": "Static analysis finding",
+      "component": "src-tauri",
+      "found": "2026-10-22",
+      "status": "open"
+    },
+    {
+      "id": "CQ-277",
+      "source": "codeql",
+      "severity": "HIGH",
+      "kind": "Static analysis finding",
+      "component": "src-tauri",
+      "found": "2026-10-22",
+      "status": "open"
+    },
+    {
+      "id": "CQ-278",
+      "source": "codeql",
+      "severity": "HIGH",
+      "kind": "Static analysis finding",
+      "component": "src-tauri",
+      "found": "2026-10-22",
+      "status": "open"
+    },
+    {
+      "id": "CQ-279",
+      "source": "codeql",
+      "severity": "HIGH",
+      "kind": "Static analysis finding",
+      "component": "src-tauri",
+      "found": "2026-10-22",
+      "status": "open"
+    },
+    {
+      "id": "CQ-280",
+      "source": "codeql",
+      "severity": "HIGH",
+      "kind": "Static analysis finding",
+      "component": "src-tauri",
+      "found": "2026-10-22",
+      "status": "open"
+    },
+    {
+      "id": "CQ-281",
+      "source": "codeql",
+      "severity": "HIGH",
+      "kind": "Static analysis finding",
+      "component": "src-tauri",
+      "found": "2026-10-22",
+      "status": "open"
+    },
+    {
+      "id": "CQ-282",
+      "source": "codeql",
+      "severity": "HIGH",
+      "kind": "Static analysis finding",
+      "component": "src-tauri",
+      "found": "2026-10-22",
+      "status": "open"
+    },
+    {
+      "id": "CQ-283",
+      "source": "codeql",
+      "severity": "HIGH",
+      "kind": "Static analysis finding",
+      "component": "src-tauri",
+      "found": "2026-10-22",
+      "status": "open"
+    },
+    {
+      "id": "CQ-284",
+      "source": "codeql",
+      "severity": "HIGH",
+      "kind": "Static analysis finding",
+      "component": "src-tauri",
+      "found": "2026-10-22",
+      "status": "open"
+    },
+    {
+      "id": "CQ-285",
+      "source": "codeql",
+      "severity": "HIGH",
+      "kind": "Static analysis finding",
+      "component": "src-tauri",
+      "found": "2026-10-22",
+      "status": "open"
+    },
+    {
+      "id": "CQ-286",
+      "source": "codeql",
+      "severity": "HIGH",
+      "kind": "Static analysis finding",
+      "component": "src-tauri",
+      "found": "2026-10-22",
+      "status": "open"
+    },
+    {
+      "id": "CQ-287",
+      "source": "codeql",
+      "severity": "HIGH",
+      "kind": "Static analysis finding",
+      "component": "src-tauri",
+      "found": "2026-10-22",
+      "status": "open"
+    },
+    {
+      "id": "CQ-288",
+      "source": "codeql",
+      "severity": "HIGH",
+      "kind": "Static analysis finding",
+      "component": "src-tauri",
+      "found": "2026-10-22",
+      "status": "open"
+    },
+    {
+      "id": "CQ-289",
+      "source": "codeql",
+      "severity": "HIGH",
+      "kind": "Static analysis finding",
+      "component": "crates/dbine-plugin",
+      "found": "2026-10-22",
+      "status": "open"
+    },
+    {
+      "id": "CQ-290",
+      "source": "codeql",
+      "severity": "HIGH",
+      "kind": "Static analysis finding",
+      "component": "crates/dbine-plugin",
+      "found": "2026-10-22",
+      "status": "open"
+    },
+    {
+      "id": "CQ-291",
+      "source": "codeql",
+      "severity": "HIGH",
+      "kind": "Static analysis finding",
+      "component": "crates/dbine-plugin",
+      "found": "2026-10-22",
+      "status": "open"
+    },
+    {
+      "id": "CQ-292",
+      "source": "codeql",
+      "severity": "HIGH",
+      "kind": "Static analysis finding",
+      "component": "crates/drivers/cassandra",
+      "found": "2026-10-22",
+      "status": "open"
+    },
+    {
+      "id": "CQ-293",
+      "source": "codeql",
+      "severity": "HIGH",
+      "kind": "Static analysis finding",
+      "component": "crates/drivers/cassandra",
+      "found": "2026-10-22",
+      "status": "open"
+    },
+    {
+      "id": "CQ-294",
+      "source": "codeql",
+      "severity": "HIGH",
+      "kind": "Static analysis finding",
+      "component": "crates/drivers/databricks",
+      "found": "2026-10-22",
+      "status": "open"
+    },
+    {
+      "id": "CQ-295",
+      "source": "codeql",
+      "severity": "HIGH",
+      "kind": "Static analysis finding",
+      "component": "crates/drivers/dynamodb",
+      "found": "2026-10-22",
+      "status": "open"
+    },
+    {
+      "id": "CQ-296",
+      "source": "codeql",
+      "severity": "HIGH",
+      "kind": "Static analysis finding",
+      "component": "crates/drivers/snowflake",
+      "found": "2026-10-22",
+      "status": "open"
+    },
+    {
+      "id": "CQ-297",
+      "source": "codeql",
+      "severity": "HIGH",
+      "kind": "Static analysis finding",
+      "component": "crates/drivers/snowflake",
+      "found": "2026-10-22",
+      "status": "open"
+    },
+    {
+      "id": "CQ-298",
+      "source": "codeql",
+      "severity": "HIGH",
+      "kind": "Static analysis finding",
+      "component": "crates/drivers/snowflake",
+      "found": "2026-10-22",
+      "status": "open"
+    },
+    {
+      "id": "CQ-299",
+      "source": "codeql",
+      "severity": "HIGH",
+      "kind": "Static analysis finding",
+      "component": "crates/drivers/snowflake",
+      "found": "2026-10-22",
+      "status": "open"
+    },
+    {
+      "id": "CQ-300",
+      "source": "codeql",
+      "severity": "HIGH",
+      "kind": "Static analysis finding",
+      "component": "crates/drivers/snowflake",
+      "found": "2026-10-22",
+      "status": "open"
+    },
+    {
+      "id": "CQ-301",
+      "source": "codeql",
+      "severity": "HIGH",
+      "kind": "Static analysis finding",
+      "component": "crates/drivers/snowflake",
+      "found": "2026-10-22",
+      "status": "open"
+    },
+    {
+      "id": "CQ-302",
+      "source": "codeql",
+      "severity": "HIGH",
+      "kind": "Static analysis finding",
+      "component": "crates/drivers/snowflake",
+      "found": "2026-10-22",
+      "status": "open"
+    },
+    {
+      "id": "CQ-303",
+      "source": "codeql",
+      "severity": "HIGH",
+      "kind": "Static analysis finding",
+      "component": "crates/drivers/sqlserver",
+      "found": "2026-10-22",
+      "status": "open"
+    },
+    {
+      "id": "CQ-304",
+      "source": "codeql",
+      "severity": "HIGH",
+      "kind": "Static analysis finding",
+      "component": "crates/drivers/postgres",
+      "found": "2026-10-22",
+      "status": "open"
+    },
+    {
+      "id": "CQ-305",
+      "source": "codeql",
+      "severity": "HIGH",
+      "kind": "Static analysis finding",
+      "component": "src-tauri",
+      "found": "2026-10-22",
+      "status": "open"
+    },
+    {
+      "id": "CQ-306",
+      "source": "codeql",
+      "severity": "HIGH",
+      "kind": "Static analysis finding",
+      "component": "crates/drivers/cassandra",
+      "found": "2026-10-22",
+      "status": "open"
+    },
+    {
+      "id": "CQ-307",
+      "source": "codeql",
+      "severity": "HIGH",
+      "kind": "Static analysis finding",
+      "component": "crates/drivers/cassandra",
+      "found": "2026-10-22",
+      "status": "open"
+    },
+    {
+      "id": "CQ-308",
+      "source": "codeql",
+      "severity": "HIGH",
+      "kind": "Static analysis finding",
+      "component": "crates/drivers/couchbase",
+      "found": "2026-10-22",
+      "status": "open"
+    },
+    {
+      "id": "CQ-309",
+      "source": "codeql",
+      "severity": "HIGH",
+      "kind": "Static analysis finding",
+      "component": "crates/drivers/databricks",
+      "found": "2026-10-22",
+      "status": "open"
+    },
+    {
+      "id": "CQ-310",
+      "source": "codeql",
+      "severity": "HIGH",
+      "kind": "Static analysis finding",
+      "component": "crates/drivers/dremio",
+      "found": "2026-10-22",
+      "status": "open"
+    },
+    {
+      "id": "CQ-311",
+      "source": "codeql",
+      "severity": "HIGH",
+      "kind": "Static analysis finding",
+      "component": "crates/drivers/dsql",
+      "found": "2026-10-22",
+      "status": "open"
+    },
+    {
+      "id": "CQ-312",
+      "source": "codeql",
+      "severity": "HIGH",
+      "kind": "Static analysis finding",
+      "component": "crates/drivers/elasticsearch",
+      "found": "2026-10-22",
+      "status": "open"
+    },
+    {
+      "id": "CQ-313",
+      "source": "codeql",
+      "severity": "HIGH",
+      "kind": "Static analysis finding",
+      "component": "crates/drivers/odbc",
+      "found": "2026-10-22",
+      "status": "open"
+    },
+    {
+      "id": "CQ-314",
+      "source": "codeql",
+      "severity": "HIGH",
+      "kind": "Static analysis finding",
+      "component": "crates/drivers/phoenix",
+      "found": "2026-10-22",
+      "status": "open"
+    },
+    {
+      "id": "CQ-315",
+      "source": "codeql",
+      "severity": "HIGH",
+      "kind": "Static analysis finding",
+      "component": "crates/drivers/postgres",
+      "found": "2026-10-22",
+      "status": "open"
+    },
+    {
+      "id": "CQ-316",
+      "source": "codeql",
+      "severity": "HIGH",
+      "kind": "Static analysis finding",
+      "component": "crates/drivers/snowflake",
+      "found": "2026-10-22",
+      "status": "open"
+    },
+    {
+      "id": "CQ-317",
+      "source": "codeql",
+      "severity": "HIGH",
+      "kind": "Static analysis finding",
+      "component": "crates/drivers/spanner",
+      "found": "2026-10-22",
+      "status": "open"
+    },
+    {
+      "id": "CQ-318",
+      "source": "codeql",
+      "severity": "HIGH",
+      "kind": "Static analysis finding",
+      "component": "crates/drivers/sqlserver",
+      "found": "2026-10-22",
+      "status": "open"
+    },
+    {
+      "id": "CQ-319",
+      "source": "codeql",
+      "severity": "HIGH",
+      "kind": "Static analysis finding",
+      "component": "crates/drivers/trino",
+      "found": "2026-10-22",
+      "status": "open"
+    },
+    {
+      "id": "CQ-320",
+      "source": "codeql",
+      "severity": "HIGH",
+      "kind": "Static analysis finding",
+      "component": "src-tauri",
+      "found": "2026-10-22",
+      "status": "open"
+    },
+    {
+      "id": "CQ-321",
+      "source": "codeql",
+      "severity": "HIGH",
+      "kind": "Static analysis finding",
+      "component": "src-tauri",
+      "found": "2026-10-22",
+      "status": "open"
+    },
+    {
+      "id": "CQ-322",
+      "source": "codeql",
+      "severity": "HIGH",
+      "kind": "Static analysis finding",
+      "component": "src-tauri",
+      "found": "2026-10-22",
+      "status": "open"
+    },
+    {
+      "id": "CQ-323",
+      "source": "codeql",
+      "severity": "HIGH",
+      "kind": "Static analysis finding",
+      "component": "src-tauri",
+      "found": "2026-10-22",
+      "status": "open"
+    },
+    {
+      "id": "CQ-324",
+      "source": "codeql",
+      "severity": "CRITICAL",
+      "kind": "Static analysis finding",
+      "component": "src-tauri",
+      "found": "2026-10-22",
+      "status": "open"
+    },
+    {
+      "id": "CQ-325",
+      "source": "codeql",
+      "severity": "CRITICAL",
+      "kind": "Static analysis finding",
+      "component": "src-tauri",
+      "found": "2026-10-22",
+      "status": "open"
+    },
+    {
+      "id": "CQ-326",
+      "source": "codeql",
+      "severity": "CRITICAL",
+      "kind": "Static analysis finding",
+      "component": "src-tauri",
+      "found": "2026-10-22",
+      "status": "open"
+    },
+    {
+      "id": "CQ-327",
+      "source": "codeql",
+      "severity": "CRITICAL",
+      "kind": "Static analysis finding",
+      "component": "src-tauri",
+      "found": "2026-10-22",
+      "status": "open"
+    },
+    {
+      "id": "CQ-328",
+      "source": "codeql",
+      "severity": "CRITICAL",
+      "kind": "Static analysis finding",
+      "component": "src-tauri",
+      "found": "2026-10-22",
+      "status": "open"
+    },
+    {
+      "id": "CQ-329",
+      "source": "codeql",
+      "severity": "CRITICAL",
+      "kind": "Static analysis finding",
+      "component": "src-tauri",
+      "found": "2026-10-22",
+      "status": "open"
+    },
+    {
+      "id": "CQ-330",
+      "source": "codeql",
+      "severity": "CRITICAL",
+      "kind": "Static analysis finding",
+      "component": "src-tauri",
+      "found": "2026-10-22",
+      "status": "open"
+    },
+    {
+      "id": "CQ-331",
+      "source": "codeql",
+      "severity": "CRITICAL",
+      "kind": "Static analysis finding",
+      "component": "src-tauri",
+      "found": "2026-10-22",
+      "status": "open"
+    },
+    {
+      "id": "CQ-332",
+      "source": "codeql",
+      "severity": "CRITICAL",
+      "kind": "Static analysis finding",
+      "component": "src-tauri",
+      "found": "2026-10-22",
+      "status": "open"
+    },
+    {
+      "id": "CQ-333",
+      "source": "codeql",
+      "severity": "CRITICAL",
+      "kind": "Static analysis finding",
+      "component": "src-tauri",
+      "found": "2026-10-22",
+      "status": "open"
+    },
+    {
+      "id": "CQ-334",
+      "source": "codeql",
+      "severity": "CRITICAL",
+      "kind": "Static analysis finding",
+      "component": "src-tauri",
+      "found": "2026-10-22",
+      "status": "open"
+    },
+    {
+      "id": "CQ-335",
+      "source": "codeql",
+      "severity": "CRITICAL",
+      "kind": "Static analysis finding",
+      "component": "src-tauri",
+      "found": "2026-10-22",
+      "status": "open"
+    },
+    {
+      "id": "CQ-336",
+      "source": "codeql",
+      "severity": "CRITICAL",
+      "kind": "Static analysis finding",
+      "component": "src-tauri",
+      "found": "2026-10-22",
+      "status": "open"
+    },
+    {
+      "id": "CQ-337",
+      "source": "codeql",
+      "severity": "CRITICAL",
+      "kind": "Static analysis finding",
+      "component": "src-tauri",
+      "found": "2026-10-22",
+      "status": "open"
+    },
+    {
+      "id": "CQ-338",
+      "source": "codeql",
+      "severity": "CRITICAL",
+      "kind": "Static analysis finding",
+      "component": "src-tauri",
+      "found": "2026-10-22",
+      "status": "open"
+    },
+    {
+      "id": "CQ-339",
+      "source": "codeql",
+      "severity": "CRITICAL",
+      "kind": "Static analysis finding",
+      "component": "src-tauri",
+      "found": "2026-10-22",
+      "status": "open"
+    },
+    {
+      "id": "CQ-340",
+      "source": "codeql",
+      "severity": "CRITICAL",
+      "kind": "Static analysis finding",
+      "component": "src-tauri",
+      "found": "2026-10-22",
+      "status": "open"
+    },
+    {
+      "id": "CQ-341",
+      "source": "codeql",
+      "severity": "CRITICAL",
+      "kind": "Static analysis finding",
+      "component": "src-tauri",
+      "found": "2026-10-22",
+      "status": "open"
+    },
+    {
+      "id": "CQ-342",
+      "source": "codeql",
+      "severity": "CRITICAL",
+      "kind": "Static analysis finding",
+      "component": "src-tauri",
+      "found": "2026-10-22",
+      "status": "open"
+    },
+    {
+      "id": "CQ-343",
+      "source": "codeql",
+      "severity": "CRITICAL",
+      "kind": "Static analysis finding",
+      "component": "src-tauri",
+      "found": "2026-10-22",
+      "status": "open"
+    },
+    {
+      "id": "CQ-344",
+      "source": "codeql",
+      "severity": "CRITICAL",
+      "kind": "Static analysis finding",
+      "component": "src-tauri",
+      "found": "2026-10-22",
+      "status": "open"
+    },
+    {
+      "id": "CQ-345",
+      "source": "codeql",
+      "severity": "CRITICAL",
+      "kind": "Static analysis finding",
+      "component": "src-tauri",
+      "found": "2026-10-22",
+      "status": "open"
+    },
+    {
+      "id": "CQ-346",
+      "source": "codeql",
+      "severity": "CRITICAL",
+      "kind": "Static analysis finding",
+      "component": "crates/drivers/sqlserver",
+      "found": "2026-10-22",
+      "status": "open"
+    },
+    {
+      "id": "CQ-347",
+      "source": "codeql",
+      "severity": "CRITICAL",
+      "kind": "Static analysis finding",
+      "component": "crates/drivers/sqlserver",
+      "found": "2026-10-22",
+      "status": "open"
+    },
+    {
+      "id": "CQ-348",
+      "source": "codeql",
+      "severity": "CRITICAL",
+      "kind": "Static analysis finding",
+      "component": "src-tauri",
+      "found": "2026-10-22",
+      "status": "open"
+    },
+    {
+      "id": "CQ-349",
+      "source": "codeql",
+      "severity": "CRITICAL",
+      "kind": "Static analysis finding",
+      "component": "src-tauri",
+      "found": "2026-10-22",
+      "status": "open"
+    },
+    {
+      "id": "CQ-350",
+      "source": "codeql",
+      "severity": "CRITICAL",
+      "kind": "Static analysis finding",
+      "component": "src-tauri",
+      "found": "2026-10-22",
+      "status": "open"
+    },
+    {
+      "id": "CQ-351",
+      "source": "codeql",
+      "severity": "CRITICAL",
+      "kind": "Static analysis finding",
+      "component": "src-tauri",
+      "found": "2026-10-22",
+      "status": "open"
+    },
+    {
+      "id": "CQ-352",
+      "source": "codeql",
+      "severity": "CRITICAL",
+      "kind": "Static analysis finding",
+      "component": "src-tauri",
+      "found": "2026-10-22",
+      "status": "open"
+    },
+    {
+      "id": "CQ-353",
+      "source": "codeql",
+      "severity": "CRITICAL",
+      "kind": "Static analysis finding",
+      "component": "crates/dbine-core",
+      "found": "2026-10-22",
+      "status": "open"
+    },
+    {
+      "id": "CQ-354",
+      "source": "codeql",
+      "severity": "CRITICAL",
+      "kind": "Static analysis finding",
+      "component": "crates/dbine-core",
+      "found": "2026-10-22",
+      "status": "open"
+    },
+    {
+      "id": "CQ-355",
+      "source": "codeql",
+      "severity": "HIGH",
+      "kind": "Static analysis finding",
+      "component": "src-tauri",
+      "found": "2026-10-22",
+      "status": "open"
     },
     {
       "id": "CQ-66",
