@@ -1,0 +1,80 @@
+# Statement coverage of the Rust tests (cargo-llvm-cov). The unit tests run
+# as in CI; integration tests need real servers and stay #[ignore]. The
+# percentage goes to the run's summary, and the lcov report is kept as an
+# artifact.
+name: Coverage
+
+on:
+  push:
+    branches: [main]
+  schedule:
+    - cron: '53 3 * * 1'
+  workflow_dispatch: {}
+
+permissions:
+  contents: read
+
+concurrency:
+  group: coverage
+  cancel-in-progress: true
+
+jobs:
+  coverage:
+    runs-on: ubuntu-22.04
+    timeout-minutes: 180
+    env:
+      CARGO_PROFILE_DEV_DEBUG: 0
+      CARGO_INCREMENTAL: 0
+    steps:
+      - name: Free disk space
+        run: |
+          sudo rm -rf /usr/share/dotnet /usr/local/lib/android /opt/ghc /opt/hostedtoolcache/CodeQL
+          df -h /
+
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - name: Linux system dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libwebkit2gtk-4.1-dev libappindicator3-dev \
+            librsvg2-dev patchelf libssl-dev libxdo-dev libkrb5-dev
+
+      - uses: dtolnay/rust-toolchain@b725eda525362e7cf34af9a7243cac1e3f01a7ec # stable
+        with:
+          toolchain: stable
+          components: llvm-tools-preview
+
+      - uses: taiki-e/install-action@a4d3f3f761dcd95cce1b72cb61cb6d1963438177 # v2.87.30
+        with:
+          tool: cargo-llvm-cov@0.9.1
+
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: 20
+          cache: npm
+          cache-dependency-path: web/package-lock.json
+
+      # The app embeds the built frontend.
+      - name: Frontend build
+        run: |
+          npm ci --prefix web
+          npm run build --prefix web
+
+      - name: Tests with coverage
+        run: cargo llvm-cov --workspace --lcov --output-path lcov.info --ignore-filename-regex '(vendor/|/tests/)'
+
+      - name: Summary
+        run: |
+          cargo llvm-cov report --summary-only --ignore-filename-regex '(vendor/|/tests/)' | tee summary.txt
+          {
+            echo "## Rust test coverage"
+            echo
+            echo '```'
+            tail -n 3 summary.txt
+            echo '```'
+          } >> "$GITHUB_STEP_SUMMARY"
+
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: coverage-lcov
+          path: lcov.info
