@@ -449,7 +449,9 @@ a license: the app works the same.
 - **Contributing:** pull requests are welcome; how, and what a change needs, is
   in [CONTRIBUTING.md](CONTRIBUTING.md).
 - **Security:** report vulnerabilities privately, as [SECURITY.md](SECURITY.md)
-  explains; the current security status is public.
+  explains; the current security status is public, and
+  [docs/security-model.md](docs/security-model.md) says what DBine protects.
+- **Roadmap:** what's planned for the next 12 months is in [ROADMAP.md](ROADMAP.md).
 
 ## Download
 

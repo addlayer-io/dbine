@@ -36,6 +36,38 @@ entry with how it was checked: dependency advisories in
 [`osv-scanner.toml`](osv-scanner.toml) and secret-scan false positives in
 [`trivy-secret.yaml`](trivy-secret.yaml). The status page lists them too.
 
+## Verify a download
+
+Every installer and update package on the
+[releases page](https://github.com/addlayer-io/dbine/releases) has a `.sig`
+file next to it: a [minisign](https://jedisct1.github.io/minisign/) signature
+made with DBine's release key, the same key the app checks before installing
+an update. Its public half:
+
+```
+untrusted comment: minisign public key: C63E4C5716A166AD
+RWStZqEWV0w+xjv1h6D6ZEWuaqpzCJ07eWEVorK2vhz+nitUvDtjwMSn
+```
+
+It's also in the app's configuration (`plugins.updater.pubkey` in
+[`src-tauri/tauri.conf.json`](src-tauri/tauri.conf.json), base64-encoded).
+
+To check a file (here the Linux `.deb`): save the two lines above as
+`dbine.pub`, download the file and its `.sig`, and run:
+
+```
+base64 -d < DBine_1.1.0_amd64.deb.sig > DBine_1.1.0_amd64.deb.minisig
+minisign -Vm DBine_1.1.0_amd64.deb -x DBine_1.1.0_amd64.deb.minisig -p dbine.pub
+```
+
+The `.sig` files are base64-encoded minisign signatures, hence the first
+line. A good file prints `Signature and comment signature verified` and a
+trusted comment with the file name and version.
+
+Platform signatures come on top of that: the macOS app is signed with an
+Apple Developer ID and notarized by Apple, and the Windows installer and app
+are Authenticode-signed with a timestamp.
+
 ## Supported versions
 
 Fixes go into the latest release; DBine updates itself, so that's the
